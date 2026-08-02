@@ -1,5 +1,5 @@
+#[cfg(not(target_os = "macos"))]
 use std::path::{Path, PathBuf};
-
 #[cfg(not(target_os = "macos"))]
 use std::fs;
 #[cfg(not(target_os = "macos"))]

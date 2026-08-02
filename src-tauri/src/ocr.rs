@@ -1,10 +1,6 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-    time::Duration,
-};
-
+use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "macos"))]
+use std::{fs, process::Command, time::Duration};
 #[cfg(not(target_os = "macos"))]
 use std::io::{Read, Write};
 
@@ -22,11 +18,14 @@ use objc2_core_foundation::CGRect;
 use objc2_foundation::{NSArray, NSError, NSRange, NSString, NSURL};
 #[cfg(not(target_os = "macos"))]
 use reqwest::blocking::Client;
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
+#[cfg(not(target_os = "macos"))]
+use tauri::Manager;
 #[cfg(not(target_os = "macos"))]
 use zip::ZipArchive;
 
 use crate::models::*;
+#[cfg(not(target_os = "macos"))]
 use crate::util::*;
 #[cfg(target_os = "macos")]
 use crate::DEFAULT_OCR_MODE;

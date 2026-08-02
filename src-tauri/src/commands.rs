@@ -1,4 +1,6 @@
-use std::{fs, thread};
+#[cfg(not(target_os = "macos"))]
+use std::fs;
+use std::thread;
 #[cfg(target_os = "macos")]
 use std::process::Command;
 

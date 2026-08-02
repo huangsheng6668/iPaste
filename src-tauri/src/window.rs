@@ -13,7 +13,7 @@ use objc2_app_kit::{
     NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSPoint, NSRect};
+use objc2_foundation::{NSPoint, NSObjectProtocol, NSRect};
 #[cfg(target_os = "windows")]
 use tauri::PhysicalSize;
 use tauri::{
