@@ -285,6 +285,16 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clampSelection();
   }
 
+  async function clearHistory() {
+    const deleted = await ipasteApi.clearClips();
+    clips.value = [];
+    hasMoreClips.value = false;
+    clipTotalCount.value = 0;
+    visibleHistoryTotalCount.value = 0;
+    selectedIndex.value = 0;
+    return deleted;
+  }
+
   async function renameClip(item: ClipViewItem, displayName: string | null) {
     const next = await ipasteApi.renameClip(item.id, item.collection, displayName);
     patchItem(item.collection, next);
@@ -771,6 +781,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     reorderCategoryItems,
     removeCategoryItem,
     deleteClip,
+    clearHistory,
     renameClip,
     updateClipContent,
     applySelected,

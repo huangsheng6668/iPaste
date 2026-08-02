@@ -291,6 +291,14 @@ export const ipasteApi = {
   deleteClip(id: string) {
     return call<void>("delete_clip", { id });
   },
+  clearClips() {
+    if (!isTauri) {
+      const count = mockClips.length;
+      mockClips.splice(0, mockClips.length);
+      return Promise.resolve(count);
+    }
+    return invoke<number>("clear_clips");
+  },
   renameClip(id: string, collection: "history" | "category", displayName: string | null) {
     const normalizedName = displayName?.trim() || null;
     const fallback =

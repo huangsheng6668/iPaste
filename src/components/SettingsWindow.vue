@@ -29,6 +29,7 @@ import {
   Sparkles,
   SquareCode,
   Tags,
+  Trash2,
   Unplug,
   Zap,
 } from "lucide-vue-next";
@@ -61,6 +62,10 @@ const appInfo = ref<AppInfo | null>(null);
 const autostartEnabled = ref(false);
 const isTogglingAutostart = ref(false);
 const autostartError = ref<string | null>(null);
+const isClearingHistory = ref(false);
+const confirmingClearHistory = ref(false);
+const storageMessage = ref<string | null>(null);
+const storageError = ref<string | null>(null);
 const isTauri = "__TAURI_INTERNALS__" in window;
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const ocrStatus = ref<OcrInstallStatus | null>(null);
@@ -437,6 +442,32 @@ async function updateLanguage(language: Language) {
   await store.updateLanguage(language);
 }
 
+function requestClearHistory() {
+  storageMessage.value = null;
+  storageError.value = null;
+  confirmingClearHistory.value = true;
+}
+
+function cancelClearHistory() {
+  confirmingClearHistory.value = false;
+}
+
+async function confirmClearHistory() {
+  if (isClearingHistory.value) return;
+  isClearingHistory.value = true;
+  storageMessage.value = null;
+  storageError.value = null;
+  try {
+    const deleted = await store.clearHistory();
+    confirmingClearHistory.value = false;
+    storageMessage.value = t("settings.storage.cleared", { count: deleted });
+  } catch (unknownError) {
+    storageError.value = String(unknownError);
+  } finally {
+    isClearingHistory.value = false;
+  }
+}
+
 async function loadAutostartStatus() {
   if (!isTauri) return;
   try {
@@ -723,6 +754,50 @@ function formatBytes(bytes: number) {
                 {{ option.label }}
               </button>
             </div>
+
+            <div class="settings-storage-actions">
+              <button
+                v-if="!confirmingClearHistory"
+                type="button"
+                class="settings-action-button settings-action-button-danger"
+                :disabled="isClearingHistory"
+                @click="requestClearHistory"
+              >
+                <Trash2 class="size-4" />
+                <span>{{ t("settings.storage.clearHistory") }}</span>
+              </button>
+
+              <template v-else>
+                <button
+                  type="button"
+                  class="settings-action-button settings-action-button-danger settings-action-button-confirm"
+                  :disabled="isClearingHistory"
+                  @click="confirmClearHistory"
+                >
+                  <LoaderCircle v-if="isClearingHistory" class="size-4 update-spin" />
+                  <Trash2 v-else class="size-4" />
+                  <span>{{ t("settings.storage.clearConfirm") }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="settings-action-button"
+                  :disabled="isClearingHistory"
+                  @click="cancelClearHistory"
+                >
+                  <span>{{ t("common.cancel") }}</span>
+                </button>
+              </template>
+            </div>
+
+            <p
+              v-if="storageError || storageMessage"
+              class="settings-message"
+              :class="{ 'settings-message-error': storageError }"
+            >
+              <AlertCircle v-if="storageError" class="size-4" />
+              <CheckCircle2 v-else class="size-4" />
+              <span>{{ storageError || storageMessage }}</span>
+            </p>
           </section>
 
         </div>

@@ -2107,6 +2107,21 @@ body.ipaste-preserve-current-app .global-tooltip,
   gap: 0.5rem;
 }
 
+.settings-storage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.settings-action-button-confirm,
+.settings-action-button-confirm:hover {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #ffffff;
+}
+
 .settings-action-button {
   display: inline-flex;
   min-height: 2.25rem;

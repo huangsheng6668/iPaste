@@ -1725,6 +1725,12 @@ impl Store {
         Ok(())
     }
 
+    fn clear_clips(&self) -> Result<usize, String> {
+        let conn = self.connect()?;
+        conn.execute("DELETE FROM clips", [])
+            .map_err(|error| error.to_string())
+    }
+
     fn rename_clip(
         &self,
         id: String,
@@ -2172,6 +2178,11 @@ fn remove_category_item(state: tauri::State<'_, AppState>, id: String) -> Result
 #[tauri::command]
 fn delete_clip(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     state.store.delete_clip(id)
+}
+
+#[tauri::command]
+fn clear_clips(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+    state.store.clear_clips()
 }
 
 #[tauri::command]
@@ -2774,6 +2785,7 @@ pub fn run() {
             add_clip_to_category,
             remove_category_item,
             delete_clip,
+            clear_clips,
             rename_clip,
             update_clip_content,
             set_clip_pinned,
