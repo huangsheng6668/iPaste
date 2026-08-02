@@ -1,4 +1,6 @@
 use std::{fs, thread};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 use rusqlite::params;
 use tauri::{Emitter, Manager};

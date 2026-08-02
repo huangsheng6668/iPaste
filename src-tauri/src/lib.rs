@@ -4,10 +4,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(target_os = "macos")]
-use std::process::Command;
 use rusqlite::Connection;
-#[cfg(target_os = "windows")]
 use tauri::{menu::MenuItem, Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::ShortcutState;

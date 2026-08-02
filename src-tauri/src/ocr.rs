@@ -10,7 +10,7 @@ use std::io::{Read, Write};
 
 #[cfg(target_os = "macos")]
 use objc2::{
-    ffi::{NSRange, NSUInteger},
+    ffi::NSUInteger,
     msg_send,
     rc::{autoreleasepool, Retained},
     runtime::{AnyClass, AnyObject, Bool},
@@ -19,7 +19,7 @@ use objc2::{
 #[cfg(target_os = "macos")]
 use objc2_core_foundation::CGRect;
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSArray, NSError, NSString, NSURL};
+use objc2_foundation::{NSArray, NSError, NSRange, NSString, NSURL};
 #[cfg(not(target_os = "macos"))]
 use reqwest::blocking::Client;
 use tauri::{Emitter, Manager};
