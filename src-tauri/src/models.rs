@@ -1,7 +1,6 @@
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
+
+use crate::store::Store;
 
 use serde::{Deserialize, Serialize};
 use tauri::{menu::MenuItem, Wry};
@@ -343,9 +342,4 @@ pub struct AppState {
     pub is_app_shortcut_enabled: Arc<Mutex<bool>>,
     #[cfg(target_os = "macos")]
     pub main_panel_state: Arc<Mutex<Option<MainPanelState>>>,
-}
-
-#[derive(Clone)]
-pub struct Store {
-    pub db_path: PathBuf,
 }
