@@ -131,11 +131,28 @@ cargo check --manifest-path src-tauri/Cargo.toml
 .
 ├── src/                  # Vue app, store, components, and frontend API wrappers
 ├── src-tauri/            # Tauri config and Rust desktop backend
+│   └── src/              # Rust backend modules (see below)
 ├── scripts/              # Release, versioning, and updater distribution tools
 ├── docs/                 # Operational docs and project notes
 ├── key/                  # Public updater key; private keys must not be committed
 └── .github/workflows/    # Signed desktop build release workflows
 ```
+
+The Rust backend in `src-tauri/src/` is split into small domain modules:
+
+| Module | Responsibility |
+| --- | --- |
+| `lib.rs` | Tauri builder entry, shared constants, and cross-module helpers |
+| `models.rs` | Structured serde data models shared by commands and modules |
+| `store.rs` | SQLite persistence and cloud sync orchestration |
+| `clipboard.rs` | Clipboard capture, normalization, and write-back |
+| `cloud.rs` | Self-hosted sync API client |
+| `ocr.rs` | Image OCR: Tesseract asset install (Windows) and system Vision pipeline (macOS) |
+| `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
+| `tray.rs` | System tray, menu labels, append-copy timeout |
+| `shortcut.rs` | Global shortcut registration and updates |
+| `paste.rs` | Target app activation and paste triggering |
+| `commands.rs` | Thin Tauri command layer exposing module functions to the UI |
 
 ## How It Works
 

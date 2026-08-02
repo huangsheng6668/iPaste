@@ -131,11 +131,28 @@ cargo check --manifest-path src-tauri/Cargo.toml
 .
 ├── src/                  # Vue 应用、store、组件和前端 API 封装
 ├── src-tauri/            # Tauri 配置和 Rust 桌面后端
+│   └── src/              # Rust 后端模块（见下表）
 ├── scripts/              # 发布、版本和更新器分发工具
 ├── docs/                 # 运维文档和项目笔记
 ├── key/                  # 公开更新器公钥；私钥不得进入 git
 └── .github/workflows/    # 已签名桌面构建的发布工作流
 ```
+
+`src-tauri/src/` 下的 Rust 后端按领域拆分为小模块：
+
+| 模块 | 职责 |
+| --- | --- |
+| `lib.rs` | Tauri 构建入口、共享常量和跨模块辅助函数 |
+| `models.rs` | 命令和模块共享的结构化 serde 数据模型 |
+| `store.rs` | SQLite 持久化与云同步编排 |
+| `clipboard.rs` | 剪贴板捕获、规范化和写回 |
+| `cloud.rs` | 自托管同步 API 客户端 |
+| `ocr.rs` | 图片 OCR：Tesseract 资源安装（Windows）和系统 Vision 管线（macOS） |
+| `window.rs` | 面板/设置/放大窗口、原生面板行为和窗口定位 |
+| `tray.rs` | 系统托盘、菜单文案、追加复制超时 |
+| `shortcut.rs` | 全局快捷键注册与更新 |
+| `paste.rs` | 目标应用激活与触发粘贴 |
+| `commands.rs` | 向 UI 暴露模块函数的薄 Tauri 命令层 |
 
 ## 工作原理
 

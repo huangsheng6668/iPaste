@@ -50,6 +50,26 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 按内容哈希对捕获到的文本去重。
 - 避免没有明确迁移路径的破坏性文件或数据库迁移。
 
+## Rust 模块布局
+
+`src-tauri/src/` 按领域拆分为独立模块，每个文件一个模块：
+
+- `lib.rs`：Tauri 构建入口、共享常量和跨模块辅助函数。新增代码按模块归属，不要往 lib.rs 堆。
+- `models.rs`：命令和模块共享的结构化 serde 数据模型。
+- `store.rs`：SQLite 持久化与云同步编排。
+- `clipboard.rs`：剪贴板捕获、规范化和写回。
+- `cloud.rs`：自托管同步 API 客户端。
+- `ocr.rs`：图片 OCR（Windows Tesseract 资源安装、macOS 系统 Vision 管线）。
+- `window.rs`：面板/设置/放大窗口、原生面板行为和窗口定位。
+- `tray.rs`：系统托盘、菜单文案、追加复制超时。
+- `shortcut.rs`：全局快捷键注册与更新。
+- `paste.rs`：目标应用激活与触发粘贴。
+- `commands.rs`：向 UI 暴露模块函数的薄 Tauri 命令层。
+
+模块间共享的自由函数和常量保留在 `lib.rs`（crate root），其他模块按需通过 `crate::` 引用；需要被多个模块使用的新共享项同样放到 crate root 并标 `pub(crate)`。跨平台代码用 `#[cfg(target_os = "...")]` 包裹，并保持逐平台 import 与代码块一致。
+
+新增后端功能时：数据模型进 `models.rs`，持久化进 `store.rs`，平台能力进对应域模块，命令层保持薄壳。
+
 ## Rust 规范
 
 - 对命令载荷使用带 `serde` 的结构化数据模型。
