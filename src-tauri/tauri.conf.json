@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "iPaste",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "identifier": "com.ipaste.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -52,9 +52,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJEOTY4ODNENDVBRTdDQ0EKUldUS2ZLNUZQWWlXdlgxMlBCZnVZSmV1WTYzQVVtMmNVNkNVeWRvZjltMFFxdVhlOGNFWWw1amoK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERENTFGRUE2NUEyRjAxMDQKUldRRUFTOWFwdjVSM1NGTTZOaUl2UlJFQVZBUEx1a3ZGY0JGcThINzc4TnF5RHdvcVh1R256NWQK",
       "endpoints": [
-        "https://github.com/iPaste-app/iPaste/releases/latest/download/latest.json"
+        "https://github.com/huangsheng6668/iPaste/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"
