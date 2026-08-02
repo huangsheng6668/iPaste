@@ -498,6 +498,15 @@ export const ipasteApi = {
   openAccessibilitySettings() {
     return call<void>("open_accessibility_settings");
   },
+  enableAutostart() {
+    return call<boolean>("enable_autostart", undefined, true);
+  },
+  disableAutostart() {
+    return call<boolean>("disable_autostart", undefined, false);
+  },
+  isAutostartEnabled() {
+    return call<boolean>("is_autostart_enabled", undefined, false);
+  },
   applyClip(id: string, clipType: string, text: string) {
     return call<void>("apply_clip", { id, clipType, text });
   },

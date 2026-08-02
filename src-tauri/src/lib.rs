@@ -56,6 +56,7 @@ use tauri::{
     utils::config::Color,
     Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use uuid::Uuid;
 #[cfg(target_os = "windows")]
@@ -2636,6 +2637,29 @@ fn open_accessibility_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn enable_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    app.autolaunch()
+        .enable()
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn disable_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    app.autolaunch()
+        .disable()
+        .map_err(|error| error.to_string())?;
+    Ok(false)
+}
+
+#[tauri::command]
+fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn apply_clip(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -2703,6 +2727,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -2777,6 +2805,9 @@ pub fn run() {
             hide_panel,
             hide_settings,
             open_accessibility_settings,
+            enable_autostart,
+            disable_autostart,
+            is_autostart_enabled,
             set_main_window_dragging,
             start_main_window_drag,
             apply_clip

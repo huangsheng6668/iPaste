@@ -19,6 +19,7 @@ import {
   History,
   Keyboard,
   LoaderCircle,
+  Power,
   RefreshCw,
   RotateCcw,
   Save,
@@ -57,6 +58,9 @@ const cloudError = ref<string | null>(null);
 const isTestingCloud = ref(false);
 const isSavingCloud = ref(false);
 const appInfo = ref<AppInfo | null>(null);
+const autostartEnabled = ref(false);
+const isTogglingAutostart = ref(false);
+const autostartError = ref<string | null>(null);
 const isTauri = "__TAURI_INTERNALS__" in window;
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const ocrStatus = ref<OcrInstallStatus | null>(null);
@@ -210,6 +214,7 @@ onMounted(async () => {
   await store.load();
   appInfo.value = await ipasteApi.appInfo();
   await loadOcrStatus();
+  await loadAutostartStatus();
   if (isTauri) {
     unlistenOcrProgress = await listen<OcrInstallProgress>("ipaste://ocr-install-progress", (event) => {
       ocrProgress.value = event.payload;
@@ -432,6 +437,30 @@ async function updateLanguage(language: Language) {
   await store.updateLanguage(language);
 }
 
+async function loadAutostartStatus() {
+  if (!isTauri) return;
+  try {
+    autostartEnabled.value = await ipasteApi.isAutostartEnabled();
+  } catch (unknownError) {
+    autostartError.value = String(unknownError);
+  }
+}
+
+async function toggleAutostart() {
+  if (isTogglingAutostart.value) return;
+  autostartError.value = null;
+  isTogglingAutostart.value = true;
+  try {
+    autostartEnabled.value = autostartEnabled.value
+      ? await ipasteApi.disableAutostart()
+      : await ipasteApi.enableAutostart();
+  } catch (unknownError) {
+    autostartError.value = String(unknownError);
+  } finally {
+    isTogglingAutostart.value = false;
+  }
+}
+
 async function loadOcrStatus() {
   if (isMacOs) return;
   try {
@@ -550,6 +579,36 @@ function formatBytes(bytes: number) {
               :label="t('settings.language.title')"
               @update:model-value="updateLanguage"
             />
+          </section>
+
+          <section class="settings-panel items-start">
+            <div class="settings-icon settings-icon-teal">
+              <Power class="size-5" />
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.autostart.title") }}</h2>
+              <p class="mt-1 text-sm text-slate-500">{{ t("settings.autostart.description") }}</p>
+              <p
+                v-if="autostartError"
+                class="settings-message settings-message-error mt-2"
+              >
+                <AlertCircle class="size-4" />
+                <span>{{ autostartError }}</span>
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="switch-control"
+              :class="{ 'switch-control-active': autostartEnabled }"
+              :disabled="isTogglingAutostart || !isTauri"
+              :aria-pressed="autostartEnabled"
+              :aria-label="t('settings.autostart.title')"
+              @click="toggleAutostart"
+            >
+              <span />
+            </button>
           </section>
 
           <section class="settings-panel items-start">
