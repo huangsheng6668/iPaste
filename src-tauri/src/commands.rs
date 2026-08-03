@@ -57,6 +57,16 @@ pub(crate) fn list_clips(
 }
 
 #[tauri::command]
+pub(crate) fn search_with_fallback(
+    state: tauri::State<'_, AppState>,
+    offset: usize,
+    limit: usize,
+    search: String,
+) -> Result<SearchResult, String> {
+    state.store.search_with_fallback(offset, limit, &search)
+}
+
+#[tauri::command]
 pub(crate) fn list_categories(state: tauri::State<'_, AppState>) -> Result<Vec<Category>, String> {
     state.store.list_categories()
 }
