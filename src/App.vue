@@ -303,6 +303,7 @@ function openFallbackContextMenu(payload: { item: ClipViewItem; index: number; x
 function openClipContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
   store.setSelectedIndex(payload.index);
   pendingDeleteContextKey.value = null;
+  pendingDeleteByKey.value = null;
   contextMenu.value = payload;
   void nextTick(positionContextMenu);
 }
@@ -1207,6 +1208,7 @@ function scrollSelectedClipIntoView() {
                   'clip-card-dragging': draggingItemKey === contextItemKey(item),
                   'clip-card-drop-before': itemDropTargetKey === contextItemKey(item) && itemDropSide === 'before',
                   'clip-card-drop-after': itemDropTargetKey === contextItemKey(item) && itemDropSide === 'after',
+                  'clip-card-delete-confirming': pendingDeleteByKey === contextItemKey(item),
                 }"
                 @select="selectClipCard"
                 @apply="store.applyItem"

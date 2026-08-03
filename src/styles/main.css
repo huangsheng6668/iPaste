@@ -1084,11 +1084,6 @@ body.ipaste-preserve-current-app .global-tooltip,
     0 10px 24px rgba(220, 38, 38, 0.12);
 }
 
-.clip-card-delete-confirming:hover {
-  --clip-card-bg: #ffffff;
-  border-color: #dc2626;
-}
-
 .clip-delete-confirm-banner {
   position: absolute;
   top: 0.5rem;
