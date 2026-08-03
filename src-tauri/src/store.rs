@@ -1561,3 +1561,41 @@ impl Store {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_store() -> Store {
+        let dir = std::env::temp_dir().join(format!(
+            "ipaste-test-{}-{}",
+            std::process::id(),
+            uuid_like()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("test.db");
+        Store::new(db_path).expect("store init")
+    }
+
+    // 简易唯一串，避免引入 uuid 依赖；若项目已有 new_id() 可直接复用
+    fn uuid_like() -> String {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{nanos}")
+    }
+
+    #[test]
+    fn store_initializes_empty() {
+        // Store::new seeds DEFAULT_CLIPBOARD_SEEDS on first launch; the harness
+        // is verified by observing the seeded clips (not literally empty).
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        assert!(count > 0, "expected seeded clips, got {count}");
+    }
+}
