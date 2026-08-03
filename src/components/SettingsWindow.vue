@@ -21,8 +21,6 @@ import {
   LoaderCircle,
   Power,
   RefreshCw,
-  RotateCcw,
-  Save,
   ScanText,
   ShieldCheck,
   SlidersHorizontal,
@@ -34,24 +32,19 @@ import {
   Zap,
 } from "lucide-vue-next";
 import LanguageSelect from "./LanguageSelect.vue";
+import ShortcutsTab from "./settings/ShortcutsTab.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { useUpdater } from "../composables/useUpdater";
 import { languageOptions, t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
-import { formatBytes, formatShortcut } from "../lib/format";
+import { formatBytes } from "../lib/format";
 import { useIpasteStore } from "../stores/ipasteStore";
 import type { AppInfo, Language, OcrInstallProgress, OcrInstallStatus, OcrMode, PanelLayout, PanelOpenBehavior } from "../types";
 
 const store = useIpasteStore();
-const DEFAULT_SHORTCUT = "CommandOrControl+Shift+V";
 type SettingsTab = "general" | "shortcuts" | "ocr" | "dataManagement" | "permissions" | "about";
 const activeTab = ref<SettingsTab>("general");
 const showPermissionGuide = ref(false);
-const shortcutDraft = ref(DEFAULT_SHORTCUT);
-const shortcutRecording = ref(false);
-const shortcutMessage = ref<string | null>(null);
-const shortcutError = ref<string | null>(null);
-const isSavingShortcut = ref(false);
 const cloudApiAddress = ref("");
 const cloudApiKey = ref("");
 const cloudMessage = ref<string | null>(null);
@@ -76,7 +69,6 @@ const isInstallingOcr = ref(false);
 const isRemovingOcr = ref(false);
 const lastInstalledOcrMode = ref<OcrMode | null>(null);
 let unlistenOcrProgress: UnlistenFn | null = null;
-let shouldRestoreAppShortcutAfterRecording = false;
 const updater = useUpdater();
 
 const retentionOptions = computed(() => [
@@ -200,21 +192,6 @@ const ocrInstallButtonText = computed(() => {
   return t("ocr.install.download");
 });
 
-const formattedShortcutDraft = computed(() => formatShortcut(shortcutDraft.value || store.shortcut));
-const canSaveShortcut = computed(() =>
-  Boolean(shortcutDraft.value && shortcutDraft.value !== store.shortcut && !isSavingShortcut.value),
-);
-const fixedShortcuts = computed(() => [
-  { keys: [formatShortcut("CommandOrControl+F")], action: t("settings.shortcuts.focusSearch") },
-  { keys: ["↑", "↓", "←", "→"], action: t("settings.shortcuts.moveCards") },
-  { keys: [isMacOs ? "Cmd" : "Ctrl"], action: t("settings.shortcuts.quickPreview") },
-  { keys: ["Enter"], action: t("settings.shortcuts.pasteSelected") },
-  { keys: ["Esc"], action: t("settings.shortcuts.closePanelOrMenu") },
-  { keys: [formatShortcut("CommandOrControl+1")], action: t("settings.shortcuts.switchHistory") },
-  { keys: [formatShortcut("CommandOrControl+2")], action: t("settings.shortcuts.switchFirstCategory") },
-  { keys: [`${formatShortcut("CommandOrControl+3")} ... ${formatShortcut("CommandOrControl+9")}`], action: t("settings.shortcuts.switchMoreCategories") },
-]);
-
 onMounted(async () => {
   await store.load();
   appInfo.value = await ipasteApi.appInfo();
@@ -225,154 +202,16 @@ onMounted(async () => {
       ocrProgress.value = event.payload;
     });
   }
-  resetShortcutForm();
   resetCloudForm();
 });
 
 onUnmounted(() => {
-  void stopRecordingShortcut({ restoreAppShortcut: true });
   void unlistenOcrProgress?.();
 });
 
 async function openAccessibilityGuide() {
   showPermissionGuide.value = true;
   await ipasteApi.openAccessibilitySettings();
-}
-
-function resetShortcutForm() {
-  shortcutDraft.value = store.shortcut || DEFAULT_SHORTCUT;
-  shortcutMessage.value = null;
-  shortcutError.value = null;
-}
-
-async function startRecordingShortcut() {
-  if (shortcutRecording.value) return;
-  if (!(await pauseAppShortcutWhileRecording())) return;
-  shortcutRecording.value = true;
-  shortcutMessage.value = null;
-  shortcutError.value = null;
-  window.addEventListener("keydown", handleShortcutRecording, { capture: true });
-}
-
-async function stopRecordingShortcut(options: { restoreAppShortcut?: boolean } = {}) {
-  if (shortcutRecording.value) {
-    shortcutRecording.value = false;
-    window.removeEventListener("keydown", handleShortcutRecording, { capture: true });
-  }
-  if (options.restoreAppShortcut) {
-    await restoreAppShortcutAfterRecording();
-  }
-}
-
-function handleShortcutRecording(event: KeyboardEvent) {
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation();
-
-  if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-    void stopRecordingShortcut({ restoreAppShortcut: true });
-    return;
-  }
-
-  const shortcut = shortcutFromKeyboardEvent(event);
-  if (!shortcut) {
-    shortcutError.value = t("settings.shortcuts.invalid");
-    return;
-  }
-
-  shortcutDraft.value = shortcut;
-  shortcutError.value = null;
-  void stopRecordingShortcut({ restoreAppShortcut: true });
-}
-
-async function pauseAppShortcutWhileRecording() {
-  if (shouldRestoreAppShortcutAfterRecording) return true;
-
-  try {
-    await ipasteApi.setAppShortcutEnabled(false);
-    shouldRestoreAppShortcutAfterRecording = true;
-    return true;
-  } catch (unknownError) {
-    shortcutError.value = String(unknownError);
-    return false;
-  }
-}
-
-async function restoreAppShortcutAfterRecording() {
-  if (!shouldRestoreAppShortcutAfterRecording) return;
-  shouldRestoreAppShortcutAfterRecording = false;
-
-  try {
-    await ipasteApi.setAppShortcutEnabled(true);
-  } catch (unknownError) {
-    shouldRestoreAppShortcutAfterRecording = true;
-    shortcutError.value = String(unknownError);
-  }
-}
-
-function shortcutFromKeyboardEvent(event: KeyboardEvent) {
-  const key = shortcutKeyFromEvent(event);
-  if (!key) return "";
-
-  const modifiers: string[] = [];
-  if (event.metaKey) modifiers.push("Command");
-  if (event.ctrlKey) modifiers.push("Control");
-  if (event.altKey) modifiers.push("Alt");
-  if (event.shiftKey) modifiers.push("Shift");
-
-  if (!modifiers.length) return "";
-  return [...modifiers, key].join("+");
-}
-
-function shortcutKeyFromEvent(event: KeyboardEvent) {
-  const modifierKeys = new Set(["Shift", "Control", "Alt", "Meta", "Command"]);
-  if (modifierKeys.has(event.key)) return "";
-
-  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
-  if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5);
-  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(event.code)) return event.code;
-
-  const specialKeys: Record<string, string> = {
-    ArrowDown: "ArrowDown",
-    ArrowLeft: "ArrowLeft",
-    ArrowRight: "ArrowRight",
-    ArrowUp: "ArrowUp",
-    Backspace: "Backspace",
-    Delete: "Delete",
-    Enter: "Enter",
-    Escape: "Escape",
-    Home: "Home",
-    End: "End",
-    Insert: "Insert",
-    PageUp: "PageUp",
-    PageDown: "PageDown",
-    Space: "Space",
-    Tab: "Tab",
-  };
-  return specialKeys[event.code] ?? "";
-}
-
-async function saveShortcut() {
-  await stopRecordingShortcut({ restoreAppShortcut: true });
-  shortcutMessage.value = null;
-  shortcutError.value = null;
-  isSavingShortcut.value = true;
-  try {
-    await store.updateShortcut(shortcutDraft.value);
-    shortcutDraft.value = store.shortcut;
-    shortcutMessage.value = t("settings.shortcuts.saved");
-  } catch (unknownError) {
-    shortcutError.value = String(unknownError);
-  } finally {
-    isSavingShortcut.value = false;
-  }
-}
-
-function restoreDefaultShortcut() {
-  void stopRecordingShortcut({ restoreAppShortcut: true });
-  shortcutDraft.value = DEFAULT_SHORTCUT;
-  shortcutMessage.value = null;
-  shortcutError.value = null;
 }
 
 function resetCloudForm() {
@@ -797,83 +636,7 @@ async function openOcrInstallDir() {
 
         </div>
 
-        <div v-else-if="activeTab === 'shortcuts'" class="settings-section">
-          <section class="settings-panel settings-column-panel">
-            <div class="settings-panel-heading">
-              <div class="settings-icon settings-icon-teal">
-                <Keyboard class="size-5" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.shortcuts.global.title") }}</h2>
-                <p class="mt-1 text-sm text-slate-500">{{ t("settings.shortcuts.global.description") }}</p>
-              </div>
-            </div>
-
-            <div class="settings-shortcut-recorder">
-              <button
-                type="button"
-                class="shortcut-capture-button"
-                :class="{ 'shortcut-capture-button-recording': shortcutRecording }"
-                :aria-pressed="shortcutRecording"
-                @click="startRecordingShortcut"
-              >
-                <Keyboard class="size-4" />
-                <span>{{ shortcutRecording ? t("settings.shortcuts.recording") : formattedShortcutDraft }}</span>
-              </button>
-
-              <button
-                type="button"
-                class="settings-action-button"
-                :disabled="isSavingShortcut"
-                @click="restoreDefaultShortcut"
-              >
-                <RotateCcw class="size-4" />
-                <span>{{ t("settings.shortcuts.restoreDefault") }}</span>
-              </button>
-
-              <button
-                type="button"
-                class="settings-action-button settings-action-button-primary"
-                :disabled="!canSaveShortcut"
-                @click="saveShortcut"
-              >
-                <Save class="size-4" />
-                <span>{{ isSavingShortcut ? t("common.saving") : t("common.save") }}</span>
-              </button>
-            </div>
-
-            <p
-              v-if="shortcutError || shortcutMessage"
-              class="settings-message"
-              :class="{ 'settings-message-error': shortcutError }"
-            >
-              <CheckCircle2 v-if="shortcutMessage && !shortcutError" class="size-4" />
-              <AlertCircle v-else class="size-4" />
-              <span>{{ shortcutError || shortcutMessage }}</span>
-            </p>
-          </section>
-
-          <section class="settings-panel settings-column-panel">
-            <div class="settings-panel-heading">
-              <div class="settings-icon settings-icon-blue">
-                <Keyboard class="size-5" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.shortcuts.panel.title") }}</h2>
-                <p class="mt-1 text-sm text-slate-500">{{ t("settings.shortcuts.panel.description") }}</p>
-              </div>
-            </div>
-
-            <div class="settings-shortcut-list">
-              <div v-for="shortcut in fixedShortcuts" :key="shortcut.action" class="settings-shortcut-row">
-                <div class="shortcut-kbd-group" aria-hidden="true">
-                  <kbd v-for="key in shortcut.keys" :key="key" class="shortcut-kbd">{{ key }}</kbd>
-                </div>
-                <span>{{ shortcut.action }}</span>
-              </div>
-            </div>
-          </section>
-        </div>
+        <ShortcutsTab v-else-if="activeTab === 'shortcuts'" />
 
         <div v-else-if="activeTab === 'ocr'" class="settings-section">
           <section v-if="!isMacOs" class="settings-panel settings-column-panel">
