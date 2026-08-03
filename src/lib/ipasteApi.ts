@@ -143,6 +143,10 @@ const mockSnapshot: AppSnapshot = {
   },
 };
 
+function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
+  return { ...mockSnapshot.settings, ...overrides };
+}
+
 async function call<T>(command: string, args?: Record<string, unknown>, fallback?: T) {
   if (isTauri) return invoke<T>(command, args);
   if (fallback !== undefined) return structuredClone(fallback);
@@ -356,125 +360,38 @@ export const ipasteApi = {
     return call<boolean>("set_append_copy_enabled", { enabled }, enabled);
   },
   updateSettings(retentionDays: number) {
-    return call<AppSettings>("update_settings", { retentionDays }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_settings", { retentionDays }, mockSettings({ retentionDays }));
   },
   updateAppendCopyTimeout(minutes: number) {
-    return call<AppSettings>("update_append_copy_timeout", { minutes }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: mockSnapshot.settings.retentionDays,
-      appendCopyTimeoutMinutes: minutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_append_copy_timeout", { minutes }, mockSettings({ appendCopyTimeoutMinutes: minutes }));
   },
   updateShortcut(shortcut: string) {
-    return call<AppSettings>("update_shortcut", { shortcut }, {
-      shortcut,
-      retentionDays: mockSnapshot.settings.retentionDays,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_shortcut", { shortcut }, mockSettings({ shortcut }));
   },
   setAppShortcutEnabled(enabled: boolean) {
     return call<boolean>("set_app_shortcut_enabled", { enabled }, enabled);
   },
   updatePanelOpenBehavior(behavior: AppSettings["panelOpenBehavior"]) {
-    return call<AppSettings>("update_panel_open_behavior", { behavior }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: mockSnapshot.settings.retentionDays,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: behavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_panel_open_behavior", { behavior }, mockSettings({ panelOpenBehavior: behavior }));
   },
   updatePanelLayout(layout: AppSettings["panelLayout"]) {
-    return call<AppSettings>("update_panel_layout", { layout }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: mockSnapshot.settings.retentionDays,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: layout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_panel_layout", { layout }, mockSettings({ panelLayout: layout }));
   },
   updateOcrMode(mode: OcrMode) {
-    return call<AppSettings>("update_ocr_mode", { mode }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: mockSnapshot.settings.retentionDays,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mode,
-      language: mockSnapshot.settings.language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_ocr_mode", { mode }, mockSettings({ ocrMode: mode }));
   },
   updateLanguage(language: Language) {
-    return call<AppSettings>("update_language", { language }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: mockSnapshot.settings.retentionDays,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language,
-      cloud: mockSnapshot.settings.cloud,
-    });
+    return call<AppSettings>("update_language", { language }, mockSettings({ language }));
   },
   updateCloudSettings(apiAddress: string, apiKey: string) {
-    return call<AppSettings>("update_cloud_settings", { apiAddress, apiKey }, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: 30,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: {
-        apiAddress,
-        apiKey,
-        enabled: Boolean(apiAddress && apiKey),
-        lastConnectedAt: new Date().toISOString(),
-      },
-    });
+    return call<AppSettings>("update_cloud_settings", { apiAddress, apiKey }, mockSettings({
+      cloud: { apiAddress, apiKey, enabled: Boolean(apiAddress && apiKey), lastConnectedAt: new Date().toISOString() },
+    }));
   },
   disableCloudSync() {
-    return call<AppSettings>("disable_cloud_sync", undefined, {
-      shortcut: mockSnapshot.settings.shortcut,
-      retentionDays: 30,
-      appendCopyTimeoutMinutes: mockSnapshot.settings.appendCopyTimeoutMinutes,
-      panelOpenBehavior: mockSnapshot.settings.panelOpenBehavior,
-      panelLayout: mockSnapshot.settings.panelLayout,
-      ocrMode: mockSnapshot.settings.ocrMode,
-      language: mockSnapshot.settings.language,
-      cloud: {
-        apiAddress: "",
-        apiKey: "",
-        enabled: false,
-        lastConnectedAt: null,
-      },
-    });
+    return call<AppSettings>("disable_cloud_sync", undefined, mockSettings({
+      cloud: { apiAddress: "", apiKey: "", enabled: false, lastConnectedAt: null },
+    }));
   },
   syncCloudNow() {
     return call<AppSnapshot>("sync_cloud_now", undefined, mockSnapshot);
