@@ -201,3 +201,32 @@ impl Store {
         .map_err(|error| error.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::test_support::temp_store;
+
+    #[test]
+    fn settings_round_trip_for_enum_like_values() {
+        let store = temp_store();
+
+        let s = store.update_panel_layout("side".to_string()).unwrap();
+        assert_eq!(s.panel_layout, "side");
+
+        let s = store.update_ocr_mode("best".to_string()).unwrap();
+        assert_eq!(s.ocr_mode, "best");
+
+        let s = store.update_panel_open_behavior("last_selected".to_string()).unwrap();
+        assert_eq!(s.panel_open_behavior, "last_selected");
+
+        let s = store.update_language("zh-CN".to_string()).unwrap();
+        assert_eq!(s.language, "zh-CN");
+
+        let s = store.settings().unwrap();
+        assert_eq!(s.panel_layout, "side");
+        assert_eq!(s.ocr_mode, "best");
+        assert_eq!(s.panel_open_behavior, "last_selected");
+        assert_eq!(s.language, "zh-CN");
+    }
+}

@@ -509,8 +509,9 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::SearchResult;
+    use crate::models::{CapturedClipboardItem, SearchResult};
     use crate::store::test_support::{seed_clip, temp_store};
+    use crate::util::hash_text;
 
     #[test]
     fn count_clips_matching_respects_query() {
@@ -561,5 +562,36 @@ mod tests {
             SearchResult::CategoryHits { groups } => assert!(groups.is_empty()),
             other => panic!("expected CategoryHits, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn insert_captured_item_merges_on_duplicate_content_hash() {
+        let store = temp_store();
+        let item = CapturedClipboardItem {
+            clip_type: "text".to_string(),
+            content_hash: hash_text("hello"),
+            preview_text: "hello".to_string(),
+            text: "hello".to_string(),
+            image_bytes: None,
+        };
+        let first = store.insert_captured_item(item.clone()).unwrap().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let second = store.insert_captured_item(item).unwrap().unwrap();
+
+        assert!(first.2, "first insert should report was_inserted=true");
+        assert!(!second.2, "duplicate should report was_inserted=false");
+        assert_eq!(first.1, 1);
+        assert_eq!(second.1, 1);
+        assert!(second.0.last_captured_at >= first.0.last_captured_at);
+
+        let conn = store.connect().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE content_hash = ?1",
+                rusqlite::params![hash_text("hello")],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

@@ -468,4 +468,49 @@ mod tests {
         let groups = store.search_all_category_items_with_conn(&conn, "").unwrap();
         assert!(groups.is_empty());
     }
+
+    #[test]
+    fn reorder_categories_persists_sort_order() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let a = create_category(&conn, "A", "#f00", 0);
+        let b = create_category(&conn, "B", "#0f0", 1);
+        let c = create_category(&conn, "C", "#00f", 2);
+
+        let reordered = store.reorder_categories(vec![c.clone(), b.clone(), a.clone()]).unwrap();
+        assert_eq!(reordered.len(), 3);
+        assert_eq!(reordered[0].id, c);
+        assert_eq!(reordered[1].id, b);
+        assert_eq!(reordered[2].id, a);
+        assert_eq!(reordered[0].sort_order, 0);
+        assert_eq!(reordered[1].sort_order, 1);
+        assert_eq!(reordered[2].sort_order, 2);
+    }
+
+    #[test]
+    fn delete_category_records_tombstone() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat_id = create_category(&conn, "A", "#f00", 0);
+
+        store.delete_category(cat_id.clone()).unwrap();
+
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM categories WHERE id = ?1",
+                rusqlite::params![cat_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0);
+
+        let tomb: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_tombstones WHERE entity = 'category' AND entity_id = ?1",
+                rusqlite::params![cat_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tomb, 1, "delete_category should record a tombstone");
+    }
 }
