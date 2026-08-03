@@ -2,7 +2,6 @@
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 
-use crate::models::*;
 use crate::util::*;
 use super::Store;
 use crate::{
