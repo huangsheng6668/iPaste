@@ -18,6 +18,12 @@ use crate::{
     RETENTION_OPTIONS,
 };
 
+mod migrations;
+mod settings;
+mod clips;
+mod categories;
+mod sync;
+
 #[derive(Clone)]
 pub struct Store {
     pub db_path: PathBuf,
