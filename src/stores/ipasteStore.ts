@@ -252,6 +252,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (options.select ?? true) {
       selectedCategoryId.value = category.id;
       selectedIndex.value = 0;
+      fallbackGroups.value = [];
     }
     return { category, item };
   }
@@ -274,6 +275,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     categoryItems.value = categoryItems.value.filter((item) => item.categoryId !== id);
     selectedCategoryId.value = "history";
     selectedIndex.value = 0;
+    fallbackGroups.value = [];
     syncCloudInBackground();
   }
 
