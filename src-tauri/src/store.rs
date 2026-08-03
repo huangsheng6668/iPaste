@@ -861,6 +861,24 @@ impl Store {
         Ok(count as usize)
     }
 
+    /// 跨“历史/分类”搜索的统一入口：先查历史，历史无命中时回退到分类。
+    pub(crate) fn search_with_fallback(
+        &self,
+        offset: usize,
+        limit: usize,
+        search: &str,
+    ) -> Result<SearchResult, String> {
+        let conn = self.connect()?;
+        let total = self.count_clips_matching_with_conn(&conn, search)?;
+        if total > 0 {
+            let page = self.list_clips_page_with_conn(&conn, offset, limit, search)?;
+            Ok(SearchResult::History { page })
+        } else {
+            let groups = self.search_all_category_items_with_conn(&conn, search)?;
+            Ok(SearchResult::CategoryHits { groups })
+        }
+    }
+
     fn save_image_bytes(&self, content_hash: &str, bytes: &[u8]) -> Result<String, String> {
         let dir = self.image_dir()?;
         let filename = format!("{}.png", safe_filename(content_hash));
@@ -1785,5 +1803,48 @@ mod tests {
             .search_all_category_items_with_conn(&conn, "")
             .unwrap();
         assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn fallback_returns_history_when_history_has_hits() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello", "hello");
+        // Task 3 deferred minor: cover the `clip_type = 'image'` branch of the
+        // history search SQL. Searching "image" must match this clip via the
+        // `'图片 image' LIKE ?` clause even though `text` is just a file path.
+        seed_clip(&conn, "image", "图片预览", "/tmp/ipaste-image.png");
+        let res = store.search_with_fallback(0, 20, "image").unwrap();
+        match res {
+            SearchResult::History { page } => assert_eq!(page.clips.len(), 1),
+            other => panic!("expected History, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fallback_returns_category_hits_when_history_empty() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat = create_category(&conn, "A", "#f00", 0);
+        seed_category_item(&conn, &cat, "text", "secret token", "secret token");
+        let res = store.search_with_fallback(0, 20, "secret").unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => {
+                assert_eq!(groups.len(), 1);
+                assert_eq!(groups[0].items.len(), 1);
+            }
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fallback_returns_empty_category_hits_when_nowhere_matches() {
+        let store = temp_store();
+        let _conn = store.connect();
+        let res = store.search_with_fallback(0, 20, "ghost").unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => assert!(groups.is_empty()),
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
     }
 }
