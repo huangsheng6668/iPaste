@@ -100,3 +100,8 @@ function platformModifier() {
   if (platform.includes("mac")) return "Cmd";
   return "Ctrl";
 }
+
+export function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

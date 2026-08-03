@@ -38,7 +38,7 @@ import UpdateDialog from "./UpdateDialog.vue";
 import { useUpdater } from "../composables/useUpdater";
 import { languageOptions, t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
-import { formatShortcut } from "../lib/format";
+import { formatBytes, formatShortcut } from "../lib/format";
 import { useIpasteStore } from "../stores/ipasteStore";
 import type { AppInfo, Language, OcrInstallProgress, OcrInstallStatus, OcrMode, PanelLayout, PanelOpenBehavior } from "../types";
 
@@ -563,11 +563,6 @@ async function openOcrInstallDir() {
   } catch (unknownError) {
     ocrError.value = String(unknownError);
   }
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 </script>
