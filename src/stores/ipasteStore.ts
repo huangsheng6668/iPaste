@@ -7,6 +7,7 @@ import type {
   AppendCopyChangedEvent,
   CapturedEvent,
   Category,
+  CategoryHitGroup,
   CategoryItem,
   ClipItem,
   ClipUpdatedEvent,
@@ -43,6 +44,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const isLoading = ref(false);
   const isLoadingMoreClips = ref(false);
   const hasMoreClips = ref(false);
+  const fallbackGroups = ref<CategoryHitGroup[]>([]);
   const clipTotalCount = ref(0);
   const visibleHistoryTotalCount = ref(0);
   const error = ref<string | null>(null);
@@ -178,6 +180,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   async function loadMoreClips() {
+    if (fallbackGroups.value.length > 0) return;
     if (selectedCategoryId.value !== "history" || isLoadingMoreClips.value || !hasMoreClips.value) return;
 
     isLoadingMoreClips.value = true;
@@ -203,13 +206,32 @@ export const useIpasteStore = defineStore("ipaste", () => {
     const requestId = ++clipRequestId;
 
     try {
-      const page = await ipasteApi.listClips(0, CLIP_PAGE_SIZE, search.value);
+      const isHistorySearch = selectedCategoryId.value === "history" && search.value.trim() !== "";
+      const result = isHistorySearch
+        ? await ipasteApi.searchWithFallback(0, CLIP_PAGE_SIZE, search.value)
+        : null;
+      const page = result ? null : await ipasteApi.listClips(0, CLIP_PAGE_SIZE, search.value);
       if (requestId !== clipRequestId) return;
 
-      clips.value = page.clips;
-      hasMoreClips.value = page.hasMore;
-      visibleHistoryTotalCount.value = page.totalCount;
-      clipTotalCount.value = page.allCount;
+      if (result?.kind === "history") {
+        clips.value = result.page.clips;
+        hasMoreClips.value = result.page.hasMore;
+        visibleHistoryTotalCount.value = result.page.totalCount;
+        clipTotalCount.value = result.page.allCount;
+        fallbackGroups.value = [];
+      } else if (result?.kind === "categoryHits") {
+        clips.value = [];
+        hasMoreClips.value = false;
+        visibleHistoryTotalCount.value = 0;
+        clipTotalCount.value = 0;
+        fallbackGroups.value = result.groups;
+      } else if (page) {
+        clips.value = page.clips;
+        hasMoreClips.value = page.hasMore;
+        visibleHistoryTotalCount.value = page.totalCount;
+        clipTotalCount.value = page.allCount;
+        fallbackGroups.value = [];
+      }
       selectedIndex.value = 0;
     } catch (unknownError) {
       if (requestId === clipRequestId) {
@@ -591,6 +613,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   function selectCategory(id: string) {
     selectedCategoryId.value = id;
     selectedIndex.value = 0;
+    fallbackGroups.value = [];
     if (id === "history") {
       void reloadClips();
     }
@@ -600,6 +623,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (!search.value) return;
 
     search.value = "";
+    fallbackGroups.value = [];
     selectedIndex.value = 0;
   }
 
@@ -754,6 +778,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     isLoading,
     isLoadingMoreClips,
     hasMoreClips,
+    fallbackGroups,
     clipTotalCount,
     visibleHistoryTotalCount,
     error,
