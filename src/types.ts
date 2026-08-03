@@ -162,3 +162,12 @@ export type ClipUpdatedEvent = {
   item: ClipItem | CategoryItem;
   mergedFromId?: string;
 };
+
+export type CategoryHitGroup = {
+  category: Category;
+  items: CategoryItem[];
+};
+
+export type SearchResult =
+  | { kind: "history"; page: ClipPage }
+  | { kind: "categoryHits"; groups: CategoryHitGroup[] };

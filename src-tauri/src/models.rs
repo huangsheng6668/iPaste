@@ -116,6 +116,20 @@ pub(crate) struct ClipPage {
     pub(crate) all_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CategoryHitGroup {
+    pub(crate) category: Category,
+    pub(crate) items: Vec<CategoryItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum SearchResult {
+    History { page: ClipPage },
+    CategoryHits { groups: Vec<CategoryHitGroup> },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppSettings {
@@ -342,4 +356,28 @@ pub struct AppState {
     pub is_app_shortcut_enabled: Arc<Mutex<bool>>,
     #[cfg(target_os = "macos")]
     pub main_panel_state: Arc<Mutex<Option<MainPanelState>>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_result_history_serializes_with_kind_tag() {
+        let page = ClipPage {
+            clips: vec![],
+            has_more: false,
+            total_count: 0,
+            all_count: 0,
+        };
+        let json = serde_json::to_string(&SearchResult::History { page }).unwrap();
+        assert!(json.contains(r#""kind":"history""#), "got: {json}");
+    }
+
+    #[test]
+    fn search_result_category_hits_serializes_with_kind_tag() {
+        let res = SearchResult::CategoryHits { groups: vec![] };
+        let json = serde_json::to_string(&res).unwrap();
+        assert!(json.contains(r#""kind":"categoryHits""#), "got: {json}");
+    }
 }

@@ -128,6 +128,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             list_clips,
+            search_with_fallback,
             list_categories,
             list_category_items,
             reorder_categories,

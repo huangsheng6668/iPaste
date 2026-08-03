@@ -837,6 +837,48 @@ impl Store {
             .map_err(|error| error.to_string())
     }
 
+    fn count_clips_matching_with_conn(
+        &self,
+        conn: &Connection,
+        search: &str,
+    ) -> Result<usize, String> {
+        let query = search.trim().to_lowercase();
+        let pattern = format!("%{query}%");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM clips
+                 WHERE ?1 = ''
+                    OR lower(COALESCE(display_name, '')) LIKE ?2
+                    OR lower(preview_text) LIKE ?2
+                    OR lower(clip_type) LIKE ?2
+                    OR (clip_type != 'image' AND lower(text) LIKE ?2)
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?2)",
+                params![query.as_str(), pattern.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(count as usize)
+    }
+
+    /// 跨“历史/分类”搜索的统一入口：先查历史，历史无命中时回退到分类。
+    pub(crate) fn search_with_fallback(
+        &self,
+        offset: usize,
+        limit: usize,
+        search: &str,
+    ) -> Result<SearchResult, String> {
+        let conn = self.connect()?;
+        let total = self.count_clips_matching_with_conn(&conn, search)?;
+        if total > 0 {
+            let page = self.list_clips_page_with_conn(&conn, offset, limit, search)?;
+            Ok(SearchResult::History { page })
+        } else {
+            let groups = self.search_all_category_items_with_conn(&conn, search)?;
+            Ok(SearchResult::CategoryHits { groups })
+        }
+    }
+
     fn save_image_bytes(&self, content_hash: &str, bytes: &[u8]) -> Result<String, String> {
         let dir = self.image_dir()?;
         let filename = format!("{}.png", safe_filename(content_hash));
@@ -896,6 +938,58 @@ impl Store {
             .query_map([], map_category_item)
             .map_err(|error| error.to_string())?;
         collect_rows(rows)
+    }
+
+    /// 跨分类搜索 `category_items`，按命中条目的分类分组返回。
+    ///
+    /// 组间顺序由分类 `sort_order`（见 `list_categories_with_conn`）决定；
+    /// 组内条目顺序由 SQL `ORDER BY is_pinned DESC, sort_order ASC,
+    /// datetime(created_at) DESC` 决定（与 `list_category_items_with_conn` 一致）。
+    /// 仅返回有命中的分类。
+    pub(crate) fn search_all_category_items_with_conn(
+        &self,
+        conn: &Connection,
+        search: &str,
+    ) -> Result<Vec<CategoryHitGroup>, String> {
+        let query = search.trim().to_lowercase();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let pattern = format!("%{query}%");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
+                 FROM category_items
+                 WHERE lower(COALESCE(display_name, '')) LIKE ?1
+                    OR lower(preview_text) LIKE ?1
+                    OR lower(clip_type) LIKE ?1
+                    OR (clip_type != 'image' AND lower(text) LIKE ?1)
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?1)
+                 ORDER BY is_pinned DESC, sort_order ASC, datetime(created_at) DESC",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params![pattern.as_str()], map_category_item)
+            .map_err(|error| error.to_string())?;
+        let items: Vec<CategoryItem> = collect_rows(rows)?;
+
+        // 按分类 sort_order 分组：先用 list_categories_with_conn 拿到有序分类，
+        // 再按分类 id 收集命中条目，最后按分类顺序输出（保证组按 sort_order 升序）。
+        let ordered_categories = self.list_categories_with_conn(conn)?;
+        let mut groups: std::collections::HashMap<String, Vec<CategoryItem>> =
+            std::collections::HashMap::new();
+        for item in items {
+            groups.entry(item.category_id.clone()).or_default().push(item);
+        }
+        let result: Vec<CategoryHitGroup> = ordered_categories
+            .into_iter()
+            .filter_map(|category| {
+                groups
+                    .remove(&category.id)
+                    .map(|items| CategoryHitGroup { category, items })
+            })
+            .collect();
+        Ok(result)
     }
 
     pub(crate) fn reorder_categories(
@@ -1559,5 +1653,198 @@ impl Store {
         .map_err(|error| error.to_string())?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_store() -> Store {
+        let dir = std::env::temp_dir().join(format!(
+            "ipaste-test-{}-{}",
+            std::process::id(),
+            uuid_like()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("test.db");
+        let store = Store::new(db_path).expect("store init");
+        // Store::new seeds DEFAULT_CLIPBOARD_SEEDS on first launch; clear all
+        // business tables so subsequent tests see a clean database.
+        let conn = store.connect().expect("connect for cleanup");
+        conn.execute("DELETE FROM category_items", [])
+            .expect("clear category_items");
+        conn.execute("DELETE FROM categories", [])
+            .expect("clear categories");
+        conn.execute("DELETE FROM clips", []).expect("clear clips");
+        store
+    }
+
+    // 简易唯一串，避免引入 uuid 依赖；若项目已有 new_id() 可直接复用
+    fn uuid_like() -> String {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{nanos}")
+    }
+
+    #[test]
+    fn count_clips_matching_respects_query() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello world", "hello world");
+        seed_clip(&conn, "text", "rust lang", "rust lang");
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "hello").unwrap(), 1);
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "").unwrap(), 2);
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "nomatch").unwrap(), 0);
+    }
+
+    fn seed_clip(conn: &rusqlite::Connection, clip_type: &str, preview: &str, text: &str) {
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5, 'test', ?6, 0, 0)",
+            rusqlite::params![
+                crate::new_id(),
+                clip_type,
+                crate::util::hash_text(text),
+                preview,
+                text,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn store_initializes_empty() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "temp_store() should yield a clean database with no seeded clips"
+        );
+    }
+
+    fn create_category(
+        conn: &rusqlite::Connection,
+        name: &str,
+        color: &str,
+        sort_order: i64,
+    ) -> String {
+        let id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO categories (id, name, color, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            rusqlite::params![id, name, color, sort_order, now],
+        )
+        .unwrap();
+        id
+    }
+
+    fn seed_category_item(
+        conn: &rusqlite::Connection,
+        category_id: &str,
+        clip_type: &str,
+        preview: &str,
+        text: &str,
+    ) {
+        let id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, 0, ?8, ?8, 'local', 0)",
+            rusqlite::params![
+                id,
+                category_id,
+                id,
+                clip_type,
+                crate::util::hash_text(text),
+                preview,
+                text,
+                now
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn search_all_category_items_groups_by_category() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat_a = create_category(&conn, "A", "#f00", 0);
+        let cat_b = create_category(&conn, "B", "#0f0", 1);
+        seed_category_item(&conn, &cat_a, "text", "alpha token", "alpha token");
+        seed_category_item(&conn, &cat_a, "text", "beta token", "beta token");
+        seed_category_item(&conn, &cat_b, "text", "alpha other", "alpha other");
+
+        let groups = store
+            .search_all_category_items_with_conn(&conn, "alpha")
+            .unwrap();
+        assert_eq!(groups.len(), 2, "two categories have alpha hits");
+        assert_eq!(groups[0].category.name, "A", "lower sort_order first");
+        assert_eq!(groups[0].items.len(), 1);
+        assert_eq!(groups[1].category.name, "B");
+        assert_eq!(groups[1].items.len(), 1);
+    }
+
+    #[test]
+    fn search_all_category_items_empty_query_returns_empty() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat = create_category(&conn, "A", "#f00", 0);
+        seed_category_item(&conn, &cat, "text", "x", "x");
+        let groups = store
+            .search_all_category_items_with_conn(&conn, "")
+            .unwrap();
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn fallback_returns_history_when_history_has_hits() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello", "hello");
+        // Task 3 deferred minor: cover the `clip_type = 'image'` branch of the
+        // history search SQL. Searching "image" must match this clip via the
+        // `'图片 image' LIKE ?` clause even though `text` is just a file path.
+        seed_clip(&conn, "image", "图片预览", "/tmp/ipaste-image.png");
+        let res = store.search_with_fallback(0, 20, "image").unwrap();
+        match res {
+            SearchResult::History { page } => assert_eq!(page.clips.len(), 1),
+            other => panic!("expected History, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fallback_returns_category_hits_when_history_empty() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat = create_category(&conn, "A", "#f00", 0);
+        seed_category_item(&conn, &cat, "text", "secret token", "secret token");
+        let res = store.search_with_fallback(0, 20, "secret").unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => {
+                assert_eq!(groups.len(), 1);
+                assert_eq!(groups[0].items.len(), 1);
+            }
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fallback_returns_empty_category_hits_when_nowhere_matches() {
+        let store = temp_store();
+        let _conn = store.connect();
+        let res = store.search_with_fallback(0, 20, "ghost").unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => assert!(groups.is_empty()),
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
     }
 }

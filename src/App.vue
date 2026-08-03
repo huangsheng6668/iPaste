@@ -14,7 +14,7 @@ import { clipImageSrc } from "./lib/clipMedia";
 import { categoryDisplayName, clipMetricText, formatShortcut, formatTime, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
-import type { Category, ClipViewItem } from "./types";
+import type { Category, CategoryItem, ClipViewItem } from "./types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const store = useIpasteStore();
@@ -284,6 +284,19 @@ function itemCategoryTags(item: ClipViewItem) {
   const categoryId = "categoryId" in item ? item.categoryId : store.selectedCategoryId;
   const category = categoryById.value[categoryId];
   return category ? [category] : [];
+}
+
+function toCategoryClipViewItem(item: CategoryItem): ClipViewItem {
+  return { ...item, collection: "category" };
+}
+
+async function applyFallbackItem(item: ClipViewItem) {
+  await store.applyItem(item);
+}
+
+function openFallbackContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
+  contextMenu.value = payload;
+  void nextTick(positionContextMenu);
 }
 
 function openClipContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
@@ -1097,6 +1110,48 @@ function scrollSelectedClipIntoView() {
               class="clip-card-grid"
             >
               <div v-for="index in 9" :key="index" class="h-40 animate-pulse rounded-lg border border-slate-200 bg-white" />
+            </div>
+
+            <div
+              v-else-if="store.fallbackGroups.length"
+              class="fallback-groups"
+            >
+              <section
+                v-for="group in store.fallbackGroups"
+                :key="group.category.id"
+                class="fallback-group"
+              >
+                <header class="fallback-group-header">
+                  <span
+                    class="fallback-group-dot"
+                    :style="{ backgroundColor: group.category.color }"
+                  />
+                  <span class="fallback-group-name truncate">{{ categoryDisplayName(group.category.name) }}</span>
+                  <span class="fallback-group-count">{{ group.items.length }}</span>
+                </header>
+                <div class="fallback-group-items clip-card-grid">
+                  <div
+                    v-for="item in group.items"
+                    :key="item.id"
+                    class="fallback-item"
+                  >
+                    <ClipCard
+                      :item="toCategoryClipViewItem(item)"
+                      :index="0"
+                      :selected="false"
+                      :category-tags="[]"
+                      :editing-name="null"
+                      :reorder-enabled="false"
+                      @apply="applyFallbackItem"
+                      @expand="openClipViewer"
+                      @open-context-menu="openFallbackContextMenu"
+                    />
+                    <span class="source-tag">
+                      {{ t("search.fromCategory", { name: categoryDisplayName(group.category.name) }) }}
+                    </span>
+                  </div>
+                </div>
+              </section>
             </div>
 
             <div
