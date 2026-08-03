@@ -3,7 +3,26 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import { clipMatchesSearch } from "../lib/clipSearch";
+import {
+  compareSortOrder,
+  compareCategoryItemOrder,
+  orderCategoriesByIds,
+  orderCategoryItemsByIds,
+} from "./lib/ordering";
+import {
+  DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
+  DEFAULT_LANGUAGE,
+  DEFAULT_OCR_MODE,
+  DEFAULT_PANEL_LAYOUT,
+  DEFAULT_RETENTION_DAYS,
+  cleanAppendCopyTimeoutMinutes,
+  cleanOcrMode,
+  cleanPanelLayout,
+  isSettingsCommandMissing,
+} from "./lib/settings";
 import type {
+  AppSettings,
   AppendCopyChangedEvent,
   CapturedEvent,
   Category,
@@ -22,12 +41,6 @@ import type {
 } from "../types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
-const DEFAULT_RETENTION_DAYS = 30;
-const DEFAULT_APPEND_COPY_TIMEOUT_MINUTES = 1;
-const APPEND_COPY_TIMEOUT_OPTIONS = [1, 3, 5, 10];
-const DEFAULT_PANEL_LAYOUT: PanelLayout = "top";
-const DEFAULT_OCR_MODE: OcrMode = "fast";
-const DEFAULT_LANGUAGE: Language = "en";
 const CLIP_PAGE_SIZE = 20;
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -78,14 +91,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
     if (!query) return source;
 
-    return source.filter((item) =>
-      [
-        item.displayName ?? "",
-        item.previewText,
-        item.clipType,
-        item.clipType === "image" ? "image" : item.text,
-      ].some((value) => value.toLowerCase().includes(query)),
-    );
+    return source.filter((item) => clipMatchesSearch(item, query));
   });
 
   const selectedItem = computed(() => visibleItems.value[selectedIndex.value]);
@@ -435,12 +441,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateAppendCopyTimeout(nextMinutes);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_append_copy_timeout") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_append_copy_timeout")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -463,12 +465,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updatePanelLayout(nextLayout);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_panel_layout") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_panel_layout")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -481,12 +479,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateOcrMode(nextMode);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_ocr_mode") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_ocr_mode")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -500,12 +494,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateLanguage(nextLanguage);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_language") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_language")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -576,40 +566,16 @@ export const useIpasteStore = defineStore("ipaste", () => {
     backgroundSyncTimer = null;
   }
 
-  function applySettings(settings: {
-    shortcut: string;
-    retentionDays: number;
-    appendCopyTimeoutMinutes?: number;
-    panelOpenBehavior: PanelOpenBehavior;
-    panelLayout?: PanelLayout;
-    ocrMode?: OcrMode;
-    language?: Language;
-    cloud: CloudSettings;
-  }) {
+  function applySettings(settings: AppSettings) {
     shortcut.value = settings.shortcut;
     retentionDays.value = settings.retentionDays;
-    appendCopyTimeoutMinutes.value = cleanAppendCopyTimeoutMinutes(settings.appendCopyTimeoutMinutes);
+    appendCopyTimeoutMinutes.value = settings.appendCopyTimeoutMinutes;
     panelOpenBehavior.value = settings.panelOpenBehavior;
-    panelLayout.value = cleanPanelLayout(settings.panelLayout);
-    ocrMode.value = cleanOcrMode(settings.ocrMode);
-    language.value = cleanLanguage(settings.language);
+    panelLayout.value = settings.panelLayout;
+    ocrMode.value = settings.ocrMode;
+    language.value = settings.language;
     setLanguage(language.value);
     cloud.value = settings.cloud;
-  }
-
-  function cleanAppendCopyTimeoutMinutes(minutes: unknown) {
-    const normalized = Number(minutes);
-    return APPEND_COPY_TIMEOUT_OPTIONS.includes(normalized)
-      ? normalized
-      : DEFAULT_APPEND_COPY_TIMEOUT_MINUTES;
-  }
-
-  function cleanPanelLayout(layout: unknown): PanelLayout {
-    return layout === "side" ? "side" : DEFAULT_PANEL_LAYOUT;
-  }
-
-  function cleanOcrMode(mode: unknown): OcrMode {
-    return mode === "best" ? "best" : DEFAULT_OCR_MODE;
   }
 
   function selectCategory(id: string) {
@@ -704,52 +670,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   function originalClipId(item: ClipViewItem) {
     return item.collection === "history" ? item.id : item.clipSnapshotId;
-  }
-
-  function clipMatchesSearch(clip: ClipItem, value: string) {
-    const query = value.trim().toLowerCase();
-    if (!query) return true;
-
-    return [
-      clip.displayName ?? "",
-      clip.previewText,
-      clip.clipType,
-      clip.clipType === "image" ? "image" : clip.text,
-    ].some((text) => text.toLowerCase().includes(query));
-  }
-
-  function orderCategoriesByIds(items: Category[], ids: string[]) {
-    const byId = new Map(items.map((item) => [item.id, item]));
-    return ids
-      .map((id, index) => {
-        const item = byId.get(id);
-        return item ? { ...item, sortOrder: index } : null;
-      })
-      .filter((item): item is Category => Boolean(item));
-  }
-
-  function orderCategoryItemsByIds(items: CategoryItem[], categoryId: string, ids: string[]) {
-    const byId = new Map(items.filter((item) => item.categoryId === categoryId).map((item) => [item.id, item]));
-    const reordered = ids
-      .map((id, index) => {
-        const item = byId.get(id);
-        return item ? { ...item, sortOrder: index } : null;
-      })
-      .filter((item): item is CategoryItem => Boolean(item));
-    return [
-      ...items.filter((item) => item.categoryId !== categoryId),
-      ...reordered,
-    ].sort(compareCategoryItemOrder);
-  }
-
-  function compareSortOrder(left: Category, right: Category) {
-    return left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt);
-  }
-
-  function compareCategoryItemOrder(left: CategoryItem, right: CategoryItem) {
-    if (left.categoryId !== right.categoryId) return left.categoryId.localeCompare(right.categoryId);
-    if (left.isPinned !== right.isPinned) return left.isPinned ? -1 : 1;
-    return left.sortOrder - right.sortOrder || right.createdAt.localeCompare(left.createdAt);
   }
 
   function restoreCategorySelection(itemId: string | null) {
