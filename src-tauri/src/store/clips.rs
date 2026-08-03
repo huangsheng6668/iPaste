@@ -505,3 +505,61 @@ impl Store {
         .map_err(|error| error.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::SearchResult;
+    use crate::store::test_support::{seed_clip, temp_store};
+
+    #[test]
+    fn count_clips_matching_respects_query() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello world", "hello world");
+        seed_clip(&conn, "text", "rust lang", "rust lang");
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "hello").unwrap(), 1);
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "").unwrap(), 2);
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "nomatch").unwrap(), 0);
+    }
+
+    #[test]
+    fn fallback_returns_history_when_history_has_hits() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello", "hello");
+        seed_clip(&conn, "image", "图片预览", "/tmp/ipaste-image.png");
+        let res = store.search_with_fallback(0, 20, "image").unwrap();
+        match res {
+            SearchResult::History { page } => assert_eq!(page.clips.len(), 1),
+            other => panic!("expected History, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fallback_returns_category_hits_when_history_empty() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat = crate::store::test_support::create_category(&conn, "A", "#f00", 0);
+        crate::store::test_support::seed_category_item(&conn, &cat, "text", "secret token", "secret token");
+        let res = store.search_with_fallback(0, 20, "secret").unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => {
+                assert_eq!(groups.len(), 1);
+                assert_eq!(groups[0].items.len(), 1);
+            }
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fallback_returns_empty_category_hits_when_nowhere_matches() {
+        let store = temp_store();
+        let _conn = store.connect();
+        let res = store.search_with_fallback(0, 20, "ghost").unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => assert!(groups.is_empty()),
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
+    }
+}

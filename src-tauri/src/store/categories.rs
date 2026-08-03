@@ -435,3 +435,37 @@ impl Store {
         .map_err(|error| error.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::test_support::{create_category, seed_category_item, temp_store};
+
+    #[test]
+    fn search_all_category_items_groups_by_category() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat_a = create_category(&conn, "A", "#f00", 0);
+        let cat_b = create_category(&conn, "B", "#0f0", 1);
+        seed_category_item(&conn, &cat_a, "text", "alpha token", "alpha token");
+        seed_category_item(&conn, &cat_a, "text", "beta token", "beta token");
+        seed_category_item(&conn, &cat_b, "text", "alpha other", "alpha other");
+
+        let groups = store.search_all_category_items_with_conn(&conn, "alpha").unwrap();
+        assert_eq!(groups.len(), 2, "two categories have alpha hits");
+        assert_eq!(groups[0].category.name, "A", "lower sort_order first");
+        assert_eq!(groups[0].items.len(), 1);
+        assert_eq!(groups[1].category.name, "B");
+        assert_eq!(groups[1].items.len(), 1);
+    }
+
+    #[test]
+    fn search_all_category_items_empty_query_returns_empty() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat = create_category(&conn, "A", "#f00", 0);
+        seed_category_item(&conn, &cat, "text", "x", "x");
+        let groups = store.search_all_category_items_with_conn(&conn, "").unwrap();
+        assert!(groups.is_empty());
+    }
+}
