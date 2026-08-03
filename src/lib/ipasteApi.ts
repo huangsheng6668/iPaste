@@ -18,6 +18,7 @@ import type {
   OcrInstallStatus,
   SearchResult,
 } from "../types";
+import { clipMatchesSearch } from "./clipSearch";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 const fallbackAppInfo: AppInfo = {
@@ -155,14 +156,7 @@ export const ipasteApi = {
   listClips(offset = 0, limit = 20, search = "") {
     const query = search.trim().toLowerCase();
     const source = query
-      ? mockClips.filter((item) =>
-          [
-            item.displayName ?? "",
-            item.previewText,
-            item.clipType,
-            item.clipType === "image" ? "image" : item.text,
-          ].some((value) => value.toLowerCase().includes(query)),
-        )
+      ? mockClips.filter((item) => clipMatchesSearch(item, search))
       : mockClips;
     return call<ClipPage>("list_clips", { offset, limit, search }, {
       clips: source.slice(offset, offset + limit),
@@ -174,14 +168,7 @@ export const ipasteApi = {
   searchWithFallback(offset = 0, limit = 20, search = "") {
     const query = search.trim().toLowerCase();
     const matchedClips = query
-      ? mockClips.filter((item) =>
-          [
-            item.displayName ?? "",
-            item.previewText,
-            item.clipType,
-            item.clipType === "image" ? "image" : item.text,
-          ].some((value) => value.toLowerCase().includes(query)),
-        )
+      ? mockClips.filter((item) => clipMatchesSearch(item, search))
       : mockClips;
     if (matchedClips.length > 0) {
       return call<SearchResult>("search_with_fallback", { offset, limit, search }, {
@@ -197,14 +184,7 @@ export const ipasteApi = {
     const groups: CategoryHitGroup[] = [];
     for (const cat of mockCategories) {
       const items = mockCategoryItems.filter(
-        (item) =>
-          item.categoryId === cat.id &&
-          [
-            item.displayName ?? "",
-            item.previewText,
-            item.clipType,
-            item.clipType === "image" ? "image" : item.text,
-          ].some((value) => value.toLowerCase().includes(query)),
+        (item) => item.categoryId === cat.id && clipMatchesSearch(item, search),
       );
       if (items.length > 0) groups.push({ category: cat, items });
     }

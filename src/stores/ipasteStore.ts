@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import { clipMatchesSearch } from "../lib/clipSearch";
 import type {
   AppendCopyChangedEvent,
   CapturedEvent,
@@ -78,14 +79,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
     if (!query) return source;
 
-    return source.filter((item) =>
-      [
-        item.displayName ?? "",
-        item.previewText,
-        item.clipType,
-        item.clipType === "image" ? "image" : item.text,
-      ].some((value) => value.toLowerCase().includes(query)),
-    );
+    return source.filter((item) => clipMatchesSearch(item, query));
   });
 
   const selectedItem = computed(() => visibleItems.value[selectedIndex.value]);
@@ -704,18 +698,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   function originalClipId(item: ClipViewItem) {
     return item.collection === "history" ? item.id : item.clipSnapshotId;
-  }
-
-  function clipMatchesSearch(clip: ClipItem, value: string) {
-    const query = value.trim().toLowerCase();
-    if (!query) return true;
-
-    return [
-      clip.displayName ?? "",
-      clip.previewText,
-      clip.clipType,
-      clip.clipType === "image" ? "image" : clip.text,
-    ].some((text) => text.toLowerCase().includes(query));
   }
 
   function orderCategoriesByIds(items: Category[], ids: string[]) {
