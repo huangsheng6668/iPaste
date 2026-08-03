@@ -837,6 +837,30 @@ impl Store {
             .map_err(|error| error.to_string())
     }
 
+    fn count_clips_matching_with_conn(
+        &self,
+        conn: &Connection,
+        search: &str,
+    ) -> Result<usize, String> {
+        let query = search.trim().to_lowercase();
+        let pattern = format!("%{query}%");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM clips
+                 WHERE ?1 = ''
+                    OR lower(COALESCE(display_name, '')) LIKE ?2
+                    OR lower(preview_text) LIKE ?2
+                    OR lower(clip_type) LIKE ?2
+                    OR (clip_type != 'image' AND lower(text) LIKE ?2)
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?2)",
+                params![query.as_str(), pattern.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(count as usize)
+    }
+
     fn save_image_bytes(&self, content_hash: &str, bytes: &[u8]) -> Result<String, String> {
         let dir = self.image_dir()?;
         let filename = format!("{}.png", safe_filename(content_hash));
@@ -1594,6 +1618,33 @@ mod tests {
             .unwrap()
             .as_nanos();
         format!("{nanos}")
+    }
+
+    #[test]
+    fn count_clips_matching_respects_query() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello world", "hello world");
+        seed_clip(&conn, "text", "rust lang", "rust lang");
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "hello").unwrap(), 1);
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "").unwrap(), 2);
+        assert_eq!(store.count_clips_matching_with_conn(&conn, "nomatch").unwrap(), 0);
+    }
+
+    fn seed_clip(conn: &rusqlite::Connection, clip_type: &str, preview: &str, text: &str) {
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5, 'test', ?6, 0, 0)",
+            rusqlite::params![
+                crate::new_id(),
+                clip_type,
+                crate::util::hash_text(text),
+                preview,
+                text,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .unwrap();
     }
 
     #[test]
