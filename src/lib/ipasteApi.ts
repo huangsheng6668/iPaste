@@ -5,6 +5,7 @@ import type {
   AppSettings,
   AppSnapshot,
   Category,
+  CategoryHitGroup,
   CategoryItem,
   CategoryWithItem,
   ClipItem,
@@ -15,6 +16,7 @@ import type {
   Language,
   OcrMode,
   OcrInstallStatus,
+  SearchResult,
 } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
@@ -168,6 +170,45 @@ export const ipasteApi = {
       totalCount: source.length,
       allCount: mockClips.length,
     });
+  },
+  searchWithFallback(offset = 0, limit = 20, search = "") {
+    const query = search.trim().toLowerCase();
+    const matchedClips = query
+      ? mockClips.filter((item) =>
+          [
+            item.displayName ?? "",
+            item.previewText,
+            item.clipType,
+            item.clipType === "image" ? "image" : item.text,
+          ].some((value) => value.toLowerCase().includes(query)),
+        )
+      : mockClips;
+    if (matchedClips.length > 0) {
+      return call<SearchResult>("search_with_fallback", { offset, limit, search }, {
+        kind: "history",
+        page: {
+          clips: matchedClips.slice(offset, offset + limit),
+          hasMore: offset + limit < matchedClips.length,
+          totalCount: matchedClips.length,
+          allCount: mockClips.length,
+        },
+      });
+    }
+    const groups: CategoryHitGroup[] = [];
+    for (const cat of mockCategories) {
+      const items = mockCategoryItems.filter(
+        (item) =>
+          item.categoryId === cat.id &&
+          [
+            item.displayName ?? "",
+            item.previewText,
+            item.clipType,
+            item.clipType === "image" ? "image" : item.text,
+          ].some((value) => value.toLowerCase().includes(query)),
+      );
+      if (items.length > 0) groups.push({ category: cat, items });
+    }
+    return call<SearchResult>("search_with_fallback", { offset, limit, search }, { kind: "categoryHits", groups });
   },
   listCategories() {
     return call<Category[]>("list_categories", undefined, mockCategories);
