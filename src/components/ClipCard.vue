@@ -20,6 +20,7 @@ const props = defineProps<{
   categoryTags: Category[];
   editingName: string | null;
   reorderEnabled: boolean;
+  deleteConfirming?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -118,6 +119,13 @@ function resetImagePreview(event: PointerEvent) {
     @dblclick="emit('apply', item)"
     @contextmenu.prevent.stop="openContextMenu"
   >
+    <div
+      v-if="deleteConfirming"
+      class="clip-delete-confirm-banner"
+      role="alert"
+    >
+      {{ t("clip.confirmDeleteWithBackspace") }}
+    </div>
     <button
       type="button"
       class="clip-expand-button"

@@ -1076,6 +1076,37 @@ body.ipaste-preserve-current-app .global-tooltip,
   pointer-events: none;
 }
 
+.clip-card-delete-confirming {
+  --clip-card-bg: #ffffff;
+  border-color: #dc2626;
+  box-shadow:
+    0 0 0 3px rgba(220, 38, 38, 0.2),
+    0 10px 24px rgba(220, 38, 38, 0.12);
+}
+
+.clip-card-delete-confirming:hover {
+  --clip-card-bg: #ffffff;
+  border-color: #dc2626;
+}
+
+.clip-delete-confirm-banner {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  z-index: 5;
+  transform: translateX(-50%);
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  background: #dc2626;
+  padding: 0.25rem 0.75rem;
+  color: #ffffff;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.28);
+  pointer-events: none;
+}
+
 .clip-card-type-link {
   --clip-type-rgb: 2, 132, 199;
 }
