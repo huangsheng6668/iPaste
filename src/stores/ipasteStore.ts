@@ -4,6 +4,12 @@ import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
+import {
+  compareSortOrder,
+  compareCategoryItemOrder,
+  orderCategoriesByIds,
+  orderCategoryItemsByIds,
+} from "./lib/ordering";
 import type {
   AppendCopyChangedEvent,
   CapturedEvent,
@@ -698,40 +704,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   function originalClipId(item: ClipViewItem) {
     return item.collection === "history" ? item.id : item.clipSnapshotId;
-  }
-
-  function orderCategoriesByIds(items: Category[], ids: string[]) {
-    const byId = new Map(items.map((item) => [item.id, item]));
-    return ids
-      .map((id, index) => {
-        const item = byId.get(id);
-        return item ? { ...item, sortOrder: index } : null;
-      })
-      .filter((item): item is Category => Boolean(item));
-  }
-
-  function orderCategoryItemsByIds(items: CategoryItem[], categoryId: string, ids: string[]) {
-    const byId = new Map(items.filter((item) => item.categoryId === categoryId).map((item) => [item.id, item]));
-    const reordered = ids
-      .map((id, index) => {
-        const item = byId.get(id);
-        return item ? { ...item, sortOrder: index } : null;
-      })
-      .filter((item): item is CategoryItem => Boolean(item));
-    return [
-      ...items.filter((item) => item.categoryId !== categoryId),
-      ...reordered,
-    ].sort(compareCategoryItemOrder);
-  }
-
-  function compareSortOrder(left: Category, right: Category) {
-    return left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt);
-  }
-
-  function compareCategoryItemOrder(left: CategoryItem, right: CategoryItem) {
-    if (left.categoryId !== right.categoryId) return left.categoryId.localeCompare(right.categoryId);
-    if (left.isPinned !== right.isPinned) return left.isPinned ? -1 : 1;
-    return left.sortOrder - right.sortOrder || right.createdAt.localeCompare(left.createdAt);
   }
 
   function restoreCategorySelection(itemId: string | null) {
