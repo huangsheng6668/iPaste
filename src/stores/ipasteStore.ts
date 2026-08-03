@@ -10,6 +10,17 @@ import {
   orderCategoriesByIds,
   orderCategoryItemsByIds,
 } from "./lib/ordering";
+import {
+  DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
+  DEFAULT_LANGUAGE,
+  DEFAULT_OCR_MODE,
+  DEFAULT_PANEL_LAYOUT,
+  DEFAULT_RETENTION_DAYS,
+  cleanAppendCopyTimeoutMinutes,
+  cleanOcrMode,
+  cleanPanelLayout,
+  isSettingsCommandMissing,
+} from "./lib/settings";
 import type {
   AppendCopyChangedEvent,
   CapturedEvent,
@@ -29,12 +40,6 @@ import type {
 } from "../types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
-const DEFAULT_RETENTION_DAYS = 30;
-const DEFAULT_APPEND_COPY_TIMEOUT_MINUTES = 1;
-const APPEND_COPY_TIMEOUT_OPTIONS = [1, 3, 5, 10];
-const DEFAULT_PANEL_LAYOUT: PanelLayout = "top";
-const DEFAULT_OCR_MODE: OcrMode = "fast";
-const DEFAULT_LANGUAGE: Language = "en";
 const CLIP_PAGE_SIZE = 20;
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -435,12 +440,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateAppendCopyTimeout(nextMinutes);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_append_copy_timeout") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_append_copy_timeout")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -463,12 +464,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updatePanelLayout(nextLayout);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_panel_layout") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_panel_layout")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -481,12 +478,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateOcrMode(nextMode);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_ocr_mode") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_ocr_mode")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -500,12 +493,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateLanguage(nextLanguage);
       applySettings(settings);
     } catch (unknownError) {
-      const message = String(unknownError);
-      if (message.includes("update_language") && message.includes("not found")) {
-        return;
-      }
-
-      error.value = message;
+      if (isSettingsCommandMissing(unknownError, "update_language")) return;
+      error.value = String(unknownError);
       throw unknownError;
     }
   }
@@ -595,21 +584,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     language.value = cleanLanguage(settings.language);
     setLanguage(language.value);
     cloud.value = settings.cloud;
-  }
-
-  function cleanAppendCopyTimeoutMinutes(minutes: unknown) {
-    const normalized = Number(minutes);
-    return APPEND_COPY_TIMEOUT_OPTIONS.includes(normalized)
-      ? normalized
-      : DEFAULT_APPEND_COPY_TIMEOUT_MINUTES;
-  }
-
-  function cleanPanelLayout(layout: unknown): PanelLayout {
-    return layout === "side" ? "side" : DEFAULT_PANEL_LAYOUT;
-  }
-
-  function cleanOcrMode(mode: unknown): OcrMode {
-    return mode === "best" ? "best" : DEFAULT_OCR_MODE;
   }
 
   function selectCategory(id: string) {
