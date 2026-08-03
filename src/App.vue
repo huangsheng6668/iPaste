@@ -40,6 +40,7 @@ const isQuickPreviewKeyDown = ref(false);
 const isQuickPreviewActive = ref(false);
 const quickPreviewSelectedText = ref("");
 const pendingDeleteContextKey = ref<string | null>(null);
+const pendingDeleteByKey = ref<string | null>(null);
 const editingClipKey = ref<string | null>(null);
 const editingClipName = ref("");
 const isClipListScrolling = ref(false);
@@ -512,6 +513,7 @@ function selectClipCard(index: number) {
     return;
   }
 
+  pendingDeleteByKey.value = null;
   store.setSelectedIndex(index);
 }
 
@@ -643,6 +645,16 @@ async function deleteContextItem() {
   await store.removeCategoryItem(item.id);
 }
 
+async function deleteSelectedItem(item: ClipViewItem) {
+  pendingDeleteByKey.value = null;
+  if (item.collection === "history") {
+    await store.deleteClip(item.id);
+    return;
+  }
+
+  await store.removeCategoryItem(item.id);
+}
+
 function contextItemKey(item: ClipViewItem) {
   return `${item.collection}-${item.id}`;
 }
@@ -693,6 +705,10 @@ async function openClipViewer(item: ClipViewItem) {
 function handleKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
 
+  if (event.key !== "Backspace") {
+    pendingDeleteByKey.value = null;
+  }
+
   if (quickPreviewItem.value) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -728,6 +744,21 @@ function handleKeydown(event: KeyboardEvent) {
       event.preventDefault();
       closeFloatingLayers();
     }
+    return;
+  }
+
+  if (event.key === "Backspace") {
+    event.preventDefault();
+    const item = store.visibleItems[store.selectedIndex];
+    if (!item) return;
+
+    const key = contextItemKey(item);
+    if (pendingDeleteByKey.value === key) {
+      void deleteSelectedItem(item);
+      return;
+    }
+
+    pendingDeleteByKey.value = key;
     return;
   }
 
@@ -862,6 +893,7 @@ function blurCategoryFocus() {
 function closeFloatingLayers() {
   contextMenu.value = null;
   pendingDeleteContextKey.value = null;
+  pendingDeleteByKey.value = null;
   hoveredPreviewItemKey.value = null;
   isQuickPreviewKeyDown.value = false;
   suppressQuickPreviewUntilModifierUp = false;
@@ -1169,6 +1201,7 @@ function scrollSelectedClipIntoView() {
                 :category-tags="itemCategoryTags(item)"
                 :editing-name="editingClipKey === contextItemKey(item) ? editingClipName : null"
                 :reorder-enabled="canReorderVisibleItems && item.collection === 'category'"
+                :delete-confirming="pendingDeleteByKey === contextItemKey(item)"
                 :style="itemDragStyle(item)"
                 :class="{
                   'clip-card-dragging': draggingItemKey === contextItemKey(item),
