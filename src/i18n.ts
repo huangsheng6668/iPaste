@@ -274,7 +274,7 @@ const messages = {
     "viewer.discard": "Don't save",
     "viewer.saveAndClose": "Save and close",
 
-    "search.fromCategory": "From {{name}}",
+    "search.fromCategory": "From {name}",
   },
   "zh-CN": {
     "language.english": "英语",
@@ -523,7 +523,7 @@ const messages = {
     "viewer.discard": "不保存",
     "viewer.saveAndClose": "保存并关闭",
 
-    "search.fromCategory": "来自 {{name}}",
+    "search.fromCategory": "来自 {name}",
   },
   "ja": {
     "language.english": "英語",
@@ -762,7 +762,7 @@ const messages = {
     "viewer.discard": "保存しない",
     "viewer.saveAndClose": "保存して閉じる",
 
-    "search.fromCategory": "{{name}} から",
+    "search.fromCategory": "{name} から",
   },
   "ko": {
     "language.english": "영어",
@@ -1001,7 +1001,7 @@ const messages = {
     "viewer.discard": "저장 안 함",
     "viewer.saveAndClose": "저장하고 닫기",
 
-    "search.fromCategory": "{{name}}에서",
+    "search.fromCategory": "{name}에서",
   },
   "es": {
     "language.english": "Inglés",
@@ -1240,7 +1240,7 @@ const messages = {
     "viewer.discard": "No guardar",
     "viewer.saveAndClose": "Guardar y cerrar",
 
-    "search.fromCategory": "De {{name}}",
+    "search.fromCategory": "De {name}",
   },
   "fr": {
     "language.english": "Anglais",
@@ -1479,7 +1479,7 @@ const messages = {
     "viewer.discard": "Ne pas enregistrer",
     "viewer.saveAndClose": "Enregistrer et fermer",
 
-    "search.fromCategory": "De {{name}}",
+    "search.fromCategory": "De {name}",
   },
   "de": {
     "language.english": "Englisch",
@@ -1718,7 +1718,7 @@ const messages = {
     "viewer.discard": "Nicht speichern",
     "viewer.saveAndClose": "Speichern und schließen",
 
-    "search.fromCategory": "Aus {{name}}",
+    "search.fromCategory": "Aus {name}",
   },
 } as const;
 
