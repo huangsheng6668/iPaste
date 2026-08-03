@@ -22,6 +22,7 @@ import {
   isSettingsCommandMissing,
 } from "./lib/settings";
 import type {
+  AppSettings,
   AppendCopyChangedEvent,
   CapturedEvent,
   Category,
@@ -565,23 +566,14 @@ export const useIpasteStore = defineStore("ipaste", () => {
     backgroundSyncTimer = null;
   }
 
-  function applySettings(settings: {
-    shortcut: string;
-    retentionDays: number;
-    appendCopyTimeoutMinutes?: number;
-    panelOpenBehavior: PanelOpenBehavior;
-    panelLayout?: PanelLayout;
-    ocrMode?: OcrMode;
-    language?: Language;
-    cloud: CloudSettings;
-  }) {
+  function applySettings(settings: AppSettings) {
     shortcut.value = settings.shortcut;
     retentionDays.value = settings.retentionDays;
-    appendCopyTimeoutMinutes.value = cleanAppendCopyTimeoutMinutes(settings.appendCopyTimeoutMinutes);
+    appendCopyTimeoutMinutes.value = settings.appendCopyTimeoutMinutes;
     panelOpenBehavior.value = settings.panelOpenBehavior;
-    panelLayout.value = cleanPanelLayout(settings.panelLayout);
-    ocrMode.value = cleanOcrMode(settings.ocrMode);
-    language.value = cleanLanguage(settings.language);
+    panelLayout.value = settings.panelLayout;
+    ocrMode.value = settings.ocrMode;
+    language.value = settings.language;
     setLanguage(language.value);
     cloud.value = settings.cloud;
   }
