@@ -8,74 +8,36 @@ import {
   Brush,
   CheckCircle2,
   ChevronRight,
-  ClipboardPlus,
   Cpu,
   Database,
   Download,
-  History,
   Keyboard,
-  LoaderCircle,
-  Power,
   RefreshCw,
   ScanText,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   SquareCode,
-  Tags,
-  Trash2,
   Zap,
 } from "lucide-vue-next";
-import LanguageSelect from "./LanguageSelect.vue";
 import ShortcutsTab from "./settings/ShortcutsTab.vue";
 import OcrTab from "./settings/OcrTab.vue";
 import DataManagementTab from "./settings/DataManagementTab.vue";
+import GeneralTab from "./settings/GeneralTab.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { useUpdater } from "../composables/useUpdater";
-import { languageOptions, t } from "../i18n";
+import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
-import type { AppInfo, Language, PanelLayout, PanelOpenBehavior } from "../types";
+import type { AppInfo } from "../types";
 
 const store = useIpasteStore();
 type SettingsTab = "general" | "shortcuts" | "ocr" | "dataManagement" | "permissions" | "about";
 const activeTab = ref<SettingsTab>("general");
 const showPermissionGuide = ref(false);
 const appInfo = ref<AppInfo | null>(null);
-const autostartEnabled = ref(false);
-const isTogglingAutostart = ref(false);
-const autostartError = ref<string | null>(null);
-const isClearingHistory = ref(false);
-const confirmingClearHistory = ref(false);
-const storageMessage = ref<string | null>(null);
-const storageError = ref<string | null>(null);
-const isTauri = "__TAURI_INTERNALS__" in window;
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const updater = useUpdater();
-
-const retentionOptions = computed(() => [
-  { label: t("settings.retention.7"), value: 7 },
-  { label: t("settings.retention.14"), value: 14 },
-  { label: t("settings.retention.30"), value: 30 },
-  { label: t("settings.retention.90"), value: 90 },
-]);
-
-const appendCopyTimeoutOptions = [
-  { label: "1", value: 1 },
-  { label: "3", value: 3 },
-  { label: "5", value: 5 },
-  { label: "10", value: 10 },
-];
-
-const panelOpenOptions = computed<Array<{ label: string; value: PanelOpenBehavior; icon: typeof History }>>(() => [
-  { label: t("settings.panelOpen.history"), value: "history", icon: History },
-  { label: t("settings.panelOpen.lastSelected"), value: "last_selected", icon: Tags },
-]);
-
-const panelLayoutOptions = computed<Array<{ label: string; value: PanelLayout }>>(() => [
-  { label: t("settings.layout.top"), value: "top" },
-  { label: t("settings.layout.side"), value: "side" },
-]);
 
 const tabs = computed(() => {
   const items: Array<{ id: SettingsTab; label: string; icon: typeof SlidersHorizontal }> = [
@@ -107,19 +69,9 @@ const techStack = computed(() => [
   { name: "SQLite", detail: t("settings.tech.sqlite"), icon: Database, tone: "indigo" },
 ]);
 
-const retentionText = computed(() => {
-  return retentionOptions.value.find((option) => option.value === store.retentionDays)?.label ?? t("settings.retention.30");
-});
-
-const appendCopyTimeoutText = computed(() => {
-  const label = appendCopyTimeoutOptions.find((option) => option.value === store.appendCopyTimeoutMinutes)?.label ?? "1";
-  return t("common.minutes", { value: label });
-});
-
 onMounted(async () => {
   await store.load();
   appInfo.value = await ipasteApi.appInfo();
-  await loadAutostartStatus();
 });
 
 async function openAccessibilityGuide() {
@@ -127,71 +79,6 @@ async function openAccessibilityGuide() {
   await ipasteApi.openAccessibilitySettings();
 }
 
-async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
-  await store.updatePanelOpenBehavior(behavior);
-}
-
-async function updatePanelLayout(layout: PanelLayout) {
-  await store.updatePanelLayout(layout);
-}
-
-async function updateAppendCopyTimeout(minutes: number) {
-  await store.updateAppendCopyTimeout(minutes);
-}
-
-async function updateLanguage(language: Language) {
-  await store.updateLanguage(language);
-}
-
-function requestClearHistory() {
-  storageMessage.value = null;
-  storageError.value = null;
-  confirmingClearHistory.value = true;
-}
-
-function cancelClearHistory() {
-  confirmingClearHistory.value = false;
-}
-
-async function confirmClearHistory() {
-  if (isClearingHistory.value) return;
-  isClearingHistory.value = true;
-  storageMessage.value = null;
-  storageError.value = null;
-  try {
-    const deleted = await store.clearHistory();
-    confirmingClearHistory.value = false;
-    storageMessage.value = t("settings.storage.cleared", { count: deleted });
-  } catch (unknownError) {
-    storageError.value = String(unknownError);
-  } finally {
-    isClearingHistory.value = false;
-  }
-}
-
-async function loadAutostartStatus() {
-  if (!isTauri) return;
-  try {
-    autostartEnabled.value = await ipasteApi.isAutostartEnabled();
-  } catch (unknownError) {
-    autostartError.value = String(unknownError);
-  }
-}
-
-async function toggleAutostart() {
-  if (isTogglingAutostart.value) return;
-  autostartError.value = null;
-  isTogglingAutostart.value = true;
-  try {
-    autostartEnabled.value = autostartEnabled.value
-      ? await ipasteApi.disableAutostart()
-      : await ipasteApi.enableAutostart();
-  } catch (unknownError) {
-    autostartError.value = String(unknownError);
-  } finally {
-    isTogglingAutostart.value = false;
-  }
-}
 
 </script>
 
@@ -215,215 +102,7 @@ async function toggleAutostart() {
       </header>
 
       <div class="settings-content subtle-scrollbar">
-        <div v-if="activeTab === 'general'" class="settings-section">
-          <section class="settings-panel settings-language-panel items-start">
-            <div class="settings-icon settings-icon-teal">
-              <Sparkles class="size-5" />
-            </div>
-
-            <div class="min-w-0 flex-1">
-              <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.language.title") }}</h2>
-              <p class="mt-1 text-sm text-slate-500">{{ t("settings.language.description") }}</p>
-            </div>
-
-            <LanguageSelect
-              class="settings-language-select"
-              :model-value="store.language"
-              :options="languageOptions"
-              :label="t('settings.language.title')"
-              @update:model-value="updateLanguage"
-            />
-          </section>
-
-          <section class="settings-panel items-start">
-            <div class="settings-icon settings-icon-teal">
-              <Power class="size-5" />
-            </div>
-
-            <div class="min-w-0 flex-1">
-              <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.autostart.title") }}</h2>
-              <p class="mt-1 text-sm text-slate-500">{{ t("settings.autostart.description") }}</p>
-              <p
-                v-if="autostartError"
-                class="settings-message settings-message-error mt-2"
-              >
-                <AlertCircle class="size-4" />
-                <span>{{ autostartError }}</span>
-              </p>
-            </div>
-
-            <button
-              type="button"
-              class="switch-control"
-              :class="{ 'switch-control-active': autostartEnabled }"
-              :disabled="isTogglingAutostart || !isTauri"
-              :aria-pressed="autostartEnabled"
-              :aria-label="t('settings.autostart.title')"
-              @click="toggleAutostart"
-            >
-              <span />
-            </button>
-          </section>
-
-          <section class="settings-panel items-start">
-            <div class="settings-icon settings-icon-blue">
-              <SlidersHorizontal class="size-5" />
-            </div>
-
-            <div class="min-w-0 flex-1">
-              <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.openDefault.title") }}</h2>
-              <p class="mt-1 text-sm text-slate-500">{{ t("settings.openDefault.description") }}</p>
-            </div>
-
-            <div class="segmented-control">
-              <button
-                v-for="option in panelOpenOptions"
-                :key="option.value"
-                type="button"
-                class="segmented-option segmented-option-with-icon"
-                :class="{ 'segmented-option-active': store.panelOpenBehavior === option.value }"
-                @click="updatePanelOpenBehavior(option.value)"
-              >
-                <component :is="option.icon" class="size-3.5" />
-                <span>{{ option.label }}</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="settings-panel settings-column-panel">
-            <div class="settings-panel-heading">
-              <div class="settings-icon settings-icon-blue">
-                <AppWindow class="size-5" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.layout.title") }}</h2>
-                <p class="mt-1 text-sm text-slate-500">{{ t("settings.layout.description") }}</p>
-              </div>
-            </div>
-
-            <div class="settings-layout-options">
-              <button
-                v-for="option in panelLayoutOptions"
-                :key="option.value"
-                type="button"
-                class="layout-option-button"
-                :class="{ 'layout-option-button-active': store.panelLayout === option.value }"
-                :aria-pressed="store.panelLayout === option.value"
-                @click="updatePanelLayout(option.value)"
-              >
-                <span class="layout-option-preview" :class="`layout-option-preview-${option.value}`">
-                  <span class="layout-preview-categories">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  <span class="layout-preview-list">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </span>
-                <span class="layout-option-label">{{ option.label }}</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="settings-panel settings-column-panel">
-            <div class="settings-panel-heading">
-              <div class="settings-icon settings-icon-teal">
-                <ClipboardPlus class="size-5" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.appendCopy.title") }}</h2>
-                <p class="mt-1 text-sm text-slate-500">{{ t("settings.appendCopy.description", { duration: appendCopyTimeoutText }) }}</p>
-              </div>
-            </div>
-
-            <div class="segmented-control settings-retention-control">
-              <button
-                v-for="option in appendCopyTimeoutOptions"
-                :key="option.value"
-                type="button"
-                class="segmented-option"
-                :class="{ 'segmented-option-active': store.appendCopyTimeoutMinutes === option.value }"
-                @click="updateAppendCopyTimeout(option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </section>
-
-          <section class="settings-panel settings-column-panel">
-            <div class="settings-panel-heading">
-              <div class="settings-icon settings-icon-blue">
-                <Database class="size-5" />
-              </div>
-              <div class="min-w-0">
-                <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.storage.title") }}</h2>
-                <p class="mt-1 text-sm text-slate-500">{{ t("settings.storage.description", { duration: retentionText }) }}</p>
-              </div>
-            </div>
-
-            <div class="segmented-control settings-retention-control">
-              <button
-                v-for="option in retentionOptions"
-                :key="option.value"
-                type="button"
-                class="segmented-option"
-                :class="{ 'segmented-option-active': store.retentionDays === option.value }"
-                @click="store.updateRetentionDays(option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-
-            <div class="settings-storage-actions">
-              <button
-                v-if="!confirmingClearHistory"
-                type="button"
-                class="settings-action-button settings-action-button-danger"
-                :disabled="isClearingHistory"
-                @click="requestClearHistory"
-              >
-                <Trash2 class="size-4" />
-                <span>{{ t("settings.storage.clearHistory") }}</span>
-              </button>
-
-              <template v-else>
-                <button
-                  type="button"
-                  class="settings-action-button settings-action-button-danger settings-action-button-confirm"
-                  :disabled="isClearingHistory"
-                  @click="confirmClearHistory"
-                >
-                  <LoaderCircle v-if="isClearingHistory" class="size-4 update-spin" />
-                  <Trash2 v-else class="size-4" />
-                  <span>{{ t("settings.storage.clearConfirm") }}</span>
-                </button>
-                <button
-                  type="button"
-                  class="settings-action-button"
-                  :disabled="isClearingHistory"
-                  @click="cancelClearHistory"
-                >
-                  <span>{{ t("common.cancel") }}</span>
-                </button>
-              </template>
-            </div>
-
-            <p
-              v-if="storageError || storageMessage"
-              class="settings-message"
-              :class="{ 'settings-message-error': storageError }"
-            >
-              <AlertCircle v-if="storageError" class="size-4" />
-              <CheckCircle2 v-else class="size-4" />
-              <span>{{ storageError || storageMessage }}</span>
-            </p>
-          </section>
-
-        </div>
+        <GeneralTab v-if="activeTab === 'general'" />
 
         <ShortcutsTab v-else-if="activeTab === 'shortcuts'" />
 
