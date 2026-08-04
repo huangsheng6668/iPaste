@@ -53,6 +53,11 @@ const statusLabel = computed(() => {
       <Play class="size-3 shrink-0" />
       <span class="truncate">{{ action.command }}</span>
     </div>
-    <p v-if="action.cwd" class="mt-0.5 truncate text-xs text-slate-400">{{ action.cwd }}</p>
+    <p
+      v-if="action.cwd"
+      class="mt-0.5 truncate text-xs text-slate-400"
+    >
+      {{ action.cwd }}
+    </p>
   </div>
 </template>

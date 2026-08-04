@@ -25,8 +25,12 @@ const {
           <Keyboard class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.shortcuts.global.title") }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ t("settings.shortcuts.global.description") }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            {{ t("settings.shortcuts.global.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ t("settings.shortcuts.global.description") }}
+          </p>
         </div>
       </div>
 
@@ -68,8 +72,14 @@ const {
         class="settings-message"
         :class="{ 'settings-message-error': shortcutError }"
       >
-        <CheckCircle2 v-if="shortcutMessage && !shortcutError" class="size-4" />
-        <AlertCircle v-else class="size-4" />
+        <CheckCircle2
+          v-if="shortcutMessage && !shortcutError"
+          class="size-4"
+        />
+        <AlertCircle
+          v-else
+          class="size-4"
+        />
         <span>{{ shortcutError || shortcutMessage }}</span>
       </p>
     </section>
@@ -80,15 +90,30 @@ const {
           <Keyboard class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.shortcuts.panel.title") }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ t("settings.shortcuts.panel.description") }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            {{ t("settings.shortcuts.panel.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ t("settings.shortcuts.panel.description") }}
+          </p>
         </div>
       </div>
 
       <div class="settings-shortcut-list">
-        <div v-for="shortcut in fixedShortcuts" :key="shortcut.action" class="settings-shortcut-row">
-          <div class="shortcut-kbd-group" aria-hidden="true">
-            <kbd v-for="key in shortcut.keys" :key="key" class="shortcut-kbd">{{ key }}</kbd>
+        <div
+          v-for="shortcut in fixedShortcuts"
+          :key="shortcut.action"
+          class="settings-shortcut-row"
+        >
+          <div
+            class="shortcut-kbd-group"
+            aria-hidden="true"
+          >
+            <kbd
+              v-for="key in shortcut.keys"
+              :key="key"
+              class="shortcut-kbd"
+            >{{ key }}</kbd>
           </div>
           <span>{{ shortcut.action }}</span>
         </div>

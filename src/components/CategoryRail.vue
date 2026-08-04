@@ -588,7 +588,7 @@ function countLabel(count: number | undefined) {
           @keydown.enter.prevent.stop="commitEditing(category)"
           @keydown.escape.prevent.stop="emit('finishEditing')"
           @blur="commitEditing(category)"
-        />
+        >
         <div
           v-if="editingColorCategoryId === category.id"
           class="category-color-popover"
@@ -613,7 +613,10 @@ function countLabel(count: number | undefined) {
               tabindex="-1"
               @click="updateColor(category, color)"
             >
-              <Check v-if="color.toLowerCase() === category.color.toLowerCase()" class="size-3.5" />
+              <Check
+                v-if="color.toLowerCase() === category.color.toLowerCase()"
+                class="size-3.5"
+              />
             </button>
           </div>
           <label class="category-custom-color">
@@ -622,7 +625,7 @@ function countLabel(count: number | undefined) {
               :value="category.color"
               tabindex="-1"
               @change="updateColor(category, ($event.target as HTMLInputElement).value)"
-            />
+            >
             <span>{{ t("category.customColor") }}</span>
           </label>
         </div>
@@ -641,7 +644,12 @@ function countLabel(count: number | undefined) {
     </nav>
 
     <div class="category-create-wrap flex shrink-0 items-center gap-2">
-      <button type="button" class="category-chip category-chip-create" tabindex="-1" @click="emit('create')">
+      <button
+        type="button"
+        class="category-chip category-chip-create"
+        tabindex="-1"
+        @click="emit('create')"
+      >
         <Plus class="size-4" />
         <span>{{ t("category.create") }}</span>
       </button>
@@ -654,11 +662,21 @@ function countLabel(count: number | undefined) {
       @click.stop
       @contextmenu.prevent.stop
     >
-      <button type="button" class="category-context-item" tabindex="-1" @click="editCategory(categoryMenu.category)">
+      <button
+        type="button"
+        class="category-context-item"
+        tabindex="-1"
+        @click="editCategory(categoryMenu.category)"
+      >
         <Pencil class="size-3.5" />
         <span>{{ t("common.rename") }}</span>
       </button>
-      <button type="button" class="category-context-item" tabindex="-1" @click="openColorPicker(categoryMenu.category, $event)">
+      <button
+        type="button"
+        class="category-context-item"
+        tabindex="-1"
+        @click="openColorPicker(categoryMenu.category, $event)"
+      >
         <Palette class="size-3.5" />
         <span>{{ t("category.changeColor") }}</span>
       </button>

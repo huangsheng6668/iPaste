@@ -20,7 +20,9 @@ async function openAccessibilityGuide() {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.permissions.accessibility.title") }}</h2>
+        <h2 class="text-sm font-semibold text-slate-950">
+          {{ t("settings.permissions.accessibility.title") }}
+        </h2>
         <p class="mt-1 text-sm leading-6 text-slate-500">
           {{ t("settings.permissions.accessibility.description") }}
         </p>
@@ -37,12 +39,21 @@ async function openAccessibilityGuide() {
       </button>
     </section>
 
-    <section v-if="showPermissionGuide" class="permission-guide">
-      <h3 class="text-sm font-semibold text-slate-950">{{ t("settings.permissions.howTo") }}</h3>
+    <section
+      v-if="showPermissionGuide"
+      class="permission-guide"
+    >
+      <h3 class="text-sm font-semibold text-slate-950">
+        {{ t("settings.permissions.howTo") }}
+      </h3>
       <p class="mt-2 text-sm leading-6 text-slate-600">
         {{ t("settings.permissions.guide") }}
       </p>
-      <button type="button" class="permission-link" @click="openAccessibilityGuide">
+      <button
+        type="button"
+        class="permission-link"
+        @click="openAccessibilityGuide"
+      >
         <span>{{ t("settings.permissions.open") }}</span>
         <ChevronRight class="size-4" />
       </button>

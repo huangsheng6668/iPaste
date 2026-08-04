@@ -30,22 +30,46 @@ const techStack = computed(() => [
           <Sparkles class="size-5" />
         </div>
         <div class="min-w-0">
-          <h2 class="text-sm font-semibold text-slate-950">iPaste</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ t("settings.about.description") }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            iPaste
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ t("settings.about.description") }}
+          </p>
         </div>
       </div>
 
-      <section class="about-update-panel" :class="{ 'about-update-panel-error': updater.updateStatus.value === 'error' }">
+      <section
+        class="about-update-panel"
+        :class="{ 'about-update-panel-error': updater.updateStatus.value === 'error' }"
+      >
         <div class="about-update-copy">
-          <div class="about-update-icon" :class="{ 'about-update-icon-error': updater.updateStatus.value === 'error' }">
-            <AlertCircle v-if="updater.updateStatus.value === 'error'" class="size-4" />
-            <Download v-else-if="updater.updateStatus.value === 'available' || updater.updateStatus.value === 'downloading'" class="size-4" />
-            <CheckCircle2 v-else-if="updater.updateStatus.value === 'noUpdate' || updater.updateStatus.value === 'ready'" class="size-4" />
-            <RefreshCw v-else class="size-4" />
+          <div
+            class="about-update-icon"
+            :class="{ 'about-update-icon-error': updater.updateStatus.value === 'error' }"
+          >
+            <AlertCircle
+              v-if="updater.updateStatus.value === 'error'"
+              class="size-4"
+            />
+            <Download
+              v-else-if="updater.updateStatus.value === 'available' || updater.updateStatus.value === 'downloading'"
+              class="size-4"
+            />
+            <CheckCircle2
+              v-else-if="updater.updateStatus.value === 'noUpdate' || updater.updateStatus.value === 'ready'"
+              class="size-4"
+            />
+            <RefreshCw
+              v-else
+              class="size-4"
+            />
           </div>
           <div class="min-w-0">
             <div class="about-update-heading">
-              <h3 class="about-update-title">{{ t("settings.about.softwareUpdate") }}</h3>
+              <h3 class="about-update-title">
+                {{ t("settings.about.softwareUpdate") }}
+              </h3>
               <span class="about-version-badge">v{{ appInfo?.version ?? "0.1.0" }}</span>
             </div>
             <p>{{ updater.updateSummaryText.value }}</p>
@@ -58,17 +82,32 @@ const techStack = computed(() => [
           :disabled="updater.isUpdateBusy.value"
           @click="updater.checkForUpdate()"
         >
-          <RefreshCw class="size-4" :class="{ 'update-spin': updater.updateStatus.value === 'checking' }" />
+          <RefreshCw
+            class="size-4"
+            :class="{ 'update-spin': updater.updateStatus.value === 'checking' }"
+          />
           <span>{{ updater.updateButtonText.value }}</span>
         </button>
       </section>
 
       <div>
-        <h3 class="about-label">{{ t("settings.about.techStack") }}</h3>
+        <h3 class="about-label">
+          {{ t("settings.about.techStack") }}
+        </h3>
         <div class="tech-stack-grid">
-          <div v-for="item in techStack" :key="item.name" class="tech-stack-item">
-            <div class="tech-stack-icon" :class="`tech-stack-icon-${item.tone}`">
-              <component :is="item.icon" class="size-4" />
+          <div
+            v-for="item in techStack"
+            :key="item.name"
+            class="tech-stack-item"
+          >
+            <div
+              class="tech-stack-icon"
+              :class="`tech-stack-icon-${item.tone}`"
+            >
+              <component
+                :is="item.icon"
+                class="size-4"
+              />
             </div>
             <div class="min-w-0">
               <strong>{{ item.name }}</strong>

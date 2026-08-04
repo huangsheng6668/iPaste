@@ -160,7 +160,11 @@ function resetImagePreview(event: PointerEvent) {
             >
               <path d="M853.333333 170.666667H170.666667a42.666667 42.666667 0 0 0-42.666667 42.666666v128a42.666667 42.666667 0 0 0 85.333333 0V256h256v554.666667H384a42.666667 42.666667 0 0 0 0 85.333333h256a42.666667 42.666667 0 0 0 0-85.333333h-85.333333V256h256v85.333333a42.666667 42.666667 0 0 0 85.333333 0V213.333333a42.666667 42.666667 0 0 0-42.666667-42.666666z" />
             </svg>
-            <component :is="iconComponent" v-else class="clip-title-type-icon-svg" />
+            <component
+              :is="iconComponent"
+              v-else
+              class="clip-title-type-icon-svg"
+            />
           </button>
           <span class="clip-card-title min-w-0 truncate text-xs">{{ headerLabel }}</span>
           <span class="size-1 rounded-full bg-slate-300" />
@@ -179,7 +183,7 @@ function resetImagePreview(event: PointerEvent) {
           @keydown.enter.prevent.stop="emit('commitRename', item)"
           @keydown.escape.prevent.stop="emit('cancelRename')"
           @blur="emit('commitRename', item)"
-        />
+        >
 
         <div
           v-if="isImage"
@@ -187,11 +191,21 @@ function resetImagePreview(event: PointerEvent) {
           @pointermove="moveImagePreview"
           @pointerleave="resetImagePreview"
         >
-          <img class="w-full object-cover" :src="imageSrc" :alt="t('common.imagePreviewAlt')" />
+          <img
+            class="w-full object-cover"
+            :src="imageSrc"
+            :alt="t('common.imagePreviewAlt')"
+          >
         </div>
 
-        <div v-else-if="isColor" class="clip-preview-color mt-1.5">
-          <span class="clip-preview-color-swatch" :style="{ backgroundColor: colorPreviewValue }" />
+        <div
+          v-else-if="isColor"
+          class="clip-preview-color mt-1.5"
+        >
+          <span
+            class="clip-preview-color-swatch"
+            :style="{ backgroundColor: colorPreviewValue }"
+          />
           <span class="clip-preview-color-code">{{ previewContent }}</span>
         </div>
 

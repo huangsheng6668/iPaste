@@ -1237,7 +1237,10 @@ function scrollSelectedClipIntoView() {
         />
 
         <section class="clip-area">
-          <div v-if="store.error" class="mx-4 mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div
+            v-if="store.error"
+            class="mx-4 mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
             <AlertCircle class="size-4" />
             <span class="min-w-0 flex-1 truncate">{{ store.error }}</span>
           </div>
@@ -1256,7 +1259,11 @@ function scrollSelectedClipIntoView() {
               v-if="store.isLoading"
               class="clip-card-grid"
             >
-              <div v-for="index in 9" :key="index" class="h-40 animate-pulse rounded-lg border border-slate-200 bg-white" />
+              <div
+                v-for="index in 9"
+                :key="index"
+                class="h-40 animate-pulse rounded-lg border border-slate-200 bg-white"
+              />
             </div>
 
             <div
@@ -1280,8 +1287,12 @@ function scrollSelectedClipIntoView() {
                 class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center"
               >
                 <Zap class="size-10 text-slate-300" />
-                <h2 class="mt-3 text-base font-semibold text-slate-900">{{ t("automation.entry") }}</h2>
-                <p class="mt-1 max-w-sm text-sm text-slate-500">{{ t("automation.noActions") }}</p>
+                <h2 class="mt-3 text-base font-semibold text-slate-900">
+                  {{ t("automation.entry") }}
+                </h2>
+                <p class="mt-1 max-w-sm text-sm text-slate-500">
+                  {{ t("automation.noActions") }}
+                </p>
                 <button
                   type="button"
                   class="mt-4 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
@@ -1374,9 +1385,14 @@ function scrollSelectedClipIntoView() {
               />
             </div>
 
-            <div v-else class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center">
+            <div
+              v-else
+              class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center"
+            >
               <Inbox class="size-10 text-slate-300" />
-              <h2 class="mt-3 text-base font-semibold text-slate-900">{{ t("empty.title") }}</h2>
+              <h2 class="mt-3 text-base font-semibold text-slate-900">
+                {{ t("empty.title") }}
+              </h2>
               <p class="mt-1 max-w-sm text-sm text-slate-500">
                 {{ t("empty.description") }}
               </p>
@@ -1395,7 +1411,10 @@ function scrollSelectedClipIntoView() {
           >
             <div class="quick-preview-meta">
               <span class="quick-preview-type">{{ typeLabel(quickPreviewItem.clipType) }}</span>
-              <span v-if="quickPreviewTitle" class="quick-preview-title">{{ quickPreviewTitle }}</span>
+              <span
+                v-if="quickPreviewTitle"
+                class="quick-preview-title"
+              >{{ quickPreviewTitle }}</span>
               <span class="quick-preview-spacer" />
               <span>{{ formatTime(quickPreviewTime) }}</span>
               <span v-if="quickPreviewSize">{{ quickPreviewSize }}</span>
@@ -1436,16 +1455,33 @@ function scrollSelectedClipIntoView() {
               </button>
             </div>
 
-            <div v-if="quickPreviewItem.clipType === 'image'" class="quick-preview-image">
-              <img :src="quickPreviewImageSrc" :alt="t('common.imagePreviewAlt')" />
+            <div
+              v-if="quickPreviewItem.clipType === 'image'"
+              class="quick-preview-image"
+            >
+              <img
+                :src="quickPreviewImageSrc"
+                :alt="t('common.imagePreviewAlt')"
+              >
             </div>
 
-            <div v-else-if="quickPreviewItem.clipType === 'color'" class="quick-preview-color">
-              <span class="quick-preview-color-swatch" :style="{ backgroundColor: quickPreviewColorValue }" />
+            <div
+              v-else-if="quickPreviewItem.clipType === 'color'"
+              class="quick-preview-color"
+            >
+              <span
+                class="quick-preview-color-swatch"
+                :style="{ backgroundColor: quickPreviewColorValue }"
+              />
               <code>{{ quickPreviewContent }}</code>
             </div>
 
-            <div v-else class="quick-preview-text">{{ quickPreviewContent }}</div>
+            <div
+              v-else
+              class="quick-preview-text"
+            >
+              {{ quickPreviewContent }}
+            </div>
           </div>
         </section>
       </section>
@@ -1461,16 +1497,34 @@ function scrollSelectedClipIntoView() {
       @contextmenu.prevent.stop
       @mouseleave="pendingDeleteContextKey = null"
     >
-      <button type="button" class="context-menu-item context-menu-item-strong" tabindex="-1" role="menuitem" @click="pasteContextItem">
+      <button
+        type="button"
+        class="context-menu-item context-menu-item-strong"
+        tabindex="-1"
+        role="menuitem"
+        @click="pasteContextItem"
+      >
         <CornerDownLeft class="size-4" />
         <span>{{ t("common.paste") }}</span>
       </button>
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="copyContextItem">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="copyContextItem"
+      >
         <ClipboardCopy class="size-4" />
         <span>{{ t("common.copy") }}</span>
       </button>
       <div class="context-menu-separator" />
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="renameContextItem">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="renameContextItem"
+      >
         <Pencil class="size-4" />
         <span>{{ t("common.rename") }}</span>
       </button>
@@ -1481,7 +1535,13 @@ function scrollSelectedClipIntoView() {
         @mouseenter="openMoveSubmenu"
         @mouseleave="scheduleCloseMoveSubmenu"
       >
-        <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click.stop="openMoveSubmenu">
+        <button
+          type="button"
+          class="context-menu-item"
+          tabindex="-1"
+          role="menuitem"
+          @click.stop="openMoveSubmenu"
+        >
           <FolderInput class="size-4" />
           <span>{{ t("context.moveTo") }}</span>
           <ChevronRight class="ml-auto size-4 text-slate-400" />
@@ -1504,11 +1564,23 @@ function scrollSelectedClipIntoView() {
             role="menuitem"
             @click="addContextItemToCategory(category.id)"
           >
-            <span class="size-2 rounded-full" :style="{ backgroundColor: category.color }" />
+            <span
+              class="size-2 rounded-full"
+              :style="{ backgroundColor: category.color }"
+            />
             <span class="min-w-0 flex-1 truncate">{{ categoryDisplayName(category.name) }}</span>
           </button>
-          <div v-if="store.categories.length" class="context-menu-separator" />
-          <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="createCategoryForContextItem">
+          <div
+            v-if="store.categories.length"
+            class="context-menu-separator"
+          />
+          <button
+            type="button"
+            class="context-menu-item"
+            tabindex="-1"
+            role="menuitem"
+            @click="createCategoryForContextItem"
+          >
             <Plus class="size-4" />
             <span>{{ t("context.createCategory") }}</span>
           </button>
@@ -1550,9 +1622,18 @@ function scrollSelectedClipIntoView() {
         @click.self="automationDetailOpen = false"
       >
         <div class="flex h-[80vh] w-[520px] max-w-[90vw] flex-col overflow-hidden rounded-xl bg-white shadow-xl">
-          <AutomationDetailPane :action="automationDetailAction" @run="runSelectedAction(automationDetailAction); automationDetailOpen = false" />
+          <AutomationDetailPane
+            :action="automationDetailAction"
+            @run="runSelectedAction(automationDetailAction); automationDetailOpen = false"
+          />
           <div class="flex justify-end border-t border-slate-200 px-4 py-2">
-            <button type="button" class="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100" @click="automationDetailOpen = false">{{ t("common.cancel") }}</button>
+            <button
+              type="button"
+              class="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+              @click="automationDetailOpen = false"
+            >
+              {{ t("common.cancel") }}
+            </button>
           </div>
         </div>
       </div>
@@ -1565,21 +1646,51 @@ function scrollSelectedClipIntoView() {
       @click.stop
       @contextmenu.prevent.stop
     >
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="runSelectedAction(automationContextMenu.action); closeAutomationContextMenu()">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="runSelectedAction(automationContextMenu.action); closeAutomationContextMenu()"
+      >
         <Play class="size-3.5" /> {{ t("automation.run") }}
       </button>
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="openAutomationEditor(automationContextMenu.action); closeAutomationContextMenu()">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="openAutomationEditor(automationContextMenu.action); closeAutomationContextMenu()"
+      >
         <Pencil class="size-3.5" /> {{ t("automation.edit") }}
       </button>
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="copyAutomationCommand(automationContextMenu.action); closeAutomationContextMenu()">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="copyAutomationCommand(automationContextMenu.action); closeAutomationContextMenu()"
+      >
         <ClipboardCopy class="size-3.5" /> {{ t("automation.copy") }}
       </button>
       <div class="context-menu-separator" />
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="openAutomationDetail(automationContextMenu.action); closeAutomationContextMenu()">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="openAutomationDetail(automationContextMenu.action); closeAutomationContextMenu()"
+      >
         <Info class="size-3.5" /> {{ t("automation.detailStatus") }}
       </button>
       <div class="context-menu-separator" />
-      <button type="button" class="context-menu-item context-menu-item-strong" tabindex="-1" role="menuitem" @click="deleteAutomationAction(automationContextMenu.action); closeAutomationContextMenu()">
+      <button
+        type="button"
+        class="context-menu-item context-menu-item-strong"
+        tabindex="-1"
+        role="menuitem"
+        @click="deleteAutomationAction(automationContextMenu.action); closeAutomationContextMenu()"
+      >
         <Trash2 class="size-3.5" /> {{ t("automation.delete") }}
       </button>
     </div>

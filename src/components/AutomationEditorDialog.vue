@@ -76,7 +76,7 @@ function submit() {
           <input
             v-model="form.name"
             class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
-          />
+          >
         </label>
 
         <label class="mt-3 block">
@@ -96,19 +96,32 @@ function submit() {
             spellcheck="false"
             placeholder="E:\code\idea\ipaste-new"
             class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs focus:border-slate-400 focus:outline-none"
-          />
+          >
         </label>
 
         <label class="mt-3 flex items-center gap-2">
-          <input type="checkbox" v-model="form.confirmBeforeRun" class="size-4" />
+          <input
+            v-model="form.confirmBeforeRun"
+            type="checkbox"
+            class="size-4"
+          >
           <span class="text-sm text-slate-700">{{ t("automation.confirmBeforeRun") }}</span>
         </label>
         <label class="mt-2 flex items-center gap-2">
-          <input type="checkbox" v-model="form.closePanelOnSuccess" class="size-4" />
+          <input
+            v-model="form.closePanelOnSuccess"
+            type="checkbox"
+            class="size-4"
+          >
           <span class="text-sm text-slate-700">{{ t("automation.closePanelOnSuccess") }}</span>
         </label>
 
-        <p v-if="error" class="mt-2 text-sm text-red-600">{{ error }}</p>
+        <p
+          v-if="error"
+          class="mt-2 text-sm text-red-600"
+        >
+          {{ error }}
+        </p>
 
         <div class="mt-4 flex justify-end gap-2">
           <button

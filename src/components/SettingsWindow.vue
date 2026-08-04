@@ -58,7 +58,10 @@ onMounted(async () => {
   <main class="settings-shell">
     <section class="settings-window">
       <header class="settings-topbar">
-        <nav class="settings-tabs" :aria-label="t('settings.tabsLabel')">
+        <nav
+          class="settings-tabs"
+          :aria-label="t('settings.tabsLabel')"
+        >
           <button
             v-for="tab in tabs"
             :key="tab.id"
@@ -67,7 +70,10 @@ onMounted(async () => {
             :class="{ 'settings-tab-active': activeTab === tab.id }"
             @click="activeTab = tab.id"
           >
-            <component :is="tab.icon" class="size-4" />
+            <component
+              :is="tab.icon"
+              class="size-4"
+            />
             <span>{{ tab.label }}</span>
           </button>
         </nav>
@@ -84,7 +90,11 @@ onMounted(async () => {
 
         <PermissionsTab v-else-if="activeTab === 'permissions'" />
 
-        <AboutTab v-else :updater="updater" :appInfo="appInfo" />
+        <AboutTab
+          v-else
+          :updater="updater"
+          :app-info="appInfo"
+        />
       </div>
     </section>
 
