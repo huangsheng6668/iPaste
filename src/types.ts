@@ -171,3 +171,54 @@ export type CategoryHitGroup = {
 export type SearchResult =
   | { kind: "history"; page: ClipPage }
   | { kind: "categoryHits"; groups: CategoryHitGroup[] };
+
+export type AutomationStatus = "idle" | "running" | "success" | "failed" | "timed_out";
+
+export type AutomationAction = {
+  id: string;
+  name: string;
+  command: string;
+  cwd?: string | null;
+  runMode: string;
+  confirmBeforeRun: boolean;
+  closePanelOnSuccess: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  lastRun?: AutomationRunSummary | null;
+};
+
+export type AutomationRunSummary = {
+  id: string;
+  status: AutomationStatus;
+  exitCode?: number | null;
+  startedAt: string;
+  finishedAt?: string | null;
+  durationMs?: number | null;
+};
+
+export type AutomationRunDetail = {
+  id: string;
+  automationId: string;
+  status: AutomationStatus;
+  exitCode?: number | null;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  startedAt: string;
+  finishedAt?: string | null;
+  durationMs?: number | null;
+};
+
+export type AutomationInput = {
+  name: string;
+  command: string;
+  cwd?: string | null;
+  confirmBeforeRun: boolean;
+  closePanelOnSuccess: boolean;
+};
+
+export type AutomationRunStartedEvent = { runId: string; automationId: string; startedAt: string };
+export type AutomationRunOutputEvent = { runId: string; automationId: string; stream: "stdout" | "stderr"; chunk: string };
+export type AutomationRunFinishedEvent = { runId: string; automationId: string; status: AutomationStatus; exitCode?: number | null; startedAt: string; finishedAt: string };

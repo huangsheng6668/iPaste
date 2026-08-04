@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
+import { filterAutomations } from "./lib/automationFilter";
 import {
   compareSortOrder,
   compareCategoryItemOrder,
@@ -24,6 +25,11 @@ import {
 import type {
   AppSettings,
   AppendCopyChangedEvent,
+  AutomationAction,
+  AutomationInput,
+  AutomationRunFinishedEvent,
+  AutomationRunOutputEvent,
+  AutomationRunStartedEvent,
   CapturedEvent,
   Category,
   CategoryHitGroup,
@@ -51,6 +57,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const selectedCategoryId = ref<string>("history");
   const selectedIndex = ref(0);
   const search = ref("");
+  const automations = ref<AutomationAction[]>([]);
+  const selectedActionIndex = ref(0);
+  const actionsQuery = ref("");
+  const runningAutomationLogs = ref<Record<string, { stdout: string; stderr: string }>>({});
+  const closePanelRequested = ref(false);
   const shortcut = ref("CommandOrControl+Shift+V");
   const isListening = ref(true);
   const isAppendCopyEnabled = ref(false);
@@ -687,6 +698,59 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clampSelection();
   }
 
+  const visibleActions = computed(() => filterAutomations(automations.value, actionsQuery.value));
+
+  async function loadAutomations() {
+    automations.value = await ipasteApi.listAutomations();
+  }
+
+  async function createAutomation(input: AutomationInput) {
+    await ipasteApi.createAutomation(input);
+    await loadAutomations();
+  }
+
+  async function updateAutomation(id: string, input: AutomationInput) {
+    await ipasteApi.updateAutomation(id, input);
+    await loadAutomations();
+  }
+
+  async function deleteAutomation(id: string) {
+    await ipasteApi.deleteAutomation(id);
+    await loadAutomations();
+  }
+
+  async function runAutomation(id: string) {
+    return await ipasteApi.runAutomation(id);
+  }
+
+  if (isTauri) {
+    void listen<AutomationRunStartedEvent>("ipaste://automation-run-started", (event) => {
+      const { automationId, runId, startedAt } = event.payload;
+      const action = automations.value.find((entry) => entry.id === automationId);
+      if (action) {
+        action.lastRun = { id: runId, status: "running", startedAt, finishedAt: null, exitCode: null, durationMs: null };
+      }
+    });
+    void listen<AutomationRunOutputEvent>("ipaste://automation-run-output", (event) => {
+      const { runId, stream, chunk } = event.payload;
+      const logs = runningAutomationLogs.value[runId] ?? { stdout: "", stderr: "" };
+      const limit = 200 * 1024;
+      if (stream === "stderr") logs.stderr = (logs.stderr + chunk).slice(-limit);
+      else logs.stdout = (logs.stdout + chunk).slice(-limit);
+      runningAutomationLogs.value = { ...runningAutomationLogs.value, [runId]: logs };
+    });
+    void listen<AutomationRunFinishedEvent>("ipaste://automation-run-finished", (event) => {
+      const { automationId, status, exitCode, finishedAt } = event.payload;
+      const action = automations.value.find((entry) => entry.id === automationId);
+      if (action?.lastRun) {
+        action.lastRun = { ...action.lastRun, status, exitCode, finishedAt };
+      }
+      if (action?.closePanelOnSuccess && status === "success") {
+        closePanelRequested.value = true;
+      }
+    });
+  }
+
   return {
     clips,
     categories,
@@ -756,5 +820,16 @@ export const useIpasteStore = defineStore("ipaste", () => {
     moveSelection,
     setSelectedIndex,
     clampSelection,
+    automations,
+    selectedActionIndex,
+    actionsQuery,
+    runningAutomationLogs,
+    closePanelRequested,
+    visibleActions,
+    loadAutomations,
+    createAutomation,
+    updateAutomation,
+    deleteAutomation,
+    runAutomation,
   };
 });
