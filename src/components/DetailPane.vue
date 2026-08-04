@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { Clipboard, Info, Link } from "lucide-vue-next";
 import { computed } from "vue";
+import AutomationDetailPane from "./AutomationDetailPane.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { t } from "../i18n";
 import { clipMetricText, formatTime, typeLabel } from "../lib/format";
-import type { ClipViewItem } from "../types";
+import type { AutomationAction, ClipViewItem } from "../types";
 
 const props = defineProps<{
   item?: ClipViewItem;
+  mode?: "clip" | "actions";
+  automationAction?: AutomationAction | null;
 }>();
+
+const emit = defineEmits<{ (e: "run-automation"): void }>();
 
 const lines = computed(() => props.item?.text.split(/\r?\n/).length ?? 0);
 const isImage = computed(() => props.item?.clipType === "image");
@@ -25,7 +30,12 @@ const displayTime = computed(() => {
 
 <template>
   <aside class="hidden w-60 shrink-0 border-l border-slate-200 bg-white/80 lg:block">
-    <div v-if="item" class="flex h-full flex-col">
+    <AutomationDetailPane
+      v-if="mode === 'actions'"
+      :action="automationAction ?? null"
+      @run="emit('run-automation')"
+    />
+    <div v-else-if="item" class="flex h-full flex-col">
       <div class="border-b border-slate-200 p-4">
         <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
           <Info class="size-3.5" />
