@@ -204,7 +204,6 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::store::test_support::temp_store;
 
     #[test]

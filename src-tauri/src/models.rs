@@ -381,3 +381,56 @@ mod tests {
         assert!(json.contains(r#""kind":"categoryHits""#), "got: {json}");
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationAction {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) command: String,
+    pub(crate) cwd: Option<String>,
+    pub(crate) run_mode: String,
+    pub(crate) confirm_before_run: bool,
+    pub(crate) close_panel_on_success: bool,
+    pub(crate) sort_order: i64,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+    pub(crate) last_run: Option<AutomationRunSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationRunSummary {
+    pub(crate) id: String,
+    pub(crate) status: String,
+    pub(crate) exit_code: Option<i64>,
+    pub(crate) started_at: String,
+    pub(crate) finished_at: Option<String>,
+    pub(crate) duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationRunDetail {
+    pub(crate) id: String,
+    pub(crate) automation_id: String,
+    pub(crate) status: String,
+    pub(crate) exit_code: Option<i64>,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) stdout_truncated: bool,
+    pub(crate) stderr_truncated: bool,
+    pub(crate) started_at: String,
+    pub(crate) finished_at: Option<String>,
+    pub(crate) duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationInput {
+    pub(crate) name: String,
+    pub(crate) command: String,
+    pub(crate) cwd: Option<String>,
+    pub(crate) confirm_before_run: bool,
+    pub(crate) close_panel_on_success: bool,
+}

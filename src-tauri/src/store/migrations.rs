@@ -67,6 +67,36 @@ impl Store {
                 created_at TEXT NOT NULL,
                 PRIMARY KEY(entity, entity_id)
             );
+
+            CREATE TABLE IF NOT EXISTS automations (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                command TEXT NOT NULL,
+                cwd TEXT,
+                run_mode TEXT NOT NULL DEFAULT 'background',
+                confirm_before_run INTEGER NOT NULL DEFAULT 0,
+                close_panel_on_success INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS automation_runs (
+                id TEXT PRIMARY KEY,
+                automation_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                exit_code INTEGER,
+                stdout TEXT NOT NULL DEFAULT '',
+                stderr TEXT NOT NULL DEFAULT '',
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_automations_sort_order ON automations(sort_order, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_started ON automation_runs(automation_id, started_at DESC);
             ",
         )
         .map_err(|error| error.to_string())?;

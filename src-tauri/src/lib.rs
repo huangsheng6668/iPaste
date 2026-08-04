@@ -458,3 +458,46 @@ pub(crate) fn map_category_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Cat
         is_pinned: row.get(12)?,
     })
 }
+
+pub(crate) fn map_automation(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationAction> {
+    Ok(AutomationAction {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        command: row.get(2)?,
+        cwd: row.get(3)?,
+        run_mode: row.get(4)?,
+        confirm_before_run: row.get(5)?,
+        close_panel_on_success: row.get(6)?,
+        sort_order: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+        last_run: None,
+    })
+}
+
+pub(crate) fn map_automation_run_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationRunSummary> {
+    Ok(AutomationRunSummary {
+        id: row.get(0)?,
+        status: row.get(1)?,
+        exit_code: row.get(2)?,
+        started_at: row.get(3)?,
+        finished_at: row.get(4)?,
+        duration_ms: row.get(5)?,
+    })
+}
+
+pub(crate) fn map_automation_run_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationRunDetail> {
+    Ok(AutomationRunDetail {
+        id: row.get(0)?,
+        automation_id: row.get(1)?,
+        status: row.get(2)?,
+        exit_code: row.get(3)?,
+        stdout: row.get(4)?,
+        stderr: row.get(5)?,
+        stdout_truncated: row.get(6)?,
+        stderr_truncated: row.get(7)?,
+        started_at: row.get(8)?,
+        finished_at: row.get(9)?,
+        duration_ms: row.get(10)?,
+    })
+}
