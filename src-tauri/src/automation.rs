@@ -39,7 +39,7 @@ pub(crate) fn truncate_log(text: &str, limit: usize) -> (String, bool) {
     (text.chars().take(limit).collect(), true)
 }
 
-pub(crate) async fn run_automation(
+pub(crate) async fn execute_automation(
     app: tauri::AppHandle,
     store: &Store,
     action: AutomationAction,

@@ -654,3 +654,53 @@ pub(crate) fn apply_clip(
 
     Ok(())
 }
+
+#[tauri::command]
+pub(crate) fn list_automations(state: tauri::State<'_, AppState>) -> Result<Vec<AutomationAction>, String> {
+    state.store.list_automations()
+}
+
+#[tauri::command]
+pub(crate) fn create_automation(
+    state: tauri::State<'_, AppState>,
+    input: AutomationInput,
+) -> Result<AutomationAction, String> {
+    state.store.create_automation(input)
+}
+
+#[tauri::command]
+pub(crate) fn update_automation(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: AutomationInput,
+) -> Result<AutomationAction, String> {
+    state.store.update_automation(&id, input)
+}
+
+#[tauri::command]
+pub(crate) fn delete_automation(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    state.store.delete_automation(&id)
+}
+
+#[tauri::command]
+pub(crate) async fn run_automation(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<AutomationRunSummary, String> {
+    let conn = state.store.connect()?;
+    let action = state.store.get_automation_with_conn(&conn, &id)?;
+    let store = state.store.clone();
+    tauri::async_runtime::spawn(async move { crate::automation::execute_automation(app, &store, action).await })
+        .await
+        .map_err(|e| format!("任务失败: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) fn get_automation_run(
+    state: tauri::State<'_, AppState>,
+    run_id: String,
+) -> Result<AutomationRunDetail, String> {
+    let conn = state.store.connect()?;
+    state.store.get_automation_run_detail(&conn, &run_id)
+}
