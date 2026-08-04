@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { Check, Palette, Pencil, Plus, Trash2 } from "lucide-vue-next";
+import { Check, Palette, Pencil, Plus, Trash2, Zap } from "lucide-vue-next";
 import { t } from "../i18n";
 import { categoryDisplayName } from "../lib/format";
 import type { Category } from "../types";
@@ -627,6 +627,17 @@ function countLabel(count: number | undefined) {
           </label>
         </div>
       </div>
+
+      <button
+        type="button"
+        class="category-chip category-chip-actions"
+        :class="{ 'category-chip-active': selectedCategoryId === 'actions' }"
+        tabindex="-1"
+        @click="selectCategory('actions')"
+      >
+        <Zap class="size-4" />
+        <span class="category-chip-label">{{ t("automation.entry") }}</span>
+      </button>
     </nav>
 
     <div class="category-create-wrap flex shrink-0 items-center gap-2">

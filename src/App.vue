@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Pencil, Plus, Trash2, X } from "lucide-vue-next";
+import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Pencil, Plus, Trash2, X, Zap } from "lucide-vue-next";
 import CategoryRail from "./components/CategoryRail.vue";
 import ClipCard from "./components/ClipCard.vue";
+import AutomationCard from "./components/AutomationCard.vue";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import TopBar from "./components/TopBar.vue";
@@ -14,7 +15,7 @@ import { clipImageSrc } from "./lib/clipMedia";
 import { categoryDisplayName, clipMetricText, formatShortcut, formatTime, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
-import type { Category, CategoryItem, ClipViewItem } from "./types";
+import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "./types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const store = useIpasteStore();
@@ -145,6 +146,7 @@ onMounted(async () => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
   await store.load();
+  await store.loadAutomations();
   await store.bindEvents();
   if (isTauri) {
     scheduleSilentUpdateCheck();
@@ -793,6 +795,9 @@ function hasQuickPreviewModifier(event: KeyboardEvent) {
 type PanelKey = "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "Enter" | "Escape";
 
 function handlePanelKey(key: string) {
+  if (store.selectedCategoryId === "actions") {
+    return handleActionsKey(key);
+  }
   if (contextMenu.value) {
     if (key === "Escape") {
       closeFloatingLayers();
@@ -832,6 +837,39 @@ function handlePanelKey(key: string) {
   }
 
   return false;
+}
+
+function handleActionsKey(key: string): boolean {
+  if (key === "ArrowDown") {
+    store.selectedActionIndex = Math.min(store.selectedActionIndex + 1, Math.max(store.visibleActions.length - 1, 0));
+    return true;
+  }
+  if (key === "ArrowUp") {
+    store.selectedActionIndex = Math.max(store.selectedActionIndex - 1, 0);
+    return true;
+  }
+  if (key === "Enter") {
+    const action = store.visibleActions[store.selectedActionIndex];
+    if (action) void runSelectedAction(action);
+    return true;
+  }
+  if (key === "Escape") {
+    store.selectCategory("history");
+    return true;
+  }
+  return false;
+}
+
+function selectActionCard(index: number) {
+  store.selectedActionIndex = index;
+}
+
+async function runSelectedAction(action: AutomationAction) {
+  try {
+    await store.runAutomation(action.id);
+  } catch (unknownError) {
+    console.error("automation run failed", unknownError);
+  }
 }
 
 function handleCategoryShortcut(event: KeyboardEvent) {
@@ -1143,6 +1181,28 @@ function scrollSelectedClipIntoView() {
               class="clip-card-grid"
             >
               <div v-for="index in 9" :key="index" class="h-40 animate-pulse rounded-lg border border-slate-200 bg-white" />
+            </div>
+
+            <div
+              v-else-if="store.selectedCategoryId === 'actions'"
+              class="clip-card-grid"
+            >
+              <AutomationCard
+                v-for="(action, index) in store.visibleActions"
+                :key="action.id"
+                :action="action"
+                :selected="store.selectedActionIndex === index"
+                @click="selectActionCard(index)"
+                @run="runSelectedAction(action)"
+              />
+              <div
+                v-if="!store.visibleActions.length"
+                class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center"
+              >
+                <Zap class="size-10 text-slate-300" />
+                <h2 class="mt-3 text-base font-semibold text-slate-900">{{ t("automation.entry") }}</h2>
+                <p class="mt-1 max-w-sm text-sm text-slate-500">{{ t("automation.noActions") }}</p>
+              </div>
             </div>
 
             <div
