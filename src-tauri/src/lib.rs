@@ -10,6 +10,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::ShortcutState;
 use uuid::Uuid;
 
+mod automation;
 mod clipboard;
 use crate::clipboard::*;
 
