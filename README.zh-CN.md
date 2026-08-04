@@ -4,11 +4,6 @@
 
 **语言:** [English](README.md) | 简体中文 | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-[![Release](https://img.shields.io/github/v/release/iPaste-app/iPaste?label=release)](https://github.com/iPaste-app/iPaste/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](#平台支持)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
-
 iPaste 常驻系统托盘，在本机记录剪贴板历史。你可以用全局快捷键快速唤出面板，搜索旧内容，回车粘贴，也可以把常用片段保存到分类里长期复用。
 
 它适合经常在聊天、浏览器、终端、设计工具、笔记和代码编辑器之间切换的人：复制过的链接、命令、色值、提示词、回复模板、截图文字，不必再靠临时文件或反复翻聊天记录找回来。

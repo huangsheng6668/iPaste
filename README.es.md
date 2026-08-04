@@ -4,10 +4,7 @@
 
 **Idiomas:** [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | Español | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-[![Release](https://img.shields.io/github/v/release/iPaste-app/iPaste?label=release)](https://github.com/iPaste-app/iPaste/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](#platform-support)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+
 
 iPaste vive en la bandeja del sistema y registra el historial del portapapeles de forma local. Abre el panel con un atajo global, busca contenido anterior, pulsa Enter para pegar o guarda fragmentos usados con frecuencia en categorías para reutilizarlos a largo plazo.
 

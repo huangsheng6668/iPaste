@@ -4,10 +4,6 @@
 
 **Langues:** [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | Français | [Deutsch](README.de.md)
 
-[![Release](https://img.shields.io/github/v/release/iPaste-app/iPaste?label=release)](https://github.com/iPaste-app/iPaste/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](#platform-support)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 iPaste vit dans la zone de notification et enregistre l'historique du presse-papiers localement. Ouvrez le panneau avec un raccourci global, recherchez du contenu précédent, appuyez sur Enter pour coller, ou enregistrez les extraits utilisés fréquemment dans des catégories pour les réutiliser durablement.
 

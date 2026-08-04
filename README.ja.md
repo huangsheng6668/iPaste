@@ -4,10 +4,7 @@
 
 **言語:** [English](README.md) | [简体中文](README.zh-CN.md) | 日本語 | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-[![Release](https://img.shields.io/github/v/release/iPaste-app/iPaste?label=release)](https://github.com/iPaste-app/iPaste/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](#platform-support)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+
 
 iPaste はシステムトレイに常駐し、クリップボード履歴をローカルに記録します。グローバルショートカットでパネルを開き、過去の内容を検索し、Enter で貼り付けたり、よく使うスニペットをカテゴリに保存して長期的に再利用できます。
 

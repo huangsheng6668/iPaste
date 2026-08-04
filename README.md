@@ -4,11 +4,6 @@
 
 **Languages:** English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-[![Release](https://img.shields.io/github/v/release/iPaste-app/iPaste?label=release)](https://github.com/iPaste-app/iPaste/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](#platform-support)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
-
 iPaste lives in your system tray and records clipboard history locally. Open the panel with a global shortcut, search previous content, press Enter to paste, or save frequently used snippets into categories for long-term reuse.
 
 It is built for people who move between chat, browsers, terminals, design tools, notes, and code editors all day. Links, commands, color values, prompts, reply templates, and screenshot text do not need to disappear into temporary files or old chat threads.

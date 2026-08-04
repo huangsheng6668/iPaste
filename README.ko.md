@@ -4,10 +4,6 @@
 
 **언어:** [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | 한국어 | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
-[![Release](https://img.shields.io/github/v/release/iPaste-app/iPaste?label=release)](https://github.com/iPaste-app/iPaste/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](#platform-support)
-[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)](https://tauri.app/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 iPaste는 시스템 트레이에 상주하며 클립보드 기록을 로컬에 저장합니다. 전역 단축키로 패널을 열고, 이전 내용을 검색하고, Enter로 붙여넣거나, 자주 쓰는 스니펫을 카테고리에 저장해 장기적으로 재사용할 수 있습니다.
 
