@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ChevronLeft,
   ChevronRight,
@@ -23,21 +22,15 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useImageViewer } from "../composables/useImageViewer";
 import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor } from "../composables/useClipEditor";
+import { useViewerWindow } from "../composables/useViewerWindow";
 import { clipImageSrc } from "../lib/clipMedia";
 import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { formatTime, typeLabel } from "../lib/format";
 import type { ClipViewerPayload } from "../types";
 
-const isTauri = "__TAURI_INTERNALS__" in window;
 const payload = ref<ClipViewerPayload | null>(null);
-const windowLabel = ref("");
-const isPinned = ref(isTauri);
 const error = ref<string | null>(null);
-const showClosePrompt = ref(false);
-const isSavingBeforeClose = ref(false);
-let unlistenCloseRequested: (() => void) | null = null;
-let isForceClosing = false;
 
 const item = computed(() => payload.value?.item);
 const title = computed(() => {
@@ -68,7 +61,7 @@ const {
   endImageOcrSelection,
   clearImageTextSelection, resetOcrState,
 } = ocr;
-const editorOptions = { payload, isPinned, isImage, ocr, error };
+const editorOptions = { payload, isPinned: ref(false), isImage, ocr, error };
 const editor = useClipEditor(item, editorOptions);
 const {
   draftText, editorElement, selectionAction, hasChanged, stats, metricText, lines,
@@ -77,6 +70,13 @@ const {
 } = editor;
 editorHandle.hideSelectionAction = hideSelectionAction;
 editorHandle.selectionAction = selectionAction;
+const viewerWindow = useViewerWindow(editor.hasChanged, { error, hideSelectionAction });
+const {
+  windowLabel, isPinned, showClosePrompt, isSavingBeforeClose,
+  startWindowDrag, togglePinned, closeWindow, cancelClose,
+  forceCloseWindow,
+} = viewerWindow;
+editorOptions.isPinned = viewerWindow.isPinned;
 const displayTime = computed(() => {
   const current = item.value;
   if (!current) return "";
@@ -85,37 +85,14 @@ const displayTime = computed(() => {
 
 onMounted(async () => {
   loadPayload();
-  if (isTauri) {
-    try {
-      isPinned.value = await getCurrentWindow().isAlwaysOnTop();
-    } catch {
-      isPinned.value = true;
-    }
-  }
   document.addEventListener("keydown", handleViewerKeydown, true);
   window.addEventListener("resize", handleViewerResize);
-  window.addEventListener("beforeunload", handleBeforeUnload);
-  if (isTauri) {
-    unlistenCloseRequested = await getCurrentWindow().onCloseRequested(async (event) => {
-      event.preventDefault();
-      if (isForceClosing) return;
-      if (!hasChanged.value) {
-        await forceCloseWindow();
-        return;
-      }
-
-      requestClose();
-    });
-  }
   void nextTick(focusEditorAtStart);
 });
 
 onUnmounted(() => {
   document.removeEventListener("keydown", handleViewerKeydown, true);
   window.removeEventListener("resize", handleViewerResize);
-  window.removeEventListener("beforeunload", handleBeforeUnload);
-  unlistenCloseRequested?.();
-  unlistenCloseRequested = null;
 });
 
 watch(imageSrc, () => {
@@ -146,38 +123,6 @@ function loadPayload() {
 }
 
 
-async function startWindowDrag(event: MouseEvent) {
-  if (!isTauri || event.button !== 0) return;
-
-  event.preventDefault();
-  await getCurrentWindow().startDragging();
-}
-
-async function togglePinned() {
-  isPinned.value = !isPinned.value;
-  if (isTauri) {
-    await getCurrentWindow().setAlwaysOnTop(isPinned.value);
-  }
-}
-
-async function closeWindow() {
-  if (hasChanged.value) {
-    requestClose();
-    return;
-  }
-
-  await forceCloseWindow();
-}
-
-function requestClose() {
-  showClosePrompt.value = true;
-  hideSelectionAction();
-}
-
-function cancelClose() {
-  showClosePrompt.value = false;
-}
-
 async function saveAndClose() {
   if (!hasChanged.value) {
     await forceCloseWindow();
@@ -202,27 +147,6 @@ async function discardAndClose() {
   await forceCloseWindow();
 }
 
-async function forceCloseWindow() {
-  isForceClosing = true;
-  if (isTauri) {
-    try {
-      await ipasteApi.closeClipViewer(windowLabel.value || getCurrentWindow().label);
-    } catch (unknownError) {
-      isForceClosing = false;
-      error.value = String(unknownError);
-    }
-    return;
-  }
-
-  window.close();
-}
-
-function handleBeforeUnload(event: BeforeUnloadEvent) {
-  if (isForceClosing || !hasChanged.value) return;
-
-  event.preventDefault();
-  event.returnValue = "";
-}
 
 function handleViewerKeydown(event: KeyboardEvent) {
   if (
