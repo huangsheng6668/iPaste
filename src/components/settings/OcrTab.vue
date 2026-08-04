@@ -29,16 +29,26 @@ const {
 
 <template>
   <div class="settings-section">
-    <section v-if="!isMacOs" class="settings-panel settings-column-panel">
+    <section
+      v-if="!isMacOs"
+      class="settings-panel settings-column-panel"
+    >
       <div class="settings-panel-heading">
         <div class="settings-icon settings-icon-violet">
           <ScanText class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.tabs.ocr") }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ ocrStatusText }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            {{ t("settings.tabs.ocr") }}
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ ocrStatusText }}
+          </p>
         </div>
-        <span class="ocr-status-badge" :class="{ 'ocr-status-badge-ready': ocrStatus?.installed }">
+        <span
+          class="ocr-status-badge"
+          :class="{ 'ocr-status-badge-ready': ocrStatus?.installed }"
+        >
           {{ ocrStatus?.installed ? t("common.ready") : t("common.notInstalled") }}
         </span>
       </div>
@@ -67,7 +77,10 @@ const {
 
       <div class="ocr-install-panel">
         <div class="ocr-install-meter">
-          <div class="ocr-install-meter-fill" :style="{ width: `${ocrInstallPercent}%` }" />
+          <div
+            class="ocr-install-meter-fill"
+            :style="{ width: `${ocrInstallPercent}%` }"
+          />
         </div>
         <div class="ocr-install-meta">
           <span>{{ ocrDownloadedText }}</span>
@@ -78,7 +91,10 @@ const {
       <div class="ocr-install-details">
         <span>{{ t("ocr.downloadContents") }}</span>
         <span>{{ t("ocr.currentSelection", { label: selectedOcrModeOption.label, description: selectedOcrModeOption.description }) }}</span>
-        <div v-if="ocrStatus?.installDir" class="ocr-install-dir-row">
+        <div
+          v-if="ocrStatus?.installDir"
+          class="ocr-install-dir-row"
+        >
           <span>{{ t("ocr.directory", { path: ocrStatus.installDir }) }}</span>
           <button
             type="button"
@@ -94,9 +110,19 @@ const {
         <span v-if="ocrProgress?.fileName">{{ t("ocr.currentFile", { file: ocrProgress.fileName }) }}</span>
       </div>
 
-      <p v-if="ocrError || ocrMessage" class="settings-message" :class="{ 'settings-message-error': ocrError }">
-        <CheckCircle2 v-if="ocrMessage && !ocrError" class="size-4" />
-        <AlertCircle v-else class="size-4" />
+      <p
+        v-if="ocrError || ocrMessage"
+        class="settings-message"
+        :class="{ 'settings-message-error': ocrError }"
+      >
+        <CheckCircle2
+          v-if="ocrMessage && !ocrError"
+          class="size-4"
+        />
+        <AlertCircle
+          v-else
+          class="size-4"
+        />
         <span>{{ ocrError || ocrMessage }}</span>
       </p>
 
@@ -107,8 +133,14 @@ const {
           :disabled="isInstallingOcr || isRemovingOcr"
           @click="installOcrAssets"
         >
-          <LoaderCircle v-if="isInstallingOcr" class="size-4 update-spin" />
-          <Download v-else class="size-4" />
+          <LoaderCircle
+            v-if="isInstallingOcr"
+            class="size-4 update-spin"
+          />
+          <Download
+            v-else
+            class="size-4"
+          />
           <span>{{ ocrInstallButtonText }}</span>
         </button>
         <button

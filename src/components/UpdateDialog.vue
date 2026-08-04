@@ -65,16 +65,39 @@ function formatBytes(bytes: number) {
 </script>
 
 <template>
-  <div v-if="open" class="update-dialog-backdrop" @click.self="emit('dismiss')">
-    <section class="update-dialog" role="alertdialog" aria-modal="true" aria-labelledby="update-dialog-title">
+  <div
+    v-if="open"
+    class="update-dialog-backdrop"
+    @click.self="emit('dismiss')"
+  >
+    <section
+      class="update-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="update-dialog-title"
+    >
       <header class="update-dialog-header">
-        <div class="update-dialog-icon" :class="{ 'update-dialog-icon-error': status === 'error' }">
-          <AlertCircle v-if="status === 'error'" class="size-5" />
-          <CheckCircle2 v-else-if="status === 'ready'" class="size-5" />
-          <Download v-else class="size-5" />
+        <div
+          class="update-dialog-icon"
+          :class="{ 'update-dialog-icon-error': status === 'error' }"
+        >
+          <AlertCircle
+            v-if="status === 'error'"
+            class="size-5"
+          />
+          <CheckCircle2
+            v-else-if="status === 'ready'"
+            class="size-5"
+          />
+          <Download
+            v-else
+            class="size-5"
+          />
         </div>
         <div class="min-w-0">
-          <h2 id="update-dialog-title">{{ title }}</h2>
+          <h2 id="update-dialog-title">
+            {{ title }}
+          </h2>
           <p v-if="update">
             {{ t("update.versionLine", { current: currentVersion ?? update.currentVersion, next: update.version }) }}
           </p>
@@ -92,16 +115,25 @@ function formatBytes(bytes: number) {
         </button>
       </header>
 
-      <div v-if="status === 'available'" class="update-dialog-body">
+      <div
+        v-if="status === 'available'"
+        class="update-dialog-body"
+      >
         <p>
           {{ t("update.availableBody") }}
         </p>
-        <div v-if="releaseNotes" class="update-release-notes">
+        <div
+          v-if="releaseNotes"
+          class="update-release-notes"
+        >
           {{ releaseNotes }}
         </div>
       </div>
 
-      <div v-else-if="status === 'downloading'" class="update-dialog-body">
+      <div
+        v-else-if="status === 'downloading'"
+        class="update-dialog-body"
+      >
         <p>{{ t("update.downloadingBody") }}</p>
         <div class="update-progress">
           <div class="update-progress-bar">
@@ -111,11 +143,17 @@ function formatBytes(bytes: number) {
         </div>
       </div>
 
-      <div v-else-if="status === 'ready'" class="update-dialog-body">
+      <div
+        v-else-if="status === 'ready'"
+        class="update-dialog-body"
+      >
         <p>{{ t("update.readyBody") }}</p>
       </div>
 
-      <div v-else-if="status === 'error'" class="update-dialog-body">
+      <div
+        v-else-if="status === 'error'"
+        class="update-dialog-body"
+      >
         <p>{{ error }}</p>
       </div>
 

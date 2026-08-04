@@ -21,9 +21,16 @@ const emit = defineEmits<{ (e: "confirm"): void; (e: "cancel"): void }>();
         <h2 class="text-base font-semibold text-slate-900">
           {{ t("automation.confirmTitle", { name: action.name }) }}
         </h2>
-        <p class="mt-1 text-sm text-slate-500">{{ t("automation.confirmDescription") }}</p>
+        <p class="mt-1 text-sm text-slate-500">
+          {{ t("automation.confirmDescription") }}
+        </p>
         <pre class="mt-3 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-800">{{ action.command }}</pre>
-        <p v-if="action.cwd" class="mt-2 text-xs text-slate-500">{{ t("automation.cwd") }}: {{ action.cwd }}</p>
+        <p
+          v-if="action.cwd"
+          class="mt-2 text-xs text-slate-500"
+        >
+          {{ t("automation.cwd") }}: {{ action.cwd }}
+        </p>
         <div class="mt-4 flex justify-end gap-2">
           <button
             type="button"

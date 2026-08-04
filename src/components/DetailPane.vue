@@ -35,7 +35,10 @@ const displayTime = computed(() => {
       :action="automationAction ?? null"
       @run="emit('run-automation')"
     />
-    <div v-else-if="item" class="flex h-full flex-col">
+    <div
+      v-else-if="item"
+      class="flex h-full flex-col"
+    >
       <div class="border-b border-slate-200 p-4">
         <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
           <Info class="size-3.5" />
@@ -44,7 +47,9 @@ const displayTime = computed(() => {
         <h2 class="mt-2 truncate text-base font-semibold text-slate-950">
           {{ detailTitle }}
         </h2>
-        <p class="mt-1 text-xs text-slate-500">{{ formatTime(displayTime) }}</p>
+        <p class="mt-1 text-xs text-slate-500">
+          {{ formatTime(displayTime) }}
+        </p>
       </div>
 
       <div class="flex-1 overflow-y-auto p-4">
@@ -69,7 +74,11 @@ const displayTime = computed(() => {
           v-if="isImage"
           class="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
         >
-          <img class="max-h-[360px] w-full object-contain" :src="imageSrc" :alt="t('common.imagePreviewAlt')" />
+          <img
+            class="max-h-[360px] w-full object-contain"
+            :src="imageSrc"
+            :alt="t('common.imagePreviewAlt')"
+          >
         </div>
 
         <pre
@@ -79,20 +88,33 @@ const displayTime = computed(() => {
 
         <dl class="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-400">
           <div>
-            <dt class="text-xs text-slate-400">{{ t("common.size") }}</dt>
-            <dd class="mt-1 text-slate-500">{{ clipMetricText(item.clipType, item.text, item.previewText) }}</dd>
+            <dt class="text-xs text-slate-400">
+              {{ t("common.size") }}
+            </dt>
+            <dd class="mt-1 text-slate-500">
+              {{ clipMetricText(item.clipType, item.text, item.previewText) }}
+            </dd>
           </div>
           <div v-if="!isImage">
-            <dt class="text-xs text-slate-400">{{ t("common.lines") }}</dt>
-            <dd class="mt-1 text-slate-500">{{ lines }}</dd>
+            <dt class="text-xs text-slate-400">
+              {{ t("common.lines") }}
+            </dt>
+            <dd class="mt-1 text-slate-500">
+              {{ lines }}
+            </dd>
           </div>
         </dl>
       </div>
     </div>
 
-    <div v-else class="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-slate-400">
+    <div
+      v-else
+      class="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-slate-400"
+    >
       <Clipboard class="size-8" />
-      <p class="text-sm">{{ t("detail.noSelection") }}</p>
+      <p class="text-sm">
+        {{ t("detail.noSelection") }}
+      </p>
     </div>
   </aside>
 </template>

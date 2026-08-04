@@ -61,12 +61,23 @@ function startMainWindowDrag() {
 
 <template>
   <header class="top-bar">
-    <div class="top-bar-drag-zone" @mousedown="startWindowDrag">
-      <img class="top-bar-logo" :src="logoUrl" alt="" />
+    <div
+      class="top-bar-drag-zone"
+      @mousedown="startWindowDrag"
+    >
+      <img
+        class="top-bar-logo"
+        :src="logoUrl"
+        alt=""
+      >
       <span class="top-bar-brand">iPaste</span>
     </div>
 
-    <div class="top-bar-spacer" aria-hidden="true" @mousedown="startWindowDrag" />
+    <div
+      class="top-bar-spacer"
+      aria-hidden="true"
+      @mousedown="startWindowDrag"
+    />
 
     <label
       class="search-box"
@@ -79,7 +90,7 @@ function startMainWindowDrag() {
         :placeholder="t('topBar.searchPlaceholder')"
         spellcheck="false"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-      />
+      >
     </label>
 
     <div class="hidden items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-500 md:flex">
@@ -125,7 +136,14 @@ function startMainWindowDrag() {
       <Settings class="size-4" />
     </button>
 
-    <button type="button" class="icon-button" tabindex="-1" :aria-label="t('topBar.closePanel')" :data-tooltip="t('topBar.closePanel')" @click="emit('close')">
+    <button
+      type="button"
+      class="icon-button"
+      tabindex="-1"
+      :aria-label="t('topBar.closePanel')"
+      :data-tooltip="t('topBar.closePanel')"
+      @click="emit('close')"
+    >
       <X class="size-4" />
     </button>
   </header>

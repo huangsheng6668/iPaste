@@ -199,7 +199,10 @@ function handleViewerResize() {
 
 <template>
   <main class="clip-viewer-shell">
-    <header class="clip-viewer-toolbar" :class="{ 'clip-viewer-toolbar-image': isImage }">
+    <header
+      class="clip-viewer-toolbar"
+      :class="{ 'clip-viewer-toolbar-image': isImage }"
+    >
       <button
         type="button"
         class="viewer-icon-button"
@@ -208,18 +211,39 @@ function handleViewerResize() {
         :data-tooltip="isPinned ? t('viewer.unpin') : t('viewer.pin')"
         @click="togglePinned"
       >
-        <PinOff v-if="isPinned" class="size-4" />
-        <Pin v-else class="size-4" />
+        <PinOff
+          v-if="isPinned"
+          class="size-4"
+        />
+        <Pin
+          v-else
+          class="size-4"
+        />
       </button>
 
-      <div class="clip-viewer-drag-zone min-w-0 flex-1" @mousedown="startWindowDrag">
-        <h1 class="truncate text-base font-semibold text-slate-950">{{ title }}</h1>
-        <p v-if="item" class="truncate text-xs text-slate-500">
+      <div
+        class="clip-viewer-drag-zone min-w-0 flex-1"
+        @mousedown="startWindowDrag"
+      >
+        <h1 class="truncate text-base font-semibold text-slate-950">
+          {{ title }}
+        </h1>
+        <p
+          v-if="item"
+          class="truncate text-xs text-slate-500"
+        >
           {{ typeLabel(item.clipType) }} · {{ formatTime(displayTime) }}
         </p>
       </div>
 
-      <div v-if="isImage" class="viewer-image-toolbox" role="toolbar" :aria-label="t('viewer.imageToolbar')" @pointerdown.stop @wheel.stop>
+      <div
+        v-if="isImage"
+        class="viewer-image-toolbox"
+        role="toolbar"
+        :aria-label="t('viewer.imageToolbar')"
+        @pointerdown.stop
+        @wheel.stop
+      >
         <button
           type="button"
           class="viewer-icon-button"
@@ -277,8 +301,14 @@ function handleViewerResize() {
           :data-tooltip="t('viewer.recognizeText')"
           @click="recognizeImageText"
         >
-          <LoaderCircle v-if="isRecognizingImage" class="size-4 update-spin" />
-          <ScanText v-else class="size-4" />
+          <LoaderCircle
+            v-if="isRecognizingImage"
+            class="size-4 update-spin"
+          />
+          <ScanText
+            v-else
+            class="size-4"
+          />
         </button>
       </div>
 
@@ -304,12 +334,23 @@ function handleViewerResize() {
         <span>{{ t("viewer.applyChanges") }}</span>
       </button>
 
-      <button type="button" class="viewer-icon-button" :aria-label="t('viewer.closeWindow')" :data-tooltip="t('viewer.closeWindow')" @click="closeWindow">
+      <button
+        type="button"
+        class="viewer-icon-button"
+        :aria-label="t('viewer.closeWindow')"
+        :data-tooltip="t('viewer.closeWindow')"
+        @click="closeWindow"
+      >
         <X class="size-4" />
       </button>
     </header>
 
-    <div v-if="error" class="viewer-error">{{ error }}</div>
+    <div
+      v-if="error"
+      class="viewer-error"
+    >
+      {{ error }}
+    </div>
 
     <section
       v-else-if="item"
@@ -334,14 +375,17 @@ function handleViewerResize() {
           @pointercancel="finishImagePan"
           @lostpointercapture="endImageDrag"
         >
-          <div class="viewer-image-frame" :style="imageFrameStyle">
+          <div
+            class="viewer-image-frame"
+            :style="imageFrameStyle"
+          >
             <img
               :src="imageSrc"
               :style="imageStyle"
               draggable="false"
               :alt="t('common.imagePreviewAlt')"
               @load="handleImageLoad"
-            />
+            >
             <div
               v-if="imageOcrLines.length"
               class="viewer-image-ocr-layer"
@@ -396,7 +440,11 @@ function handleViewerResize() {
             </div>
           </div>
 
-          <div v-if="isRecognizingImage" class="viewer-image-scan-mask" aria-hidden="true">
+          <div
+            v-if="isRecognizingImage"
+            class="viewer-image-scan-mask"
+            aria-hidden="true"
+          >
             <span />
           </div>
 
@@ -414,17 +462,33 @@ function handleViewerResize() {
               @pointerdown.stop
               @click="toggleImageOcrPanel"
             >
-              <ChevronLeft v-if="isImageOcrPanelCollapsed" class="size-4" />
-              <ChevronRight v-else class="size-4" />
+              <ChevronLeft
+                v-if="isImageOcrPanelCollapsed"
+                class="size-4"
+              />
+              <ChevronRight
+                v-else
+                class="size-4"
+              />
             </button>
 
-            <div class="viewer-image-ocr-panel-body" @pointerdown.stop @wheel.stop>
+            <div
+              class="viewer-image-ocr-panel-body"
+              @pointerdown.stop
+              @wheel.stop
+            >
               <div class="viewer-image-ocr-heading">
                 <div class="min-w-0">
                   <h2>{{ t("viewer.ocrTitle") }}</h2>
-                  <p v-if="imageOcrResult">{{ imageOcrSummary }}</p>
-                  <p v-else-if="isRecognizingImage">{{ t("viewer.ocrRecognizing") }}</p>
-                  <p v-else>{{ t("viewer.ocrFailed") }}</p>
+                  <p v-if="imageOcrResult">
+                    {{ imageOcrSummary }}
+                  </p>
+                  <p v-else-if="isRecognizingImage">
+                    {{ t("viewer.ocrRecognizing") }}
+                  </p>
+                  <p v-else>
+                    {{ t("viewer.ocrFailed") }}
+                  </p>
                 </div>
                 <button
                   v-if="imageOcrResult?.text"
@@ -437,8 +501,18 @@ function handleViewerResize() {
                 </button>
               </div>
 
-              <p v-if="imageOcrError" class="viewer-image-ocr-error">{{ imageOcrError }}</p>
-              <p v-else-if="isRecognizingImage" class="viewer-image-ocr-loading">{{ imageOcrLoadingText }}</p>
+              <p
+                v-if="imageOcrError"
+                class="viewer-image-ocr-error"
+              >
+                {{ imageOcrError }}
+              </p>
+              <p
+                v-else-if="isRecognizingImage"
+                class="viewer-image-ocr-loading"
+              >
+                {{ imageOcrLoadingText }}
+              </p>
               <textarea
                 v-else-if="imageOcrResult"
                 class="viewer-image-ocr-text subtle-scrollbar"
@@ -472,35 +546,80 @@ function handleViewerResize() {
         @mousedown.prevent
         @click="pasteSelection"
       >
-        <Copy v-if="selectionAction.mode === 'copy'" class="size-3.5" />
-        <ClipboardPaste v-else class="size-3.5" />
+        <Copy
+          v-if="selectionAction.mode === 'copy'"
+          class="size-3.5"
+        />
+        <ClipboardPaste
+          v-else
+          class="size-3.5"
+        />
         <span>{{ selectionAction.mode === "copy" ? t("viewer.copySelection") : t("viewer.pasteSelection") }}</span>
       </button>
     </section>
 
-    <footer v-if="item" class="clip-viewer-footer">
+    <footer
+      v-if="item"
+      class="clip-viewer-footer"
+    >
       <span>{{ isImage ? metricText : stats }}</span>
       <span v-if="!isImage">{{ t("common.lineCount", { count: lines }) }}</span>
-      <button type="button" class="viewer-paste-button" @click="pasteDraft">
-        <ImageIcon v-if="isImage" class="size-4" />
-        <CornerDownLeft v-else class="size-4" />
+      <button
+        type="button"
+        class="viewer-paste-button"
+        @click="pasteDraft"
+      >
+        <ImageIcon
+          v-if="isImage"
+          class="size-4"
+        />
+        <CornerDownLeft
+          v-else
+          class="size-4"
+        />
         <span>{{ isImage ? t("viewer.pasteImage") : t("viewer.pasteCurrent") }}</span>
       </button>
     </footer>
 
-    <div v-if="showClosePrompt" class="viewer-close-backdrop" @mousedown.self="cancelClose">
-      <section class="viewer-close-dialog" role="alertdialog" aria-modal="true" aria-labelledby="viewer-close-title">
-        <h2 id="viewer-close-title">{{ t("viewer.saveChangesTitle") }}</h2>
+    <div
+      v-if="showClosePrompt"
+      class="viewer-close-backdrop"
+      @mousedown.self="cancelClose"
+    >
+      <section
+        class="viewer-close-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="viewer-close-title"
+      >
+        <h2 id="viewer-close-title">
+          {{ t("viewer.saveChangesTitle") }}
+        </h2>
         <p>{{ t("viewer.saveChangesDescription") }}</p>
         <div class="viewer-close-actions">
-          <button type="button" class="viewer-action-button" :disabled="isSavingBeforeClose" @click="cancelClose">
+          <button
+            type="button"
+            class="viewer-action-button"
+            :disabled="isSavingBeforeClose"
+            @click="cancelClose"
+          >
             <span>{{ t("common.cancel") }}</span>
           </button>
-          <button type="button" class="viewer-action-button viewer-action-button-danger" :disabled="isSavingBeforeClose" @click="discardAndClose">
+          <button
+            type="button"
+            class="viewer-action-button viewer-action-button-danger"
+            :disabled="isSavingBeforeClose"
+            @click="discardAndClose"
+          >
             <X class="size-4" />
             <span>{{ t("viewer.discard") }}</span>
           </button>
-          <button type="button" class="viewer-action-button viewer-action-button-primary" :disabled="isSavingBeforeClose" @click="saveAndClose">
+          <button
+            type="button"
+            class="viewer-action-button viewer-action-button-primary"
+            :disabled="isSavingBeforeClose"
+            @click="saveAndClose"
+          >
             <Save class="size-4" />
             <span>{{ isSavingBeforeClose ? t("common.saving") : t("viewer.saveAndClose") }}</span>
           </button>

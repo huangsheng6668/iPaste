@@ -159,7 +159,12 @@ function handleDocumentPointerDown(event: PointerEvent) {
 </script>
 
 <template>
-  <div ref="root" class="language-select" :class="{ 'language-select-open': isOpen }" @focusout="handleFocusOut">
+  <div
+    ref="root"
+    class="language-select"
+    :class="{ 'language-select-open': isOpen }"
+    @focusout="handleFocusOut"
+  >
     <button
       ref="trigger"
       type="button"
@@ -172,11 +177,20 @@ function handleDocumentPointerDown(event: PointerEvent) {
       @keydown="handleTriggerKeydown"
     >
       <span class="language-select-value">{{ selectedLabel }}</span>
-      <ChevronDown class="language-select-chevron size-4" aria-hidden="true" />
+      <ChevronDown
+        class="language-select-chevron size-4"
+        aria-hidden="true"
+      />
     </button>
 
     <Transition name="language-select-popover">
-      <div v-if="isOpen" :id="listboxId" class="language-select-menu subtle-scrollbar" role="listbox" :aria-label="selectLabel">
+      <div
+        v-if="isOpen"
+        :id="listboxId"
+        class="language-select-menu subtle-scrollbar"
+        role="listbox"
+        :aria-label="selectLabel"
+      >
         <button
           v-for="(option, index) in options"
           :id="`${listboxId}-option-${index}`"
@@ -195,7 +209,11 @@ function handleDocumentPointerDown(event: PointerEvent) {
           @mouseenter="activeIndex = index"
         >
           <span>{{ option.label }}</span>
-          <Check v-if="modelValue === option.value" class="size-4" aria-hidden="true" />
+          <Check
+            v-if="modelValue === option.value"
+            class="size-4"
+            aria-hidden="true"
+          />
         </button>
       </div>
     </Transition>

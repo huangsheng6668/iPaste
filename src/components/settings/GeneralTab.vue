@@ -79,8 +79,12 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.language.title") }}</h2>
-        <p class="mt-1 text-sm text-slate-500">{{ t("settings.language.description") }}</p>
+        <h2 class="text-sm font-semibold text-slate-950">
+          {{ t("settings.language.title") }}
+        </h2>
+        <p class="mt-1 text-sm text-slate-500">
+          {{ t("settings.language.description") }}
+        </p>
       </div>
 
       <LanguageSelect
@@ -98,8 +102,12 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.autostart.title") }}</h2>
-        <p class="mt-1 text-sm text-slate-500">{{ t("settings.autostart.description") }}</p>
+        <h2 class="text-sm font-semibold text-slate-950">
+          {{ t("settings.autostart.title") }}
+        </h2>
+        <p class="mt-1 text-sm text-slate-500">
+          {{ t("settings.autostart.description") }}
+        </p>
         <p
           v-if="autostartError"
           class="settings-message settings-message-error mt-2"
@@ -128,8 +136,12 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.openDefault.title") }}</h2>
-        <p class="mt-1 text-sm text-slate-500">{{ t("settings.openDefault.description") }}</p>
+        <h2 class="text-sm font-semibold text-slate-950">
+          {{ t("settings.openDefault.title") }}
+        </h2>
+        <p class="mt-1 text-sm text-slate-500">
+          {{ t("settings.openDefault.description") }}
+        </p>
       </div>
 
       <div class="segmented-control">
@@ -141,7 +153,10 @@ async function updateLanguage(language: Language) {
           :class="{ 'segmented-option-active': store.panelOpenBehavior === option.value }"
           @click="updatePanelOpenBehavior(option.value)"
         >
-          <component :is="option.icon" class="size-3.5" />
+          <component
+            :is="option.icon"
+            class="size-3.5"
+          />
           <span>{{ option.label }}</span>
         </button>
       </div>
@@ -153,8 +168,12 @@ async function updateLanguage(language: Language) {
           <AppWindow class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.layout.title") }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ t("settings.layout.description") }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            {{ t("settings.layout.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ t("settings.layout.description") }}
+          </p>
         </div>
       </div>
 
@@ -168,7 +187,10 @@ async function updateLanguage(language: Language) {
           :aria-pressed="store.panelLayout === option.value"
           @click="updatePanelLayout(option.value)"
         >
-          <span class="layout-option-preview" :class="`layout-option-preview-${option.value}`">
+          <span
+            class="layout-option-preview"
+            :class="`layout-option-preview-${option.value}`"
+          >
             <span class="layout-preview-categories">
               <span />
               <span />
@@ -192,8 +214,12 @@ async function updateLanguage(language: Language) {
           <ClipboardPlus class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.appendCopy.title") }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ t("settings.appendCopy.description", { duration: appendCopyTimeoutText }) }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            {{ t("settings.appendCopy.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ t("settings.appendCopy.description", { duration: appendCopyTimeoutText }) }}
+          </p>
         </div>
       </div>
 
@@ -217,8 +243,12 @@ async function updateLanguage(language: Language) {
           <Database class="size-5" />
         </div>
         <div class="min-w-0">
-          <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.storage.title") }}</h2>
-          <p class="mt-1 text-sm text-slate-500">{{ t("settings.storage.description", { duration: retentionText }) }}</p>
+          <h2 class="text-sm font-semibold text-slate-950">
+            {{ t("settings.storage.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-slate-500">
+            {{ t("settings.storage.description", { duration: retentionText }) }}
+          </p>
         </div>
       </div>
 
@@ -254,8 +284,14 @@ async function updateLanguage(language: Language) {
             :disabled="isClearingHistory"
             @click="confirmClearHistory"
           >
-            <LoaderCircle v-if="isClearingHistory" class="size-4 update-spin" />
-            <Trash2 v-else class="size-4" />
+            <LoaderCircle
+              v-if="isClearingHistory"
+              class="size-4 update-spin"
+            />
+            <Trash2
+              v-else
+              class="size-4"
+            />
             <span>{{ t("settings.storage.clearConfirm") }}</span>
           </button>
           <button
@@ -274,8 +310,14 @@ async function updateLanguage(language: Language) {
         class="settings-message"
         :class="{ 'settings-message-error': storageError }"
       >
-        <AlertCircle v-if="storageError" class="size-4" />
-        <CheckCircle2 v-else class="size-4" />
+        <AlertCircle
+          v-if="storageError"
+          class="size-4"
+        />
+        <CheckCircle2
+          v-else
+          class="size-4"
+        />
         <span>{{ storageError || storageMessage }}</span>
       </p>
     </section>

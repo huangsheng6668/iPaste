@@ -297,7 +297,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     const cjkPattern = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/u;
     if (cjkPattern.test(previous) || cjkPattern.test(next)) return false;
     if (/^[,.;:!?%)}\]，。；：！？、）】》]/u.test(next)) return false;
-    if (/[(\[{$（【《]$/u.test(previous)) return false;
+    if (/[([{$（【《]$/u.test(previous)) return false;
     return /[A-Za-z0-9)\]}]$/u.test(previous) && /^[A-Za-z0-9({[]/u.test(next);
   }
 
