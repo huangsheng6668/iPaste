@@ -8,7 +8,6 @@ import {
   Brush,
   CheckCircle2,
   ChevronRight,
-  Cloud,
   ClipboardPlus,
   Cpu,
   Database,
@@ -25,12 +24,12 @@ import {
   SquareCode,
   Tags,
   Trash2,
-  Unplug,
   Zap,
 } from "lucide-vue-next";
 import LanguageSelect from "./LanguageSelect.vue";
 import ShortcutsTab from "./settings/ShortcutsTab.vue";
 import OcrTab from "./settings/OcrTab.vue";
+import DataManagementTab from "./settings/DataManagementTab.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { useUpdater } from "../composables/useUpdater";
 import { languageOptions, t } from "../i18n";
@@ -42,12 +41,6 @@ const store = useIpasteStore();
 type SettingsTab = "general" | "shortcuts" | "ocr" | "dataManagement" | "permissions" | "about";
 const activeTab = ref<SettingsTab>("general");
 const showPermissionGuide = ref(false);
-const cloudApiAddress = ref("");
-const cloudApiKey = ref("");
-const cloudMessage = ref<string | null>(null);
-const cloudError = ref<string | null>(null);
-const isTestingCloud = ref(false);
-const isSavingCloud = ref(false);
 const appInfo = ref<AppInfo | null>(null);
 const autostartEnabled = ref(false);
 const isTogglingAutostart = ref(false);
@@ -123,70 +116,15 @@ const appendCopyTimeoutText = computed(() => {
   return t("common.minutes", { value: label });
 });
 
-const cloudStatusText = computed(() => {
-  return store.cloud.enabled ? t("settings.cloud.enabled") : t("settings.cloud.disabled");
-});
 onMounted(async () => {
   await store.load();
   appInfo.value = await ipasteApi.appInfo();
   await loadAutostartStatus();
-  resetCloudForm();
 });
 
 async function openAccessibilityGuide() {
   showPermissionGuide.value = true;
   await ipasteApi.openAccessibilitySettings();
-}
-
-function resetCloudForm() {
-  cloudApiAddress.value = store.cloud.apiAddress;
-  cloudApiKey.value = store.cloud.apiKey;
-  cloudMessage.value = null;
-  cloudError.value = null;
-}
-
-async function testCloud() {
-  cloudMessage.value = null;
-  cloudError.value = null;
-  isTestingCloud.value = true;
-  try {
-    await store.testCloudSettings(cloudApiAddress.value, cloudApiKey.value);
-    cloudMessage.value = t("settings.cloud.connected");
-  } catch (unknownError) {
-    cloudError.value = String(unknownError);
-  } finally {
-    isTestingCloud.value = false;
-  }
-}
-
-async function saveCloud() {
-  cloudMessage.value = null;
-  cloudError.value = null;
-  isSavingCloud.value = true;
-  try {
-    await store.saveCloudSettings(cloudApiAddress.value, cloudApiKey.value);
-    resetCloudForm();
-    cloudMessage.value = t("settings.cloud.saved");
-  } catch (unknownError) {
-    cloudError.value = String(unknownError);
-  } finally {
-    isSavingCloud.value = false;
-  }
-}
-
-async function disableCloud() {
-  cloudMessage.value = null;
-  cloudError.value = null;
-  isSavingCloud.value = true;
-  try {
-    await store.disableCloudSync();
-    resetCloudForm();
-    cloudMessage.value = t("settings.cloud.disabledMessage");
-  } catch (unknownError) {
-    cloudError.value = String(unknownError);
-  } finally {
-    isSavingCloud.value = false;
-  }
 }
 
 async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
@@ -491,56 +429,7 @@ async function toggleAutostart() {
 
         <OcrTab v-else-if="activeTab === 'ocr'" />
 
-        <div v-else-if="activeTab === 'dataManagement'" class="settings-section">
-          <div class="data-management-grid">
-            <section class="settings-panel settings-column-panel">
-              <div class="settings-panel-heading">
-                <div class="settings-icon settings-icon-teal">
-                  <Cloud class="size-5" />
-                </div>
-                <div class="min-w-0">
-                  <h2 class="text-sm font-semibold text-slate-950">{{ t("settings.cloud.title") }}</h2>
-                  <p class="mt-1 text-sm text-slate-500">{{ cloudStatusText }}</p>
-                </div>
-              </div>
-
-              <p class="sync-hint">
-                {{ t("settings.cloud.description") }}
-              </p>
-
-              <label class="settings-field">
-                <span>{{ t("settings.cloud.apiAddress") }}</span>
-                <input v-model="cloudApiAddress" type="url" placeholder="https://your-project.pages.dev" spellcheck="false" />
-              </label>
-
-              <label class="settings-field">
-                <span>API Key</span>
-                <input v-model="cloudApiKey" type="password" autocomplete="current-password" />
-              </label>
-
-              <p v-if="cloudError || cloudMessage" class="settings-message" :class="{ 'settings-message-error': cloudError }">
-                <CheckCircle2 v-if="cloudMessage && !cloudError" class="size-4" />
-                <Unplug v-else class="size-4" />
-                <span>{{ cloudError || cloudMessage }}</span>
-              </p>
-
-              <div class="settings-action-row">
-                <button type="button" class="settings-action-button" :disabled="isTestingCloud" @click="testCloud">
-                  <CheckCircle2 class="size-4" />
-                  <span>{{ isTestingCloud ? t("settings.cloud.testing") : t("settings.cloud.test") }}</span>
-                </button>
-                <button type="button" class="settings-action-button settings-action-button-primary" :disabled="isSavingCloud" @click="saveCloud">
-                  <Cloud class="size-4" />
-                  <span>{{ isSavingCloud ? t("common.saving") : t("settings.cloud.saveAndSync") }}</span>
-                </button>
-                <button type="button" class="settings-action-button settings-action-button-danger" :disabled="isSavingCloud || !store.cloud.enabled" @click="disableCloud">
-                  <Unplug class="size-4" />
-                  <span>{{ t("settings.cloud.disable") }}</span>
-                </button>
-              </div>
-            </section>
-          </div>
-        </div>
+        <DataManagementTab v-else-if="activeTab === 'dataManagement'" />
 
         <div v-else-if="activeTab === 'permissions'" class="settings-section">
           <section class="settings-panel items-start">
