@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ChevronLeft,
@@ -23,23 +22,20 @@ import {
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useImageViewer } from "../composables/useImageViewer";
 import { useImageOcr } from "../composables/useImageOcr";
+import { useClipEditor } from "../composables/useClipEditor";
 import { clipImageSrc } from "../lib/clipMedia";
 import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
-import { clipMetricText, formatTime, textStats, typeLabel } from "../lib/format";
-import type { ClipUpdatedEvent, ClipViewerPayload } from "../types";
+import { formatTime, typeLabel } from "../lib/format";
+import type { ClipViewerPayload } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 const payload = ref<ClipViewerPayload | null>(null);
 const windowLabel = ref("");
-const draftText = ref("");
 const isPinned = ref(isTauri);
 const error = ref<string | null>(null);
-const selectionAction = ref<{ left: number; top: number; text: string; mode: "paste" | "copy" } | null>(null);
-const editorElement = ref<HTMLTextAreaElement | null>(null);
 const showClosePrompt = ref(false);
 const isSavingBeforeClose = ref(false);
-let selectionTimer: number | null = null;
 let unlistenCloseRequested: (() => void) | null = null;
 let isForceClosing = false;
 
@@ -61,7 +57,7 @@ const {
   showImageActualSize, zoomImageIn, zoomImageOut, rotateImageClockwise,
   handleImageWheel, startImagePan, moveImagePan, finishImagePan, endImageDrag, clampImagePan,
 } = viewer;
-const editorHandle = { hideSelectionAction: () => hideSelectionAction(), selectionAction };
+const editorHandle = { hideSelectionAction: () => {}, selectionAction: ref<{ left: number; top: number; text: string; mode: "paste" | "copy" } | null>(null) };
 const ocr = useImageOcr(viewer, { item, isImage, editor: editorHandle });
 const {
   isRecognizingImage, imageOcrResult, imageOcrError, isImageOcrPanelCollapsed,
@@ -69,13 +65,18 @@ const {
   imageOcrLines, imageOcrWords, selectedImageOcrWordIndexes, imageOcrSelectionHighlights, imageOcrSelectionText,
   imageOcrText, recognizeImageText, pasteImageOcrText, toggleImageOcrPanel,
   startImageOcrSelection, moveImageOcrSelection, finishImageOcrSelection,
-  endImageOcrSelection, updateImageOcrSelectionAction,
+  endImageOcrSelection,
   clearImageTextSelection, resetOcrState,
 } = ocr;
-const hasChanged = computed(() => Boolean(item.value && draftText.value !== item.value.text));
-const stats = computed(() => (item.value ? textStats(draftText.value) : ""));
-const metricText = computed(() => (item.value ? clipMetricText(item.value.clipType, draftText.value, item.value.previewText) : ""));
-const lines = computed(() => draftText.value.split(/\r?\n/).length);
+const editorOptions = { payload, isPinned, isImage, ocr, error };
+const editor = useClipEditor(item, editorOptions);
+const {
+  draftText, editorElement, selectionAction, hasChanged, stats, metricText, lines,
+  resetDraft, applyChanges, pasteDraft, pasteSelection, scheduleSelectionAction,
+  hideSelectionAction, focusEditorAtStart,
+} = editor;
+editorHandle.hideSelectionAction = hideSelectionAction;
+editorHandle.selectionAction = selectionAction;
 const displayTime = computed(() => {
   const current = item.value;
   if (!current) return "";
@@ -91,7 +92,6 @@ onMounted(async () => {
       isPinned.value = true;
     }
   }
-  document.addEventListener("selectionchange", scheduleSelectionAction);
   document.addEventListener("keydown", handleViewerKeydown, true);
   window.addEventListener("resize", handleViewerResize);
   window.addEventListener("beforeunload", handleBeforeUnload);
@@ -111,17 +111,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  document.removeEventListener("selectionchange", scheduleSelectionAction);
   document.removeEventListener("keydown", handleViewerKeydown, true);
   window.removeEventListener("resize", handleViewerResize);
   window.removeEventListener("beforeunload", handleBeforeUnload);
-  clearSelectionTimer();
   unlistenCloseRequested?.();
   unlistenCloseRequested = null;
-});
-
-watch(draftText, () => {
-  hideSelectionAction();
 });
 
 watch(imageSrc, () => {
@@ -151,15 +145,6 @@ function loadPayload() {
   }
 }
 
-function focusEditorAtStart() {
-  const editor = editorElement.value;
-  if (!editor) return;
-
-  editor.focus();
-  editor.setSelectionRange(0, 0);
-  editor.scrollTop = 0;
-  editor.scrollLeft = 0;
-}
 
 async function startWindowDrag(event: MouseEvent) {
   if (!isTauri || event.button !== 0) return;
@@ -273,176 +258,6 @@ function handleViewerKeydown(event: KeyboardEvent) {
   void closeWindow();
 }
 
-function resetDraft() {
-  if (!item.value) return;
-  draftText.value = item.value.text;
-  hideSelectionAction();
-}
-
-async function applyChanges() {
-  if (!item.value || !hasChanged.value) return;
-
-  try {
-    const next = await ipasteApi.updateClipContent(item.value.id, item.value.collection, draftText.value);
-    const nextItem = { ...next, collection: item.value.collection } as typeof item.value;
-    payload.value = {
-      ...payload.value!,
-      item: nextItem,
-    };
-    localStorage.setItem(clipViewerStorageKey(payload.value.label), JSON.stringify(payload.value));
-    draftText.value = next.text;
-    if (isTauri) {
-      await emit<ClipUpdatedEvent>("ipaste://clip-updated", {
-        collection: item.value.collection,
-        item: next,
-        mergedFromId: next.id === item.value.id ? undefined : item.value.id,
-      });
-    }
-  } catch (unknownError) {
-    error.value = String(unknownError);
-  }
-}
-
-async function pasteDraft() {
-  if (!payload.value || !item.value) return;
-  await pasteFromViewer(draftText.value);
-}
-
-async function pasteSelection() {
-  if (!payload.value || !item.value || !selectionAction.value?.text) return;
-  const selectedText = selectionAction.value.text;
-  const mode = selectionAction.value.mode;
-  hideSelectionAction();
-  if (mode === "copy") {
-    await ipasteApi.copyClip("text", selectedText);
-    return;
-  }
-  await pasteFromViewer(selectedText);
-}
-
-async function pasteFromViewer(text: string) {
-  if (!payload.value || !item.value) return;
-
-  const viewerWindow = isTauri ? getCurrentWindow() : null;
-  if (viewerWindow) {
-    await viewerWindow.hide();
-  }
-
-  try {
-    await ipasteApi.applyClip(payload.value.originalClipId, item.value.clipType, text);
-  } finally {
-    if (viewerWindow) {
-      await viewerWindow.show();
-      await viewerWindow.setAlwaysOnTop(isPinned.value);
-      await viewerWindow.setFocus();
-    }
-  }
-}
-
-function scheduleSelectionAction() {
-  clearSelectionTimer();
-  selectionTimer = window.setTimeout(updateSelectionAction, 80);
-}
-
-function updateSelectionAction() {
-  selectionTimer = null;
-  if (isImage.value && imageOcrSelectionText.value.trim()) {
-    updateImageOcrSelectionAction();
-    return;
-  }
-
-  const textarea = editorElement.value;
-  if (!textarea || document.activeElement !== textarea) {
-    hideSelectionAction();
-    return;
-  }
-
-  const selectedText = draftText.value.slice(textarea.selectionStart, textarea.selectionEnd);
-  if (!selectedText.trim()) {
-    hideSelectionAction();
-    return;
-  }
-
-  const coords = selectionCoordinates(textarea, textarea.selectionEnd);
-  const fallbackRect = textarea.getBoundingClientRect();
-  selectionAction.value = {
-    left: Math.min(fallbackRect.right - 128, Math.max(fallbackRect.left + 16, coords.left - 48)),
-    top: Math.min(window.innerHeight - 56, coords.top + coords.height + 8),
-    text: selectedText,
-    mode: "paste",
-  };
-}
-
-function selectionCoordinates(textarea: HTMLTextAreaElement, position: number) {
-  const rect = textarea.getBoundingClientRect();
-  const style = window.getComputedStyle(textarea);
-  const mirror = document.createElement("div");
-  const marker = document.createElement("span");
-
-  [
-    "boxSizing",
-    "borderTopWidth",
-    "borderRightWidth",
-    "borderBottomWidth",
-    "borderLeftWidth",
-    "fontFamily",
-    "fontSize",
-    "fontWeight",
-    "letterSpacing",
-    "lineHeight",
-    "paddingTop",
-    "paddingRight",
-    "paddingBottom",
-    "paddingLeft",
-    "textTransform",
-    "textIndent",
-    "wordSpacing",
-    "wordBreak",
-  ].forEach((property) => {
-    mirror.style.setProperty(property, style.getPropertyValue(property));
-  });
-
-  Object.assign(mirror.style, {
-    position: "fixed",
-    left: `${rect.left - textarea.scrollLeft}px`,
-    top: `${rect.top - textarea.scrollTop}px`,
-    width: `${textarea.offsetWidth}px`,
-    height: "auto",
-    minHeight: "0",
-    overflow: "hidden",
-    overflowWrap: "break-word",
-    pointerEvents: "none",
-    visibility: "hidden",
-    whiteSpace: "pre-wrap",
-    zIndex: "-1",
-  });
-
-  mirror.append(
-    document.createTextNode(draftText.value.slice(0, position)),
-    marker,
-    document.createTextNode(draftText.value.slice(position) || "\u200b"),
-  );
-  marker.textContent = "\u200b";
-  document.body.appendChild(mirror);
-  const markerRect = marker.getBoundingClientRect();
-  document.body.removeChild(mirror);
-
-  return {
-    left: markerRect.left,
-    top: markerRect.top,
-    height: markerRect.height || Number.parseFloat(style.lineHeight) || 22,
-  };
-}
-
-function hideSelectionAction() {
-  selectionAction.value = null;
-}
-
-function clearSelectionTimer() {
-  if (selectionTimer === null) return;
-  window.clearTimeout(selectionTimer);
-  selectionTimer = null;
-}
 
 function handleViewerResize() {
   hideSelectionAction();
