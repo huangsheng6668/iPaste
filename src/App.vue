@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Pencil, Plus, Trash2, X } from "lucide-vue-next";
+import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, X, Zap } from "lucide-vue-next";
 import CategoryRail from "./components/CategoryRail.vue";
 import ClipCard from "./components/ClipCard.vue";
+import AutomationCard from "./components/AutomationCard.vue";
+import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
+import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
+import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import TopBar from "./components/TopBar.vue";
@@ -14,7 +18,7 @@ import { clipImageSrc } from "./lib/clipMedia";
 import { categoryDisplayName, clipMetricText, formatShortcut, formatTime, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
-import type { Category, CategoryItem, ClipViewItem } from "./types";
+import type { AutomationAction, AutomationInput, Category, CategoryItem, ClipViewItem } from "./types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const store = useIpasteStore();
@@ -25,6 +29,13 @@ const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.user
 const isPreservingCurrentApp = ref(false);
 const contextMenu = ref<{ item: ClipViewItem; index: number; x: number; y: number } | null>(null);
 const contextMenuElement = ref<HTMLElement | null>(null);
+const automationEditorOpen = ref(false);
+const automationEditorAction = ref<AutomationAction | null>(null);
+const automationConfirmOpen = ref(false);
+const automationConfirmAction = ref<AutomationAction | null>(null);
+const automationContextMenu = ref<{ action: AutomationAction; x: number; y: number } | null>(null);
+const automationDetailOpen = ref(false);
+const automationDetailAction = ref<AutomationAction | null>(null);
 const moveSubmenuBranchElement = ref<HTMLElement | null>(null);
 const moveSubmenuElement = ref<HTMLElement | null>(null);
 const showMoveSubmenu = ref(false);
@@ -145,6 +156,7 @@ onMounted(async () => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
   await store.load();
+  await store.loadAutomations();
   await store.bindEvents();
   if (isTauri) {
     scheduleSilentUpdateCheck();
@@ -793,6 +805,9 @@ function hasQuickPreviewModifier(event: KeyboardEvent) {
 type PanelKey = "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "Enter" | "Escape";
 
 function handlePanelKey(key: string) {
+  if (store.selectedCategoryId === "actions") {
+    return handleActionsKey(key);
+  }
   if (contextMenu.value) {
     if (key === "Escape") {
       closeFloatingLayers();
@@ -833,6 +848,105 @@ function handlePanelKey(key: string) {
 
   return false;
 }
+
+function handleActionsKey(key: string): boolean {
+  if (key === "ArrowDown") {
+    store.selectedActionIndex = Math.min(store.selectedActionIndex + 1, Math.max(store.visibleActions.length - 1, 0));
+    return true;
+  }
+  if (key === "ArrowUp") {
+    store.selectedActionIndex = Math.max(store.selectedActionIndex - 1, 0);
+    return true;
+  }
+  if (key === "Enter") {
+    const action = store.visibleActions[store.selectedActionIndex];
+    if (action) void runSelectedAction(action);
+    return true;
+  }
+  if (key === "Escape") {
+    store.selectCategory("history");
+    return true;
+  }
+  return false;
+}
+
+function selectActionCard(index: number) {
+  store.selectedActionIndex = index;
+}
+
+function runSelectedAction(action: AutomationAction) {
+  if (action.confirmBeforeRun) {
+    automationConfirmAction.value = action;
+    automationConfirmOpen.value = true;
+    return;
+  }
+  void executeAutomation(action);
+}
+
+async function executeAutomation(action: AutomationAction) {
+  try {
+    await store.runAutomation(action.id);
+  } catch (unknownError) {
+    console.error("automation run failed", unknownError);
+  }
+}
+
+function openAutomationEditor(action: AutomationAction | null) {
+  automationEditorAction.value = action;
+  automationEditorOpen.value = true;
+}
+
+async function saveAutomation(input: AutomationInput) {
+  try {
+    if (automationEditorAction.value) {
+      await store.updateAutomation(automationEditorAction.value.id, input);
+    } else {
+      await store.createAutomation(input);
+    }
+  } catch (unknownError) {
+    console.error("automation save failed", unknownError);
+  }
+  automationEditorOpen.value = false;
+}
+
+async function deleteAutomationAction(action: AutomationAction) {
+  try {
+    await store.deleteAutomation(action.id);
+  } catch (unknownError) {
+    console.error("automation delete failed", unknownError);
+  }
+}
+
+async function copyAutomationCommand(action: AutomationAction) {
+  try {
+    await ipasteApi.copyClip("text", action.command);
+  } catch (unknownError) {
+    console.error("copy failed", unknownError);
+  }
+}
+
+function openAutomationContextMenu(action: AutomationAction, payload: { x: number; y: number }) {
+  automationContextMenu.value = { action, x: payload.x, y: payload.y };
+}
+
+function closeAutomationContextMenu() {
+  automationContextMenu.value = null;
+}
+
+function openAutomationDetail(action: AutomationAction) {
+  automationDetailAction.value = action;
+  automationDetailOpen.value = true;
+}
+
+watch(
+  () => store.closePanelRequested,
+  (requested) => {
+    if (requested) {
+      void hidePanelFromUi();
+      store.closePanelRequested = false;
+    }
+  },
+);
 
 function handleCategoryShortcut(event: KeyboardEvent) {
   if (!(event.metaKey || event.ctrlKey) || event.altKey || !/^[1-9]$/.test(event.key)) {
@@ -1146,6 +1260,39 @@ function scrollSelectedClipIntoView() {
             </div>
 
             <div
+              v-else-if="store.selectedCategoryId === 'actions'"
+              class="clip-card-grid"
+            >
+              <AutomationCard
+                v-for="(action, index) in store.visibleActions"
+                :key="action.id"
+                :action="action"
+                :selected="store.selectedActionIndex === index"
+                @click="selectActionCard(index)"
+                @run="runSelectedAction(action)"
+                @edit="openAutomationEditor(action)"
+                @delete="deleteAutomationAction(action)"
+                @copy="copyAutomationCommand(action)"
+                @open-context-menu="openAutomationContextMenu(action, $event)"
+              />
+              <div
+                v-if="!store.visibleActions.length"
+                class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center"
+              >
+                <Zap class="size-10 text-slate-300" />
+                <h2 class="mt-3 text-base font-semibold text-slate-900">{{ t("automation.entry") }}</h2>
+                <p class="mt-1 max-w-sm text-sm text-slate-500">{{ t("automation.noActions") }}</p>
+                <button
+                  type="button"
+                  class="mt-4 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
+                  @click="openAutomationEditor(null)"
+                >
+                  {{ t("automation.newAction") }}
+                </button>
+              </div>
+            </div>
+
+            <div
               v-else-if="store.fallbackGroups.length"
               class="fallback-groups"
             >
@@ -1379,6 +1526,61 @@ function scrollSelectedClipIntoView() {
       >
         <Trash2 class="size-4" />
         <span>{{ contextDeleteLabel(contextMenu.item) }}</span>
+      </button>
+    </div>
+
+    <AutomationEditorDialog
+      :open="automationEditorOpen"
+      :action="automationEditorAction"
+      @save="saveAutomation"
+      @cancel="automationEditorOpen = false"
+    />
+
+    <AutomationConfirmDialog
+      :open="automationConfirmOpen"
+      :action="automationConfirmAction"
+      @confirm="void executeAutomation(automationConfirmAction as AutomationAction); automationConfirmOpen = false"
+      @cancel="automationConfirmOpen = false"
+    />
+
+    <Teleport to="body">
+      <div
+        v-if="automationDetailOpen && automationDetailAction"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40"
+        @click.self="automationDetailOpen = false"
+      >
+        <div class="flex h-[80vh] w-[520px] max-w-[90vw] flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+          <AutomationDetailPane :action="automationDetailAction" @run="runSelectedAction(automationDetailAction); automationDetailOpen = false" />
+          <div class="flex justify-end border-t border-slate-200 px-4 py-2">
+            <button type="button" class="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100" @click="automationDetailOpen = false">{{ t("common.cancel") }}</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <div
+      v-if="automationContextMenu"
+      class="clip-context-menu"
+      :style="{ left: `${automationContextMenu.x}px`, top: `${automationContextMenu.y}px` }"
+      @click.stop
+      @contextmenu.prevent.stop
+    >
+      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="runSelectedAction(automationContextMenu.action); closeAutomationContextMenu()">
+        <Play class="size-3.5" /> {{ t("automation.run") }}
+      </button>
+      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="openAutomationEditor(automationContextMenu.action); closeAutomationContextMenu()">
+        <Pencil class="size-3.5" /> {{ t("automation.edit") }}
+      </button>
+      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="copyAutomationCommand(automationContextMenu.action); closeAutomationContextMenu()">
+        <ClipboardCopy class="size-3.5" /> {{ t("automation.copy") }}
+      </button>
+      <div class="context-menu-separator" />
+      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="openAutomationDetail(automationContextMenu.action); closeAutomationContextMenu()">
+        <Info class="size-3.5" /> {{ t("automation.detailStatus") }}
+      </button>
+      <div class="context-menu-separator" />
+      <button type="button" class="context-menu-item context-menu-item-strong" tabindex="-1" role="menuitem" @click="deleteAutomationAction(automationContextMenu.action); closeAutomationContextMenu()">
+        <Trash2 class="size-3.5" /> {{ t("automation.delete") }}
       </button>
     </div>
   </main>

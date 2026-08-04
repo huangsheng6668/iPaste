@@ -438,7 +438,6 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::store::test_support::{create_category, seed_category_item, temp_store};
 
     #[test]

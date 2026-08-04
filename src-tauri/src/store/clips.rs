@@ -508,7 +508,6 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::models::{CapturedClipboardItem, SearchResult};
     use crate::store::test_support::{seed_clip, temp_store};
     use crate::util::hash_text;

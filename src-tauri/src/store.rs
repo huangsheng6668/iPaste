@@ -7,6 +7,7 @@ mod settings;
 mod clips;
 mod categories;
 mod sync;
+mod automations;
 
 #[cfg(test)]
 mod test_support;
@@ -45,7 +46,6 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::store::test_support::temp_store;
 
     #[test]
