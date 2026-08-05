@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, X, Zap } from "lucide-vue-next";
+import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, Upload, X, Zap } from "lucide-vue-next";
 import CategoryRail from "./components/CategoryRail.vue";
 import ClipCard from "./components/ClipCard.vue";
 import AutomationCard from "./components/AutomationCard.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationDetailPane from "./components/AutomationDetailPane.vue";
+import { serializeAutomations, parseImportFile } from "./stores/lib/automationTransfer";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import TopBar from "./components/TopBar.vue";
@@ -948,6 +949,62 @@ watch(
   },
 );
 
+function exportAllAutomations() {
+  closeAutomationContextMenu();
+  if (!store.automations.length) {
+    alert(t("automation.exportEmpty"));
+    return;
+  }
+  try {
+    const json = serializeAutomations(store.automations);
+    const date = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ipaste-automations-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch {
+    alert(t("automation.exportFailed"));
+  }
+}
+
+const importFileInput = ref<HTMLInputElement | null>(null);
+
+function triggerImport() {
+  closeAutomationContextMenu();
+  importFileInput.value?.click();
+}
+
+async function onImportFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  input.value = "";
+
+  try {
+    const text = await file.text();
+    const existingNames = new Set(store.automations.map((a) => a.name));
+    const result = parseImportFile(text, existingNames);
+
+    if (result.skippedInvalid > 0 && result.valid.length === 0 && result.skippedDuplicates === 0) {
+      alert(t("automation.importNoValid"));
+      return;
+    }
+
+    for (const input_ of result.valid) {
+      await store.createAutomation(input_);
+    }
+
+    alert(t("automation.importSuccess", { imported: result.valid.length, skipped: result.skippedDuplicates }));
+  } catch {
+    alert(t("automation.importFailed"));
+  }
+}
+
 function handleCategoryShortcut(event: KeyboardEvent) {
   if (!(event.metaKey || event.ctrlKey) || event.altKey || !/^[1-9]$/.test(event.key)) {
     return false;
@@ -1693,6 +1750,21 @@ function scrollSelectedClipIntoView() {
       >
         <Trash2 class="size-3.5" /> {{ t("automation.delete") }}
       </button>
+      <div class="context-menu-separator" />
+      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="triggerImport">
+        <Upload class="size-3.5" /> {{ t("automation.importAction") }}
+      </button>
+      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="exportAllAutomations">
+        <Download class="size-3.5" /> {{ t("automation.exportAll") }}
+      </button>
     </div>
+
+    <input
+      ref="importFileInput"
+      type="file"
+      accept=".json"
+      class="hidden"
+      @change="onImportFileSelected"
+    />
   </main>
 </template>
