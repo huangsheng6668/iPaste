@@ -509,8 +509,9 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use crate::models::{CapturedClipboardItem, SearchResult};
-    use crate::store::test_support::{seed_clip, temp_store};
+    use crate::store::test_support::{seed_clip, seed_n_clips, temp_store};
     use crate::util::hash_text;
+    use std::time::Instant;
 
     #[test]
     fn count_clips_matching_respects_query() {
@@ -592,5 +593,38 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn list_clips_first_page_1k_under_50ms() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_n_clips(&conn, 1000);
+        let start = Instant::now();
+        let _ = store.list_clips(0, 20, "".to_string()).unwrap();
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 50, "list_clips 1k took {elapsed:?}");
+    }
+
+    #[test]
+    fn list_clips_first_page_5k_under_200ms() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_n_clips(&conn, 5000);
+        let start = Instant::now();
+        let _ = store.list_clips(0, 20, "".to_string()).unwrap();
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 200, "list_clips 5k took {elapsed:?}");
+    }
+
+    #[test]
+    fn search_with_fallback_5k_under_300ms() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_n_clips(&conn, 5000);
+        let start = Instant::now();
+        let _ = store.search_with_fallback(0, 20, "hello").unwrap();
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 300, "search 5k took {elapsed:?}");
     }
 }
