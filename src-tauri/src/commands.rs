@@ -624,7 +624,7 @@ pub(crate) fn apply_clip(
         return Err(error);
     }
 
-    // 等待并强制目标应用获得键盘焦点，避免 Cmd+V 投递到未就绪的窗口
+    // 等待并确认目标应用获得键盘焦点，避免 Cmd+V 投递到未就绪的窗口
     #[cfg(target_os = "macos")]
     if let Some(bundle_id) = target_app_bundle_id.as_deref() {
         if let Some(pid) = pid_for_bundle_id(bundle_id) {

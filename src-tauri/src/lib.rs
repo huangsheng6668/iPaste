@@ -120,7 +120,11 @@ pub fn run() {
                     remember_target_app_for_paste(app);
                     let app = app.clone();
                     thread::spawn(move || {
-                        let _ = show_main_window(&app, MainWindowActivation::PreserveCurrentApp);
+                        // 使用 Activate 模式：native panel（PreserveCurrentApp）模式下
+                        // iPaste 从不激活，粘贴时无法通过任何 API 把 key window 转移给
+                        // 目标应用（诊断确认 key window 悬空、AX 设置只读、open -b 无效）。
+                        // Activate 模式下面板隐藏时系统自动把激活和键盘焦点还给目标应用。
+                        let _ = show_main_window(&app, MainWindowActivation::Activate);
                         let _ = app.emit("ipaste://shortcut-opened", active_shortcut);
                     });
                 })
