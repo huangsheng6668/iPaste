@@ -82,3 +82,38 @@ pub(crate) fn seed_category_item(
     )
     .unwrap();
 }
+
+pub(crate) fn seed_n_clips(conn: &rusqlite::Connection, n: usize) {
+    for i in 0..n {
+        let text = format!("clip item {i} hello world");
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'bench', ?5, 0, 0)",
+            rusqlite::params![
+                format!("bench-clip-{i}"),
+                crate::util::hash_text(&text),
+                text,
+                text,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .unwrap();
+    }
+}
+
+pub(crate) fn seed_n_automations(conn: &rusqlite::Connection, n: usize) {
+    for i in 0..n {
+        conn.execute(
+            "INSERT INTO automations (id, name, command, cwd, run_mode, confirm_before_run, close_panel_on_success, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, NULL, 'background', 0, 0, ?4, ?5, ?5)",
+            rusqlite::params![
+                format!("bench-automation-{i}"),
+                format!("action {i}"),
+                format!("echo {i}"),
+                i as i64,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .unwrap();
+    }
+}

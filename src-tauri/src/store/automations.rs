@@ -208,7 +208,8 @@ fn validate_automation_input(input: &AutomationInput) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::test_support::temp_store;
+    use crate::store::test_support::{seed_n_automations, temp_store};
+    use std::time::Instant;
 
     fn input(name: &str, command: &str) -> AutomationInput {
         AutomationInput {
@@ -283,5 +284,17 @@ mod tests {
         assert!(store.has_running_automation_run(&conn, &action.id).unwrap());
         store.finish_automation_run(&conn, &run_id, "success", Some(0)).unwrap();
         assert!(!store.has_running_automation_run(&conn, &action.id).unwrap());
+    }
+
+    #[test]
+    fn list_automations_500_under_50ms() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_n_automations(&conn, 500);
+        let start = Instant::now();
+        let all = store.list_automations().unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(all.len(), 500);
+        assert!(elapsed.as_millis() < 50, "list_automations 500 took {elapsed:?}");
     }
 }
