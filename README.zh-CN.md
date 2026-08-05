@@ -37,6 +37,24 @@ iPaste 常驻系统托盘，在本机记录剪贴板历史。你可以用全局�
 
 Linux 暂未作为正式目标平台。Tauri 具备跨平台能力，但当前仓库主要验证 macOS 和 Windows。
 
+### macOS：提示「已损坏，无法打开」
+
+iPaste 的 macOS 安装包目前尚未经过 Apple 公证，从浏览器下载后可能被 Gatekeeper 拦截，提示「iPaste 已损坏，无法打开。你应该将它移到废纸篓」。
+
+这不是文件损坏，应用可以正常使用。推荐用一键安装脚本（自动拷贝应用到 /Applications 并清除隔离标记）：
+
+```bash
+bash <(curl -fsSL https://github.com/huangsheng6668/iPaste/releases/latest/download/install-macos.sh)
+```
+
+也可以手动把应用拖入 /Applications 后执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/iPaste.app
+```
+
+已安装的用户请优先使用应用内的「检查更新」——更新包不受 Gatekeeper 限制。
+
 ## 快速上手
 
 1. 启动 iPaste，它会常驻托盘并开始监听剪贴板。

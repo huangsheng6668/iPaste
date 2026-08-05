@@ -37,6 +37,24 @@ Current release targets:
 
 Linux is not an official target yet. Tauri is cross-platform, but this repository currently focuses on macOS and Windows validation.
 
+### macOS: "iPaste is damaged and can't be opened"
+
+The macOS installers are not notarized by Apple yet, so Gatekeeper may block the app when it is first downloaded from a browser, showing "iPaste is damaged and can't be opened. You should move it to the Trash."
+
+The app itself is fine. Install it with the one-click script, which copies the app to /Applications and removes the quarantine flag:
+
+```bash
+bash <(curl -fsSL https://github.com/huangsheng6668/iPaste/releases/latest/download/install-macos.sh)
+```
+
+Or remove the flag manually after dragging the app to /Applications:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/iPaste.app
+```
+
+If you already have iPaste installed, use **Check for Updates** inside the app — update packages are not affected by Gatekeeper.
+
 ## Quick Start
 
 1. Launch iPaste. It stays in the tray and starts listening to the clipboard.
