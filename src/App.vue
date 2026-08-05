@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, Upload, X, Zap } from "lucide-vue-next";
+import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, Download, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, Upload, X, Zap } from "lucide-vue-next";
 import CategoryRail from "./components/CategoryRail.vue";
 import ClipCard from "./components/ClipCard.vue";
 import AutomationCard from "./components/AutomationCard.vue";
