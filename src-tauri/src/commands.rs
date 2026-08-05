@@ -619,9 +619,20 @@ pub(crate) fn apply_clip(
 
     let _ = hide_main_window(&app);
 
-    if let Err(error) = prepare_target_for_paste(&app, target_app_bundle_id) {
+    if let Err(error) = prepare_target_for_paste(&app, target_app_bundle_id.clone()) {
         let _ = show_main_window(&app, MainWindowActivation::Activate);
         return Err(error);
+    }
+
+    // 等待并强制目标应用获得键盘焦点，避免 Cmd+V 投递到未就绪的窗口
+    #[cfg(target_os = "macos")]
+    if let Some(bundle_id) = target_app_bundle_id.as_deref() {
+        if let Some(pid) = pid_for_bundle_id(bundle_id) {
+            if let Err(error) = focus_target_app_window(pid) {
+                let _ = show_main_window(&app, MainWindowActivation::Activate);
+                return Err(error);
+            }
+        }
     }
 
     if let Err(error) = send_paste_shortcut() {

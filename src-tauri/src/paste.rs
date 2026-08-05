@@ -1,9 +1,11 @@
 use std::{thread, time::Duration};
 #[cfg(target_os = "macos")]
-use std::{ffi::c_int, process::Command, time::Instant};
+use std::{ffi::c_int, ffi::c_void, process::Command, time::Instant};
 
 #[cfg(target_os = "macos")]
 use objc2::ffi::NSUInteger;
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationOptions, NSRunningApplication, NSWorkspace,
@@ -18,12 +20,41 @@ use crate::models::*;
 const PASTE_FOCUS_TIMEOUT: Duration = Duration::from_millis(250);
 #[cfg(target_os = "macos")]
 const PASTE_FOCUS_POLL_INTERVAL: Duration = Duration::from_millis(30);
+#[cfg(target_os = "macos")]
+const AX_FOCUS_WAIT_TIMEOUT: Duration = Duration::from_millis(1200);
+#[cfg(target_os = "macos")]
+const AX_FOCUS_POLL_INTERVAL: Duration = Duration::from_millis(40);
+#[cfg(target_os = "macos")]
+const KAX_ERROR_APIDISABLED: i32 = -25211;
+
+#[cfg(target_os = "macos")]
+type CFTypeRef = *const c_void;
+#[cfg(target_os = "macos")]
+type CFStringRef = CFTypeRef;
 
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn GetProcessForPID(pid: c_int, psn: *mut ProcessSerialNumber) -> i32;
     fn SetFrontProcessWithOptions(psn: *const ProcessSerialNumber, options: u32) -> i32;
+    fn AXUIElementCreateApplication(pid: c_int) -> CFTypeRef;
+    fn AXUIElementCopyAttributeValue(
+        element: CFTypeRef,
+        attribute: CFStringRef,
+        value: *mut CFTypeRef,
+    ) -> i32;
+    fn AXUIElementSetAttributeValue(
+        element: CFTypeRef,
+        attribute: CFStringRef,
+        value: CFTypeRef,
+    ) -> i32;
+    fn CFRelease(value: CFTypeRef);
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    static kCFBooleanTrue: CFTypeRef;
 }
 
 #[cfg(target_os = "macos")]
@@ -132,6 +163,95 @@ pub(crate) fn activate_app_for_paste(app: &tauri::AppHandle, bundle_id: &str) ->
     let _ = wait_for_frontmost_app(app, bundle_id, PASTE_FOCUS_TIMEOUT);
     thread::sleep(Duration::from_millis(70));
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn pid_for_bundle_id(bundle_id: &str) -> Option<c_int> {
+    let target_bundle_id = NSString::from_str(bundle_id);
+    let applications =
+        NSRunningApplication::runningApplicationsWithBundleIdentifier(&target_bundle_id);
+    let application = unsafe { applications.firstObject_unchecked() }?;
+    Some(application.processIdentifier() as c_int)
+}
+
+#[cfg(target_os = "macos")]
+fn ax_attribute_string(name: &str) -> Retained<NSString> {
+    NSString::from_str(name)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn focus_target_app_window(pid: c_int) -> Result<(), String> {
+    let ax_app = unsafe { AXUIElementCreateApplication(pid) };
+    if ax_app.is_null() {
+        return Err("无法自动粘贴：目标应用不在运行，请重新打开 iPaste 面板后再粘贴。".to_string());
+    }
+
+    // AX 属性名常量（AXMainWindow / AXFocusedWindow）通过 toll-free bridging 传入
+    let focused_attr = ax_attribute_string("AXFocusedWindow");
+    let main_attr = ax_attribute_string("AXMainWindow");
+
+    // 探测一次：AX API 被系统禁用（辅助功能权限未生效）时直接提示，避免静默等待超时
+    let mut probe: CFTypeRef = std::ptr::null();
+    let probe_status = unsafe {
+        AXUIElementCopyAttributeValue(ax_app, Retained::as_ptr(&focused_attr) as CFStringRef, &mut probe)
+    };
+    if probe_status == KAX_ERROR_APIDISABLED {
+        unsafe { CFRelease(ax_app) };
+        return Err(
+            "无法自动粘贴：macOS 辅助功能权限未生效，请在「系统设置 > 隐私与安全性 > 辅助功能」中移除 iPaste 后重新添加，或重启 iPaste 后再试。"
+                .to_string(),
+        );
+    }
+
+    if app_has_focused_window(ax_app, &focused_attr) {
+        unsafe { CFRelease(ax_app) };
+        return Ok(());
+    }
+
+    // 强制把目标应用的主窗口设为聚焦窗口，触发键盘焦点转移
+    let mut main_window: CFTypeRef = std::ptr::null();
+    let status = unsafe {
+        AXUIElementCopyAttributeValue(ax_app, Retained::as_ptr(&main_attr) as CFStringRef, &mut main_window)
+    };
+    if status == 0 && !main_window.is_null() {
+        unsafe {
+            AXUIElementSetAttributeValue(main_window, Retained::as_ptr(&main_attr) as CFStringRef, kCFBooleanTrue);
+            CFRelease(main_window);
+        }
+    }
+
+    // 轮询等待目标应用真正获得键盘焦点（focused window 就绪）后再粘贴
+    let deadline = Instant::now() + AX_FOCUS_WAIT_TIMEOUT;
+    while !app_has_focused_window(ax_app, &focused_attr) {
+        if Instant::now() >= deadline {
+            unsafe { CFRelease(ax_app) };
+            return Err(
+                "无法自动粘贴：目标应用窗口未能获得键盘焦点，请确认目标窗口可见后重试。"
+                    .to_string(),
+            );
+        }
+        thread::sleep(AX_FOCUS_POLL_INTERVAL);
+    }
+
+    unsafe { CFRelease(ax_app) };
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn app_has_focused_window(ax_app: CFTypeRef, focused_attr: &NSString) -> bool {
+    let mut focused: CFTypeRef = std::ptr::null();
+    let status = unsafe {
+        AXUIElementCopyAttributeValue(
+            ax_app,
+            focused_attr as *const NSString as CFStringRef,
+            &mut focused,
+        )
+    };
+    if status == 0 && !focused.is_null() {
+        unsafe { CFRelease(focused) };
+        return true;
+    }
+    false
 }
 
 #[cfg(target_os = "macos")]
