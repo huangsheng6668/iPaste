@@ -267,8 +267,6 @@ pub(crate) fn activate_running_app_for_paste(
 
 #[cfg(target_os = "macos")]
 fn activate_running_app_for_paste_on_main_thread(bundle_id: &str) -> Result<bool, String> {
-    deactivate_current_application_for_paste();
-
     let target_bundle_id = NSString::from_str(bundle_id);
     let applications =
         NSRunningApplication::runningApplicationsWithBundleIdentifier(&target_bundle_id);
@@ -278,10 +276,12 @@ fn activate_running_app_for_paste_on_main_thread(bundle_id: &str) -> Result<bool
 
     let _ = target.unhide();
     let pid = target.processIdentifier();
-    if set_front_process_for_pid(pid as c_int).is_ok() {
-        return Ok(true);
-    }
 
+    // 优先使用标准激活（触发目标应用的 NSApplication activate 流程，
+    // 窗口才会 makeKeyWindow、键盘焦点才会转移）。SetFrontProcessWithOptions
+    // 只把进程置前，不触发标准激活，key window 不会转移，Cmd+V 会投递失败。
+    // 注意：activateFromApplication_options 要求当前应用处于激活状态，
+    // 因此先尝试激活，失败后才 deactivate 并回退 SetFrontProcessWithOptions。
     let activation_options = NSApplicationActivationOptions(
         NSApplicationActivationOptions::ActivateAllWindows.bits() | (1 as NSUInteger) << 1,
     );
@@ -289,6 +289,10 @@ fn activate_running_app_for_paste_on_main_thread(bundle_id: &str) -> Result<bool
     let activated = target.activateFromApplication_options(&current_app, activation_options)
         || target.activateWithOptions(activation_options);
     if !activated {
+        deactivate_current_application_for_paste();
+        if set_front_process_for_pid(pid as c_int).is_ok() {
+            return Ok(false);
+        }
         return Err("无法自动粘贴：无法切回目标应用，请确认目标窗口仍可用。".to_string());
     }
 
