@@ -2,7 +2,7 @@ pub(crate) mod protocol;
 pub(crate) mod session;  // Task 3
 pub(crate) mod server;   // Task 4
 pub(crate) mod client;   // Task 5
-// pub(crate) mod commands; // Task 6
+pub(crate) mod commands; // Task 6
 
 use std::sync::Mutex;
 use tokio::sync::{mpsc, oneshot};
@@ -188,11 +188,32 @@ impl LanSessionManager {
         self.inner.lock().expect("lan inner poisoned").host_tasks = Some((broadcast, accept));
     }
 
+    /// Task 6 的 disconnect 命令在 Hosting/WaitingPair 态下调用：abort 广播 + accept
+    /// 任务以释放 TCP 端口。Connected 态不需要调用（session loop 会自清理）。
+    /// Guest 在 WaitingPair 态调用为 no-op（其 `host_tasks` 为 None）。
+    pub(crate) fn abort_host_tasks(&self) {
+        if let Some((broadcast, accept)) =
+            self.inner.lock().expect("lan inner poisoned").host_tasks.take()
+        {
+            broadcast.abort();
+            accept.abort();
+        }
+    }
+
     /// 广播任务退出条件：状态回到 Idle（停 host）或已进入 Connected（停止广播）。
     pub(crate) fn status_is_idle_or_connected_break(&self) -> bool {
         matches!(
             self.inner.lock().expect("lan inner poisoned").status,
             LanStatus::Idle | LanStatus::Connected
+        )
+    }
+
+    /// Task 6 的 create_session 守门：已有进行中的会话时拒绝新建。
+    /// WaitingPair 也算进行中（host 正在询问用户 / guest 正在等回应）。
+    pub(crate) fn status_is_connected_or_hosting(&self) -> bool {
+        matches!(
+            self.inner.lock().expect("lan inner poisoned").status,
+            LanStatus::Connected | LanStatus::Hosting | LanStatus::WaitingPair
         )
     }
 
@@ -239,6 +260,20 @@ pub(crate) fn device_name() -> String {
         .ok()
         .and_then(|h| h.into_string().ok())
         .unwrap_or_else(|| "iPaste-device".to_string())
+}
+
+/// 让 commands 从 `AppHandle` 取到共享的 `Arc<LanSessionManager>`。
+/// lib.rs 的 setup 里 `.manage(Arc::new(LanSessionManager::new(...)))` 注入。
+pub trait LanManagerExt {
+    fn lan_manager(&self) -> std::sync::Arc<LanSessionManager>;
+}
+
+impl LanManagerExt for tauri::AppHandle {
+    fn lan_manager(&self) -> std::sync::Arc<LanSessionManager> {
+        self.state::<std::sync::Arc<LanSessionManager>>()
+            .inner()
+            .clone()
+    }
 }
 
 #[cfg(test)]

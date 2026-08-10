@@ -174,6 +174,30 @@ pub(crate) fn read_current_clipboard() -> Result<ClipboardRead, String> {
     read_clipboard_item()
 }
 
+/// 把当前剪贴板读取结果转换为 LAN 协议要发的 `(clip_type, payload_bytes)`。
+/// 图片条目转成 `data:image/png;base64,...` 形式的 UTF-8 字节流；文本条目直接
+/// 转 UTF-8 字节。`Empty`/`Occupied` 返回 `Ok(None)`，由调用方决定如何处理。
+pub(crate) fn clipboard_read_to_payload(
+    read: ClipboardRead,
+) -> Result<Option<(String, Vec<u8>)>, String> {
+    match read {
+        ClipboardRead::Item(item) => {
+            let text = if item.clip_type == "image" {
+                let png = item
+                    .image_bytes
+                    .as_ref()
+                    .ok_or_else(|| "无图片数据".to_string())?;
+                let b64 = general_purpose::STANDARD.encode(png);
+                format!("data:image/png;base64,{b64}")
+            } else {
+                item.text
+            };
+            Ok(Some((item.clip_type, text.into_bytes())))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn read_clipboard_item() -> Result<ClipboardRead, String> {
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
 
