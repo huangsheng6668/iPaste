@@ -1,7 +1,7 @@
 pub(crate) mod protocol;
 pub(crate) mod session;  // Task 3
 pub(crate) mod server;   // Task 4
-// pub(crate) mod client;   // Task 5
+pub(crate) mod client;   // Task 5
 // pub(crate) mod commands; // Task 6
 
 use std::sync::Mutex;
