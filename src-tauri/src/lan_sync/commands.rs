@@ -138,8 +138,7 @@ pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), String> {
             manager.reset_to_idle("已断开".to_string());
         }
         LanStatus::Idle => {
-            // 已 Idle，幂等重置以触发一次 disconnected 事件给前端刷新 UI。
-            manager.reset_to_idle("已断开".to_string());
+            // 已 Idle：真正的 no-op，不 emit 任何事件（避免伪造 disconnected）。
         }
     }
     Ok(())

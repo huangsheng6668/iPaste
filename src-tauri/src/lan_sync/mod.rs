@@ -238,10 +238,17 @@ impl LanSessionManager {
             inner.pair_decision_tx = None;
             inner.control_tx = None;
             inner.control_rx = None;
-            // 仅清空句柄引用，**不 abort**：reset_to_idle 可能从这些任务的下游
-            // session loop 内部被调用，自 abort 会 panic。真正的 abort 由 Task 6 的
-            // lan_disconnect 命令在独立上下文里完成。
-            inner.host_tasks = None;
+            // Abort broadcast+accept tasks. Safe: the session loop runs on an
+            // independently-spawned task (handle_guest), not a structured child of
+            // the accept loop, so aborting the accept task does not panic or unwind
+            // the caller. JoinHandle::abort schedules cancellation at the next .await.
+            // (lan_disconnect's Hosting|WaitingPair arm calls abort_host_tasks()
+            // separately — double-abort is harmless since take() yields None the
+            // second time.)
+            if let Some((broadcast, accept)) = inner.host_tasks.take() {
+                broadcast.abort();
+                accept.abort();
+            }
         }
         let _ = self.app.emit("ipaste://lan-disconnected", LanDisconnected { reason });
     }

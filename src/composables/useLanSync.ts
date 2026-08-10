@@ -14,6 +14,9 @@ export function useLanSync() {
   const manualCode = ref("");
   const error = ref<string | null>(null);
   const notice = ref<string | null>(null);
+  // pair-request 时携带的对方设备名；与 info.peerDeviceName（仅 Connected 后由
+  // set_connected 写入）分离，避免确认弹窗读到空名。
+  const pendingPeerName = ref("");
   let unlistenFns: UnlistenFn[] = [];
 
   function applyInfo(next: LanSessionInfo) {
@@ -72,10 +75,17 @@ export function useLanSync() {
     await refresh();
     if (!isTauri) return;
     const handlers: Array<[string, (v: { payload: unknown }) => void]> = [
-      ["ipaste://lan-pair-request", () => notice.value = "pair-request"],
+      ["ipaste://lan-pair-request", (e) => {
+        pendingPeerName.value = (e.payload as { deviceName?: string })?.deviceName ?? "";
+        notice.value = "pair-request";
+      }],
       ["ipaste://lan-session-ready", () => refresh()],
       ["ipaste://lan-disconnected", () => { notice.value = "disconnected"; refresh(); }],
-      ["ipaste://lan-clip-received", () => { notice.value = "clip-received"; }],
+      ["ipaste://lan-clip-received", () => {
+        notice.value = "clip-received";
+        // 3s 后自动清掉"已接收"提示，避免常驻。
+        setTimeout(() => { if (notice.value === "clip-received") notice.value = null; }, 3000);
+      }],
       ["ipaste://lan-join-failed", (v) => { error.value = String((v.payload as { reason?: string })?.reason ?? "join failed"); refresh(); }],
     ];
     for (const [event, handler] of handlers) {
@@ -87,10 +97,14 @@ export function useLanSync() {
   onUnmounted(() => {
     unlistenFns.forEach((fn) => fn());
     unlistenFns = [];
+    // 关窗 → 自动断开清理（spec §8）。fire-and-forget，不阻塞卸载。
+    if (isTauri) {
+      void ipasteApi.lanDisconnect().catch(() => {});
+    }
   });
 
   return {
-    isTauri, info, code, manualAddress, manualCode, error, notice,
+    isTauri, info, code, manualAddress, manualCode, error, notice, pendingPeerName,
     refresh, createSession, joinSession, joinByAddress,
     acceptPair, sendCurrent, sendItem, requestClip, disconnect,
   };

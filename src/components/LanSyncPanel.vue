@@ -14,6 +14,7 @@ const {
   manualCode,
   error,
   notice,
+  pendingPeerName,
   createSession,
   joinSession,
   joinByAddress,
@@ -40,10 +41,12 @@ onMounted(() => store.load());
 function onAccept() {
   acceptPair(true);
   notice.value = null;
+  pendingPeerName.value = "";
 }
 function onReject() {
   acceptPair(false);
   notice.value = null;
+  pendingPeerName.value = "";
 }
 </script>
 
@@ -77,7 +80,7 @@ function onReject() {
 
     <!-- 接入确认（优先于 hosting：guest 发 pair-request 时 info.status 仍为 hosting） -->
     <div v-else-if="notice === 'pair-request'" class="lan-section">
-      <p>{{ t("lan.pairRequest", { device: info.peerDeviceName ?? "" }) }}</p>
+      <p>{{ t("lan.pairRequest", { device: pendingPeerName }) }}</p>
       <div class="lan-row">
         <button class="lan-btn primary" @click="onAccept"><Check :size="14" /> {{ t("lan.accept") }}</button>
         <button class="lan-btn" @click="onReject"><X :size="14" /> {{ t("lan.reject") }}</button>

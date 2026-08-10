@@ -24,10 +24,11 @@ async fn handshake(
     code: &str,
 ) {
     let mut conn = Connection::new(stream);
-    let host_device_name = device_name();
+    // 本机设备名（区别于握手响应里 host 回传的 host_device_name）
+    let local_name = device_name();
     let msg = LanMessage::Handshake {
         code: code.to_string(),
-        device_name: host_device_name,
+        device_name: local_name,
     };
     if conn.write_message(&msg, None).await.is_err() {
         manager.emit_join_failed("连接已断开".to_string());
@@ -130,10 +131,12 @@ pub(crate) async fn join_by_broadcast(
         }
     };
     let addr = format!("{}:{}", ip, port);
-    let stream = match TcpStream::connect(&addr).await {
-        Ok(s) => s,
-        Err(e) => {
-            manager.emit_join_failed(format!("无法连接：{e}"));
+    // 与 join_by_address 一致：TCP 拨号加 5s 超时，防止 UDP 可达但 TCP SYN 被丢弃
+    // 时 guest 在 WaitingPair 态无限挂起。
+    let stream = match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr)).await {
+        Ok(Ok(s)) => s,
+        _ => {
+            manager.emit_join_failed("无法连接到对方".to_string());
             manager.reset_to_idle("连接失败".to_string());
             return;
         }
