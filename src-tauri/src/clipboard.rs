@@ -168,6 +168,12 @@ fn append_copy_text(current: &str, next: &str) -> String {
     }
 }
 
+/// LAN 同步等模块读取当前剪贴板的入口（保持 `read_clipboard_item` 私有，
+/// 以免影响 watcher 调用路径）。
+pub(crate) fn read_current_clipboard() -> Result<ClipboardRead, String> {
+    read_clipboard_item()
+}
+
 fn read_clipboard_item() -> Result<ClipboardRead, String> {
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
 
