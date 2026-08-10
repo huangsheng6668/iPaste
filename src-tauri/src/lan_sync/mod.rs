@@ -294,3 +294,6 @@ mod tests {
         match src { ClipSource::Item { id } => assert_eq!(id, "abc"), _ => panic!("wrong variant") }
     }
 }
+
+#[cfg(test)]
+mod integration_tests;
