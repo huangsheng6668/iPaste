@@ -33,6 +33,7 @@ use crate::run_on_main_thread_for_paste;
 pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) const SETTINGS_WINDOW: &str = "settings";
 pub(crate) const CLIP_VIEWER_WINDOW_PREFIX: &str = "clip-viewer-";
+pub(crate) const LAN_SYNC_WINDOW: &str = "lan-sync";
 const PANEL_GAP: i32 = 12;
 const SCREEN_MARGIN: i32 = 12;
 const MAIN_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
@@ -64,6 +65,14 @@ const CLIP_VIEWER_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
     height: 620.0,
     min_width: 640.0,
     min_height: 460.0,
+    max_width: None,
+    max_height: None,
+};
+const LAN_SYNC_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
+    width: 420.0,
+    height: 560.0,
+    min_width: 360.0,
+    min_height: 480.0,
     max_width: None,
     max_height: None,
 };
@@ -669,6 +678,35 @@ pub(crate) fn show_clip_viewer_window(
         .map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
     position_clip_viewer_window(app, &window)?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = if let Some(window) = app.get_webview_window(LAN_SYNC_WINDOW) {
+        window
+    } else {
+        WebviewWindowBuilder::new(
+            app,
+            LAN_SYNC_WINDOW,
+            WebviewUrl::App("index.html?window=lan-sync".into()),
+        )
+        .title("iPaste · Lan Sync")
+        .inner_size(
+            LAN_SYNC_WINDOW_GEOMETRY.width,
+            LAN_SYNC_WINDOW_GEOMETRY.height,
+        )
+        .min_inner_size(
+            LAN_SYNC_WINDOW_GEOMETRY.min_width,
+            LAN_SYNC_WINDOW_GEOMETRY.min_height,
+        )
+        .decorations(false)
+        .resizable(true)
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?
+    };
+    window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }

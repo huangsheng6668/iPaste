@@ -43,6 +43,10 @@ use crate::window::*;
 mod cloud;
 use crate::cloud::*;
 
+mod lan_sync;
+use crate::lan_sync::*;
+use crate::lan_sync::commands::*;
+
 pub(crate) const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
 pub(crate) const PAUSE_CAPTURE_LABEL: &str = "暂停捕捉";
 pub(crate) const RESUME_CAPTURE_LABEL: &str = "恢复捕捉";
@@ -188,7 +192,16 @@ pub fn run() {
             is_autostart_enabled,
             set_main_window_dragging,
             start_main_window_drag,
-            apply_clip
+            apply_clip,
+            lan_create_session,
+            lan_join_session,
+            lan_join_by_address,
+            lan_accept_pair,
+            lan_send_clip,
+            lan_request_clip,
+            lan_disconnect,
+            lan_get_state,
+            open_lan_sync
         ])
         .setup(|app| {
             app.handle()
@@ -263,6 +276,9 @@ pub fn run() {
             );
 
             app.manage(state);
+            app.manage(std::sync::Arc::new(LanSessionManager::new(
+                app.handle().clone(),
+            )));
             build_tray(
                 app.handle(),
                 show_menu_item,

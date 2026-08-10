@@ -222,3 +222,14 @@ export type AutomationInput = {
 export type AutomationRunStartedEvent = { runId: string; automationId: string; startedAt: string };
 export type AutomationRunOutputEvent = { runId: string; automationId: string; stream: "stdout" | "stderr"; chunk: string };
 export type AutomationRunFinishedEvent = { runId: string; automationId: string; status: AutomationStatus; exitCode?: number | null; startedAt: string; finishedAt: string };
+
+export type LanRole = "host" | "guest";
+export type LanStatus = "idle" | "hosting" | "waitingPair" | "connected";
+export interface LanSessionInfo {
+  role: LanRole | null;
+  status: LanStatus;
+  code: string | null;
+  listenAddr: string | null;
+  peerDeviceName: string | null;
+}
+export type LanClipSource = { kind: "current" } | { kind: "item"; id: string };
