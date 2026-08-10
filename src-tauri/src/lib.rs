@@ -43,6 +43,9 @@ use crate::window::*;
 mod cloud;
 use crate::cloud::*;
 
+mod lan_sync;
+use crate::lan_sync::*;
+
 pub(crate) const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
 pub(crate) const PAUSE_CAPTURE_LABEL: &str = "暂停捕捉";
 pub(crate) const RESUME_CAPTURE_LABEL: &str = "恢复捕捉";
