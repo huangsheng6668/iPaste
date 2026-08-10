@@ -149,3 +149,8 @@ pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), String> {
 pub(crate) fn lan_get_state(app: AppHandle) -> Result<LanSessionInfo, String> {
     Ok(app.lan_manager().snapshot())
 }
+
+#[tauri::command]
+pub(crate) fn open_lan_sync(app: AppHandle) -> Result<(), String> {
+    crate::window::open_lan_sync_window(&app)
+}

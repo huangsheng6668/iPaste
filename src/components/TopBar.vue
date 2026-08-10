@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ClipboardPlus, Download, Search, Settings, X } from "lucide-vue-next";
+import { ClipboardPlus, Download, Search, Settings, Wifi, X } from "lucide-vue-next";
 import { t } from "../i18n";
+import { ipasteApi } from "../lib/ipasteApi";
 
 const logoUrl = new URL("../../src-tauri/icons/32x32.png", import.meta.url).href;
 
@@ -56,6 +57,10 @@ function setMainWindowDragging(dragging: boolean) {
 
 function startMainWindowDrag() {
   return invoke<boolean>("start_main_window_drag").catch(() => false);
+}
+
+function onLanSync() {
+  void ipasteApi.openLanSync();
 }
 </script>
 
@@ -122,6 +127,17 @@ function startMainWindowDrag() {
       @click.stop="emit('toggleAppendCopy')"
     >
       <ClipboardPlus class="size-4" />
+    </button>
+
+    <button
+      type="button"
+      class="icon-button"
+      tabindex="-1"
+      :aria-label="t('lan.title')"
+      :data-tooltip="t('lan.title')"
+      @click.stop="onLanSync"
+    >
+      <Wifi class="size-4" />
     </button>
 
     <button

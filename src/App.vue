@@ -10,6 +10,7 @@ import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import { serializeAutomations, parseImportFile } from "./stores/lib/automationTransfer";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
+import LanSyncPanel from "./components/LanSyncPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import TopBar from "./components/TopBar.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
@@ -26,6 +27,7 @@ const store = useIpasteStore();
 const updater = useUpdater();
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
 const isClipViewerWindow = new URLSearchParams(window.location.search).get("window") === "clip-viewer";
+const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const isPreservingCurrentApp = ref(false);
 const contextMenu = ref<{ item: ClipViewItem; index: number; x: number; y: number } | null>(null);
@@ -149,6 +151,7 @@ const quickPreviewColorValue = computed(() => quickPreviewContent.value.trim());
 onMounted(async () => {
   if (isClipViewerWindow) return;
   if (isSettingsWindow) return;
+  if (isLanSyncWindow) return;
 
   document.addEventListener("keydown", handleKeydown, true);
   document.addEventListener("keyup", handleKeyup, true);
@@ -179,6 +182,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (isClipViewerWindow) return;
   if (isSettingsWindow) return;
+  if (isLanSyncWindow) return;
 
   document.removeEventListener("keydown", handleKeydown, true);
   document.removeEventListener("keyup", handleKeyup, true);
@@ -1235,6 +1239,7 @@ function scrollSelectedClipIntoView() {
 <template>
   <SettingsWindow v-if="isSettingsWindow" />
   <ClipViewerWindow v-else-if="isClipViewerWindow" />
+  <LanSyncPanel v-else-if="isLanSyncWindow" />
 
   <main
     v-else

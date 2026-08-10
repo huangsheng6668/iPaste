@@ -513,6 +513,9 @@ export const ipasteApi = {
       role: null, status: "idle", code: null, listenAddr: null, peerDeviceName: null,
     });
   },
+  openLanSync() {
+    return call<void>("open_lan_sync");
+  },
   listAutomations() {
     if (!isTauri) return Promise.resolve(structuredClone(mockAutomations));
     return invoke<AutomationAction[]>("list_automations");
