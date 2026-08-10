@@ -24,6 +24,11 @@ impl Connection {
         Self { stream }
     }
 
+    /// 消费 Connection，返回底层 TcpStream（用于握手完成后转入 session loop）。
+    pub(crate) fn into_stream(self) -> TcpStream {
+        self.stream
+    }
+
     async fn read_u32(&mut self) -> Result<u32, String> {
         let mut buf = [0u8; 4];
         self.stream

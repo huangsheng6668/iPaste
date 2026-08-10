@@ -1,6 +1,6 @@
 pub(crate) mod protocol;
 pub(crate) mod session;  // Task 3
-// pub(crate) mod server;   // Task 4
+pub(crate) mod server;   // Task 4
 // pub(crate) mod client;   // Task 5
 // pub(crate) mod commands; // Task 6
 
@@ -75,6 +75,7 @@ struct LanInner {
     peer_device_name: Option<String>,
     pair_decision_tx: Option<oneshot::Sender<bool>>,
     control_tx: Option<mpsc::Sender<ControlMsg>>,
+    control_rx: Option<mpsc::Receiver<ControlMsg>>,
 }
 
 impl Default for LanStatus { fn default() -> Self { LanStatus::Idle } }
@@ -100,7 +101,13 @@ impl LanSessionManager {
         }
     }
 
-    pub(crate) fn set_hosting(&self, code: String, listen_addr: String, control_tx: mpsc::Sender<ControlMsg>) {
+    pub(crate) fn set_hosting(
+        &self,
+        code: String,
+        listen_addr: String,
+        control_tx: mpsc::Sender<ControlMsg>,
+        control_rx: mpsc::Receiver<ControlMsg>,
+    ) {
         let mut inner = self.inner.lock().expect("lan inner poisoned");
         inner.role = Some(LanRole::Host);
         inner.status = LanStatus::Hosting;
@@ -108,6 +115,7 @@ impl LanSessionManager {
         inner.listen_addr = Some(listen_addr);
         inner.peer_device_name = None;
         inner.control_tx = Some(control_tx);
+        inner.control_rx = Some(control_rx);
         inner.pair_decision_tx = None;
     }
 
@@ -117,12 +125,18 @@ impl LanSessionManager {
         inner.status = LanStatus::WaitingPair;
     }
 
-    pub(crate) fn set_joining(&self, code: String, control_tx: mpsc::Sender<ControlMsg>) {
+    pub(crate) fn set_joining(
+        &self,
+        code: String,
+        control_tx: mpsc::Sender<ControlMsg>,
+        control_rx: mpsc::Receiver<ControlMsg>,
+    ) {
         let mut inner = self.inner.lock().expect("lan inner poisoned");
         inner.role = Some(LanRole::Guest);
         inner.status = LanStatus::WaitingPair;
         inner.code = Some(code);
         inner.control_tx = Some(control_tx);
+        inner.control_rx = Some(control_rx);
         inner.pair_decision_tx = None;
     }
 
@@ -147,6 +161,27 @@ impl LanSessionManager {
         self.inner.lock().expect("lan inner poisoned").control_tx.clone()
     }
 
+    /// 取出 control_rx，交给首个建立的会话循环。
+    pub(crate) fn take_control_rx(&self) -> Option<mpsc::Receiver<ControlMsg>> {
+        self.inner.lock().expect("lan inner poisoned").control_rx.take()
+    }
+
+    /// 广播任务退出条件：状态回到 Idle（停 host）或已进入 Connected（停止广播）。
+    pub(crate) fn status_is_idle_or_connected_break(&self) -> bool {
+        matches!(
+            self.inner.lock().expect("lan inner poisoned").status,
+            LanStatus::Idle | LanStatus::Connected
+        )
+    }
+
+    /// 1v1：仅在 Hosting 态可接受新配对（WaitingPair / Connected 时拒绝新连接）。
+    pub(crate) fn can_accept_new_pair(&self) -> bool {
+        matches!(
+            self.inner.lock().expect("lan inner poisoned").status,
+            LanStatus::Hosting
+        )
+    }
+
     pub(crate) fn reset_to_idle(&self, reason: String) {
         {
             let mut inner = self.inner.lock().expect("lan inner poisoned");
@@ -157,6 +192,7 @@ impl LanSessionManager {
             inner.peer_device_name = None;
             inner.pair_decision_tx = None;
             inner.control_tx = None;
+            inner.control_rx = None;
         }
         let _ = self.app.emit("ipaste://lan-disconnected", LanDisconnected { reason });
     }
