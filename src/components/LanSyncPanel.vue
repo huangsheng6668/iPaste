@@ -75,6 +75,15 @@ function onReject() {
       <p class="lan-hint">{{ t("lan.firewallHint") }}</p>
     </div>
 
+    <!-- 接入确认（优先于 hosting：guest 发 pair-request 时 info.status 仍为 hosting） -->
+    <div v-else-if="notice === 'pair-request'" class="lan-section">
+      <p>{{ t("lan.pairRequest", { device: info.peerDeviceName ?? "" }) }}</p>
+      <div class="lan-row">
+        <button class="lan-btn primary" @click="onAccept"><Check :size="14" /> {{ t("lan.accept") }}</button>
+        <button class="lan-btn" @click="onReject"><X :size="14" /> {{ t("lan.reject") }}</button>
+      </div>
+    </div>
+
     <!-- Host 等待加入 -->
     <div v-else-if="info.status === 'hosting'" class="lan-section">
       <label>{{ t("lan.code") }}</label>
@@ -83,15 +92,6 @@ function onReject() {
       <code class="lan-code">{{ info.listenAddr }}</code>
       <p>{{ statusText }}</p>
       <button class="lan-btn" @click="disconnect">{{ t("lan.disconnect") }}</button>
-    </div>
-
-    <!-- 接入确认 -->
-    <div v-else-if="notice === 'pair-request'" class="lan-section">
-      <p>{{ t("lan.pairRequest", { device: info.peerDeviceName ?? "" }) }}</p>
-      <div class="lan-row">
-        <button class="lan-btn primary" @click="onAccept"><Check :size="14" /> {{ t("lan.accept") }}</button>
-        <button class="lan-btn" @click="onReject"><X :size="14" /> {{ t("lan.reject") }}</button>
-      </div>
     </div>
 
     <!-- 已连接 -->
