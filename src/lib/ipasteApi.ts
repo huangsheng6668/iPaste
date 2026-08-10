@@ -17,6 +17,8 @@ import type {
   ClipViewerPayload,
   ClipViewItem,
   ImageOcrResult,
+  LanClipSource,
+  LanSessionInfo,
   Language,
   OcrMode,
   OcrInstallStatus,
@@ -481,6 +483,34 @@ export const ipasteApi = {
     return invoke<void>("open_clip_viewer", {
       label,
       title: item.displayName?.trim() || item.previewText || "iPaste",
+    });
+  },
+  lanCreateSession(code: string | null = null) {
+    return call<LanSessionInfo>("lan_create_session", { code }, {
+      role: "host", status: "hosting", code: code ?? "ABC123", listenAddr: "127.0.0.1:45130", peerDeviceName: null,
+    });
+  },
+  lanJoinSession(code: string) {
+    return call<void>("lan_join_session", { code });
+  },
+  lanJoinByAddress(address: string, code: string) {
+    return call<void>("lan_join_by_address", { address, code });
+  },
+  lanAcceptPair(accept: boolean) {
+    return call<void>("lan_accept_pair", { accept });
+  },
+  lanSendClip(source: LanClipSource) {
+    return call<void>("lan_send_clip", { source });
+  },
+  lanRequestClip() {
+    return call<void>("lan_request_clip");
+  },
+  lanDisconnect() {
+    return call<void>("lan_disconnect");
+  },
+  lanGetState() {
+    return call<LanSessionInfo>("lan_get_state", undefined, {
+      role: null, status: "idle", code: null, listenAddr: null, peerDeviceName: null,
     });
   },
   listAutomations() {
