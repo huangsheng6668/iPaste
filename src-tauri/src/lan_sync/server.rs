@@ -5,9 +5,8 @@
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::session::{run_session_loop, Connection};
@@ -37,8 +36,8 @@ pub(crate) async fn start_host(
     let hash = code_hash(&code);
 
     // 3. UDP 广播任务：周期性向 255.255.255.255:LAN_UDP_PORT 发送 {codeHash, tcpPort}。
-    //    manager 用 clone，accept 任务也要用。
-    {
+    //    捕获 JoinHandle 以便 Task 6 的 disconnect 命令 abort。
+    let broadcast_handle = {
         let manager = manager.clone();
         let payload = serde_json::json!({ "codeHash": hash, "tcpPort": tcp_port }).to_string();
         let bcast_addr: std::net::SocketAddr = format!("255.255.255.255:{}", LAN_UDP_PORT)
@@ -54,22 +53,20 @@ pub(crate) async fn start_host(
                 let _ = sock.send_to(payload.as_bytes(), bcast_addr).await;
                 tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             }
-        });
-    }
+        })
+    };
 
-    // 4. accept 循环：1v1，非 Hosting 态拒绝新连接。
-    {
+    // 4. accept 循环：对每个新连接 spawn `handle_guest`，1v1 由 `handle_guest` 内的
+    //    `try_begin_pairing()` 原子门保证（不再在 accept 循环里预 check —— 那会造成
+    //    check 与 set_waiting_pair 之间的 TOCTOU 竞态）。
+    let accept_handle = {
         let manager = manager.clone();
         let app = app.clone();
         let store = store.clone();
         let code = code.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((mut stream, _)) = listener.accept().await else { continue };
-                if !manager.can_accept_new_pair() {
-                    let _ = stream.shutdown().await;
-                    continue;
-                }
+                let Ok((stream, _)) = listener.accept().await else { continue };
                 let manager = manager.clone();
                 let app = app.clone();
                 let store = store.clone();
@@ -78,8 +75,11 @@ pub(crate) async fn start_host(
                     handle_guest(stream, manager, app, store, code).await;
                 });
             }
-        });
-    }
+        })
+    };
+
+    // 5. 把两个任务句柄存进 manager，Task 6 的 disconnect 命令会 abort 它们以释放端口。
+    manager.set_host_tasks(broadcast_handle, accept_handle);
 
     Ok(listen_addr)
 }
@@ -108,10 +108,15 @@ async fn handle_guest(
         return;
     }
 
+    // 原子配对门：Hosting → WaitingPair + 预留 oneshot，一次 lock 完成（修 TOCTOU）。
+    // 已有配对进行中 / 已连接时直接拒绝，不破坏现有状态。
+    let Some(rx) = manager.try_begin_pairing() else {
+        let _ = conn.write_message(&LanMessage::PairRejected, None).await;
+        return;
+    };
+
     // 询问前端用户是否接受配对
     let guest_id = code_hash(&guest_device_name);
-    let (tx, rx) = oneshot::channel::<bool>();
-    manager.set_waiting_pair(tx);
     let _ = app.emit(
         "ipaste://lan-pair-request",
         LanPairRequest {
@@ -126,7 +131,8 @@ async fn handle_guest(
     };
     if !accepted {
         let _ = conn.write_message(&LanMessage::PairRejected, None).await;
-        manager.reset_to_idle("已拒绝加入".to_string());
+        // 回到 Hosting（持久 host 会话），不停掉整个 host —— 下一个 guest 仍可接入。
+        manager.resume_hosting();
         return;
     }
 
