@@ -703,10 +703,14 @@ pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String>
         .decorations(false)
         .resizable(true)
         .visible(false)
+        .always_on_top(true)
         .build()
         .map_err(|error| error.to_string())?
     };
     window.show().map_err(|error| error.to_string())?;
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Wifi, WifiOff, ArrowUp, ArrowDown, Check, X, History } from "lucide-vue-next";
 import { useLanSync } from "../composables/useLanSync";
 import { useIpasteStore } from "../stores/ipasteStore";
@@ -38,6 +39,10 @@ const statusText = computed(() => {
 
 onMounted(() => store.load());
 
+async function closeWindow() {
+  await getCurrentWindow().close();
+}
+
 function onAccept() {
   acceptPair(true);
   notice.value = null;
@@ -55,6 +60,9 @@ function onReject() {
     <header class="lan-header" data-tauri-drag-region>
       <Wifi :size="18" />
       <span>{{ t("lan.title") }}</span>
+      <button type="button" class="lan-close" :aria-label="t('topBar.closePanel')" @click="closeWindow">
+        <X :size="16" />
+      </button>
     </header>
 
     <p v-if="error" class="lan-error">{{ error }}</p>
@@ -124,6 +132,8 @@ function onReject() {
 <style scoped>
 .lan-sync-panel { padding: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 14px; }
 .lan-header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.lan-close { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; cursor: pointer; color: #6b7280; }
+.lan-close:hover { background: #f3f4f6; color: #111827; }
 .lan-section { display: flex; flex-direction: column; gap: 8px; }
 .lan-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .lan-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }
