@@ -491,9 +491,6 @@ export const ipasteApi = {
       role: "host", status: "hosting", code: code ?? "ABC123", listenAddr: "127.0.0.1:45130", peerDeviceName: null,
     });
   },
-  lanJoinSession(code: string) {
-    return call<void>("lan_join_session", { code });
-  },
   lanJoinByAddress(address: string, code: string) {
     return call<void>("lan_join_by_address", { address, code });
   },
