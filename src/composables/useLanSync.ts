@@ -76,6 +76,8 @@ export function useLanSync() {
 
   async function scanDevices() {
     error.value = null;
+    // 进入扫描前立即清空旧列表，避免 5s 扫描窗口期间仍展示并可点击上一次的过期设备。
+    scannedDevices.value = [];
     isScanning.value = true;
     try {
       scannedDevices.value = await ipasteApi.lanScanDevices(5);

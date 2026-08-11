@@ -208,7 +208,10 @@ mod tests {
     use super::*;
     use tokio::net::UdpSocket;
 
+    // 绑定生产端口 LAN_UDP_PORT(45131)：若端口被占（运行中的 iPaste、并发测试、TIME_WAIT）
+    // scan_devices 会静默返回空 Vec 导致断言失败。标 #[ignore] 避免 CI 误红，保留手动验证路径。
     #[tokio::test]
+    #[ignore = "binds LAN_UDP_PORT (45131); run with --ignored manually"]
     async fn scan_devices_collects_broadcast_payload() {
         // scan_devices 会 bind LAN_UDP_PORT(45131)；测试用单独 socket 向它发广播
         // 注意：广播到 255.255.255.255 在 CI 可能不通，这里用 unicast 到 localhost

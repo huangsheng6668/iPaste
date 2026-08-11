@@ -11,24 +11,20 @@ pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
 pub(crate) enum LanMessage {
     Handshake {
         code: String,
-        #[serde(rename = "deviceName")]
         device_name: String,
         #[serde(default)]
         auto: bool,
     },
     PairAccepted {
-        #[serde(rename = "hostDeviceName")]
         host_device_name: String,
     },
     PairRejected,
     ClipPush {
-        #[serde(rename = "clipType")]
         clip_type: String,
         empty: bool,
     },
     ClipRequest,
     ClipResponse {
-        #[serde(rename = "clipType")]
         clip_type: String,
         empty: bool,
     },
@@ -119,8 +115,11 @@ mod tests {
 
     #[test]
     fn handshake_legacy_without_auto_defaults_false() {
-        // 模拟老版本 Guest 不发 auto 字段的 JSON
-        let json = r#"{"kind":"handshake","code":"c","deviceName":"d"}"#;
+        // 模拟 0.3.14 老版本 Guest 不发 auto 字段的 JSON。
+        // 注意：字段名必须是 snake_case（device_name）——这是 0.3.14 实际的线上格式。
+        // enum 上的 rename_all="camelCase" 只对 variant 名（kind tag）生效，不作用于
+        // struct variant 内部字段。
+        let json = r#"{"kind":"handshake","code":"c","device_name":"d"}"#;
         let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(json.as_bytes());
         let msg = decode_frame(&bytes).unwrap();
