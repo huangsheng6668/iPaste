@@ -1,11 +1,12 @@
-//! Host 服务端：绑定 TCP 监听 + UDP 广播 + accept 循环 + 配对确认。
+//! Host 服务端：绑定 TCP 监听 + accept 循环 + 配对确认。
 //!
-//! 见 `task-4-brief.md`。本模块在 Task 4 取消注释启用，Task 5/6 才会真正调用 `start_host`。
+//! Task 2 移除了 UDP 组播广播；accept 后按首条消息分流（Discover → 响应即断，
+//! Handshake → 配对流程）。
 
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use crate::lan_sync::protocol::*;
@@ -13,10 +14,10 @@ use crate::lan_sync::session::{run_session_loop, Connection};
 use crate::lan_sync::*;
 use crate::store::Store;
 
-/// 启动 Host：绑定 TCP + UDP 广播 + accept 循环。
+/// 启动 Host：绑定 TCP + accept 循环。
 ///
-/// 成功返回 `listen_addr`（`ip:port`）。listener / 广播 / accept 三个任务在后台 spawn，
-/// 失败时由各任务自身通过 `manager.reset_to_idle` 清理状态。
+/// 成功返回 `listen_addr`（`ip:port`）。accept 任务在后台 spawn，
+/// 失败时由任务自身通过 `manager.reset_to_idle` 清理状态。
 pub(crate) async fn start_host(
     app: AppHandle,
     manager: Arc<LanSessionManager>,
@@ -29,82 +30,80 @@ pub(crate) async fn start_host(
         .map_err(|e| format!("无法切换非阻塞模式：{}", e))?;
     let listen_addr = local_ip_with_port(tcp_port);
 
-    // 2. 注册到 manager（control_rx 也存进去，握手通过后由 handle_guest 取出）
+    // 2. 注册到 manager（control_rx 也存进去，握手通过后由 handle_guest_with_handshake 取出）
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
     manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx);
 
-    let hash = code_hash(&code);
-
-    // 3. UDP 组播任务：周期性向 LAN_MULTICAST_ADDR:LAN_UDP_PORT 发送 {codeHash, tcpPort, deviceName}。
-    //    捕获 JoinHandle 以便 disconnect 命令 abort。
-    let broadcast_handle = {
-        let manager = manager.clone();
-        let payload = serde_json::json!({
-            "codeHash": hash,
-            "tcpPort": tcp_port,
-            "deviceName": device_name(),
-        })
-        .to_string();
-        let mcast_addr: std::net::SocketAddr = (LAN_MULTICAST_ADDR, LAN_UDP_PORT).into();
-        tokio::spawn(async move {
-            let Ok(sock) = UdpSocket::bind("0.0.0.0:0").await else { return };
-            let _ = sock.set_multicast_ttl_v4(1);
-            loop {
-                if manager.status_is_idle_or_connected_break() {
-                    break;
-                }
-                let _ = sock.send_to(payload.as_bytes(), mcast_addr).await;
-                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            }
-        })
-    };
-
-    // 4. accept 循环：对每个新连接 spawn `handle_guest`，1v1 由 `handle_guest` 内的
-    //    `try_begin_pairing()` 原子门保证（不再在 accept 循环里预 check —— 那会造成
-    //    check 与 set_waiting_pair 之间的 TOCTOU 竞态）。
+    // 3. accept 循环：对每个新连接读首条消息分流。
+    //    Discover → 响应 tcpPort + deviceName 后关闭；Handshake → 进入配对流程。
     let accept_handle = {
         let manager = manager.clone();
         let app = app.clone();
         let store = store.clone();
-        let code = code.clone();
+        let expected_code = code.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((stream, _)) = listener.accept().await else { continue };
                 let manager = manager.clone();
                 let app = app.clone();
                 let store = store.clone();
-                let code = code.clone();
+                let expected_code = expected_code.clone();
                 tokio::spawn(async move {
-                    handle_guest(stream, manager, app, store, code).await;
+                    let mut conn = Connection::new(stream);
+                    let (msg, _) = match conn.read_message().await {
+                        Ok(v) => v,
+                        Err(_) => return,
+                    };
+                    match msg {
+                        LanMessage::Discover => {
+                            let response = LanMessage::DiscoverResponse {
+                                device_name: device_name(),
+                                tcp_port,
+                            };
+                            let _ = conn.write_message(&response, None).await;
+                            // 连接随即关闭（conn drop）
+                        }
+                        LanMessage::Handshake { code, device_name: guest_name, auto } => {
+                            handle_guest_with_handshake(
+                                conn,
+                                &manager,
+                                &app,
+                                &store,
+                                &expected_code,
+                                code,
+                                guest_name,
+                                auto,
+                            )
+                            .await;
+                        }
+                        _ => { /* 未知消息，静默关闭 */ }
+                    }
                 });
             }
         })
     };
 
-    // 5. 把两个任务句柄存进 manager，Task 6 的 disconnect 命令会 abort 它们以释放端口。
-    manager.set_host_tasks(broadcast_handle, accept_handle);
+    // 4. 把 accept 任务句柄存进 manager，Task 6 的 disconnect 命令会 abort 它以释放端口。
+    manager.set_host_task(accept_handle);
 
     Ok(listen_addr)
 }
 
-/// 处理一个 guest 连接：读 Handshake → 校验 code → 询问用户 → 进入 session loop 或拒绝。
-async fn handle_guest(
-    stream: TcpStream,
-    manager: Arc<LanSessionManager>,
-    app: AppHandle,
-    store: Store,
-    expected_code: String,
+/// 处理 Handshake 已读的连接：校验 code → 询问用户 → 进入 session loop 或拒绝。
+///
+/// 调用方（accept 循环 handler）已读取首条消息并解构为 Handshake 字段，
+/// 传入已构造好的 `Connection`。函数体从原 `handle_guest` 的 code 校验开始，
+/// 逻辑不变。
+async fn handle_guest_with_handshake(
+    mut conn: Connection,
+    manager: &Arc<LanSessionManager>,
+    app: &AppHandle,
+    store: &Store,
+    expected_code: &str,
+    code: String,
+    guest_name: String,
+    auto: bool,
 ) {
-    let mut conn = Connection::new(stream);
-
-    // 读取握手；读取失败静默丢弃
-    let (msg, _payload) = match conn.read_message().await {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    // 注意：字段重命名为 guest_device_name，避免遮蔽模块级 `device_name()` 函数。
-    let LanMessage::Handshake { code, device_name: guest_device_name, auto } = msg else { return };
-
     // code 校验（与 code_hash 一致，trim 后比较）。
     // auto=true：扫描加入路径，跳过码校验，仍由下方 try_begin_pairing + lan-pair-request
     // 经 Host 前端确认 gating（不会绕过 Host 同意环节）。
@@ -121,12 +120,12 @@ async fn handle_guest(
     };
 
     // 询问前端用户是否接受配对
-    let guest_id = code_hash(&guest_device_name);
+    let guest_id = code_hash(&guest_name);
     let _ = app.emit(
         "ipaste://lan-pair-request",
         LanPairRequest {
             guest_id,
-            device_name: guest_device_name.clone(),
+            device_name: guest_name.clone(),
         },
     );
 
@@ -157,7 +156,7 @@ async fn handle_guest(
         manager.reset_to_idle("内部状态错误".to_string());
         return;
     };
-    run_session_loop(raw, manager, store, guest_device_name, control_rx).await;
+    run_session_loop(raw, manager.clone(), store.clone(), guest_name, control_rx).await;
 }
 
 /// 在 `LAN_TCP_BASE_PORT .. +LAN_TCP_PORT_ATTEMPTS` 范围内尝试绑定，返回首个成功的
