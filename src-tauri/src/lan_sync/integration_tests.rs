@@ -1,5 +1,4 @@
-use std::net::Ipv4Addr;
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, TcpStream};
 
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::session::Connection;
@@ -91,28 +90,81 @@ async fn handshake_auto_true_roundtrips_with_payload() {
 }
 
 #[tokio::test]
-async fn multicast_loopback_receives_packet() {
-    let sock = UdpSocket::bind(("0.0.0.0", LAN_UDP_PORT))
+async fn discover_roundtrips_and_handshake_still_works() {
+    // 1) Discover 分流：Host 收 Discover → 回 DiscoverResponse → 连接关闭
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let host = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = Connection::new(stream);
+        let (msg, _) = conn.read_message().await.unwrap();
+        match msg {
+            LanMessage::Discover => {
+                conn.write_message(
+                    &LanMessage::DiscoverResponse {
+                        device_name: "host".into(),
+                        tcp_port: 45130,
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+            }
+            _ => panic!("expected Discover, got {:?}", msg),
+        }
+    });
+    let mut client = Connection::new(TcpStream::connect(addr).await.unwrap());
+    client.write_message(&LanMessage::Discover, None).await.unwrap();
+    let (msg, _) = client.read_message().await.unwrap();
+    match msg {
+        LanMessage::DiscoverResponse { device_name, tcp_port } => {
+            assert_eq!(device_name, "host");
+            assert_eq!(tcp_port, 45130);
+        }
+        _ => panic!("expected DiscoverResponse"),
+    }
+    host.await.unwrap();
+
+    // 2) Handshake 配对路径回归（现有协议不变）：完整握手 + ClipPush 往返
+    let listener2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr2 = listener2.local_addr().unwrap();
+    let host2 = tokio::spawn(async move {
+        let (stream, _) = listener2.accept().await.unwrap();
+        let mut conn = Connection::new(stream);
+        let (msg, _) = conn.read_message().await.unwrap();
+        assert!(matches!(
+            msg,
+            LanMessage::Handshake { code, device_name, auto: false }
+                if code == "ROOM" && device_name == "guest"
+        ));
+        conn.write_message(
+            &LanMessage::PairAccepted { host_device_name: "host".into() },
+            None,
+        )
         .await
         .unwrap();
-    sock.join_multicast_v4(LAN_MULTICAST_ADDR, Ipv4Addr::new(127, 0, 0, 1))
-        .unwrap();
-    sock.set_multicast_loop_v4(true).unwrap();
-
-    let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-    sender
-        .send_to(b"mcast-hello", (LAN_MULTICAST_ADDR, LAN_UDP_PORT))
+        let (msg, payload) = conn.read_message().await.unwrap();
+        assert!(matches!(msg, LanMessage::ClipPush { empty: false, .. }));
+        assert_eq!(payload.as_deref(), Some(&b"hi"[..]));
+    });
+    let mut client2 = Connection::new(TcpStream::connect(addr2).await.unwrap());
+    client2
+        .write_message(
+            &LanMessage::Handshake {
+                code: "ROOM".into(),
+                device_name: "guest".into(),
+                auto: false,
+            },
+            None,
+        )
         .await
         .unwrap();
-
-    let mut buf = [0u8; 64];
-    let (n, src) = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        sock.recv_from(&mut buf),
-    )
-    .await
-    .expect("组播 loopback 应在 3s 内收到")
-    .expect("recv 失败");
-    assert_eq!(&buf[..n], b"mcast-hello");
-    assert!(!src.ip().is_unspecified(), "组播包源地址应为发送端 IP");
+    let (msg, _) = client2.read_message().await.unwrap();
+    assert!(matches!(msg, LanMessage::PairAccepted { host_device_name } if host_device_name == "host"));
+    client2
+        .write_message(&LanMessage::ClipPush { clip_type: "text".into(), empty: false }, Some(b"hi"))
+        .await
+        .unwrap();
+    host2.await.unwrap();
 }
+
