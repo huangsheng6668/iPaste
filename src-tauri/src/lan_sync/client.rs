@@ -15,6 +15,22 @@ use crate::lan_sync::session::{run_session_loop, Connection};
 use crate::lan_sync::*;
 use crate::store::Store;
 
+/// 推断本机主要出口 IPv4 地址（UDP "connect" 8.8.8.8 技巧，不真正发包），
+/// 供 `join_multicast_v4` 选定出接口。失败返回 None —— 调用方 fallback 到
+/// `Ipv4Addr::UNSPECIFIED`（仍可能 join 成功，由内核选默认接口）。
+///
+/// 注：`server.rs` 的 `local_ip()` 是私有 `fn` 且返回 `Option<String>`，
+/// 这里不复用它；本 helper 直接返回 `Option<Ipv4Addr>`，省去调用点 parse。
+fn local_ipv4_addr() -> Option<std::net::Ipv4Addr> {
+    use std::net::UdpSocket as StdUdp;
+    let sock = StdUdp::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?;
+    match sock.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(v4) => Some(v4),
+        std::net::IpAddr::V6(_) => None,
+    }
+}
+
 /// 与 host 握手：发 Handshake → 读 PairAccepted/PairRejected → 进 session loop。
 ///
 /// 失败分支统一 `emit_join_failed` + `reset_to_idle`，不留半态。
@@ -108,6 +124,14 @@ pub(crate) async fn join_by_broadcast(
         let Ok(sock) = UdpSocket::bind(("0.0.0.0", LAN_UDP_PORT)).await else {
             return None::<(String, u16)>;
         };
+        // 加入组播组（与 scan_devices 同款）—— 这样 guest 既能收 host 的组播广播，
+        // 也兼容旧的 unicast 广播（recv_from 在已 join 的 socket 上两种都收）。
+        // 注：tokio 的 `join_multicast_v4` 是同步方法（底层 setsockopt），不要 .await。
+        if let Some(interface) = local_ipv4_addr() {
+            let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, interface);
+        } else {
+            let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, std::net::Ipv4Addr::UNSPECIFIED);
+        }
         let mut buf = [0u8; 256];
         loop {
             let Ok((n, src)) = sock.recv_from(&mut buf).await else {
@@ -155,6 +179,14 @@ pub(crate) async fn scan_devices(timeout_secs: u64) -> Vec<LanDevice> {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
+    // 加入组播组（默认接口 = local_ip() 推断的主 IP；失败则 fallback 到
+    // `UNSPECIFIED` 让内核选默认接口。join 失败静默忽略 —— 收不到组播但不 panic。
+    // 注：tokio 的 `join_multicast_v4` 是同步方法（底层 setsockopt），不要 .await。）
+    if let Some(interface) = local_ipv4_addr() {
+        let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, interface);
+    } else {
+        let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, std::net::Ipv4Addr::UNSPECIFIED);
+    }
     let mut found: HashMap<String, LanDevice> = HashMap::new();
     let _ = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
         let mut buf = [0u8; 512];
