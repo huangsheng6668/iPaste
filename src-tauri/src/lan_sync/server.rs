@@ -39,7 +39,12 @@ pub(crate) async fn start_host(
     //    捕获 JoinHandle 以便 Task 6 的 disconnect 命令 abort。
     let broadcast_handle = {
         let manager = manager.clone();
-        let payload = serde_json::json!({ "codeHash": hash, "tcpPort": tcp_port }).to_string();
+        let payload = serde_json::json!({
+            "codeHash": hash,
+            "tcpPort": tcp_port,
+            "deviceName": device_name(),
+        })
+        .to_string();
         let bcast_addr: std::net::SocketAddr = format!("255.255.255.255:{}", LAN_UDP_PORT)
             .parse()
             .expect("broadcast 地址字面量必然可解析");
@@ -100,10 +105,12 @@ async fn handle_guest(
         Err(_) => return,
     };
     // 注意：字段重命名为 guest_device_name，避免遮蔽模块级 `device_name()` 函数。
-    let LanMessage::Handshake { code, device_name: guest_device_name, auto: _ } = msg else { return };
+    let LanMessage::Handshake { code, device_name: guest_device_name, auto } = msg else { return };
 
-    // code 校验（与 code_hash 一致，trim 后比较）
-    if code.trim() != expected_code.trim() {
+    // code 校验（与 code_hash 一致，trim 后比较）。
+    // auto=true：扫描加入路径，跳过码校验，仍由下方 try_begin_pairing + lan-pair-request
+    // 经 Host 前端确认 gating（不会绕过 Host 同意环节）。
+    if !auto && code.trim() != expected_code.trim() {
         let _ = conn.write_message(&LanMessage::PairRejected, None).await;
         return;
     }
