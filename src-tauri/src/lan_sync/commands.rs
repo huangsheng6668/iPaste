@@ -3,7 +3,7 @@
 //! 共八个命令；`open_lan_sync_window`（窗口接入）留给 Task 11。
 //!
 //! 状态机概览（详见 `mod.rs` 的 `LanSessionManager`）：
-//! - `lan_create_session`：Idle → Hosting（host 模式，TCP listener + UDP 广播）
+//! - `lan_create_session`：Idle → Hosting（host 模式，TCP listener）
 //! - `lan_join_by_address`：Idle → WaitingPair（guest 模式）
 //! - `lan_accept_pair`：WaitingPair 的 host 侧用户决定；通过预存的 oneshot 通知
 //! - `lan_send_clip` / `lan_request_clip`：仅 Connected 态有效，发 ControlMsg
@@ -119,7 +119,7 @@ pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), String> {
             }
         }
         LanStatus::Hosting | LanStatus::WaitingPair => {
-            // Host 侧：abort 广播 + accept 任务以释放端口，再 reset。
+            // Host 侧：abort accept 任务以释放端口，再 reset。
             // Guest 侧的 WaitingPair：abort_host_tasks 是 no-op（host_tasks=None）；
             // 此时可能有一个 in-flight 握手任务会后续覆写状态——已知 MVP 限制。
             manager.abort_host_tasks();

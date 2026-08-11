@@ -216,7 +216,7 @@ impl LanSessionManager {
     }
 
     /// 拒绝 guest 后回到 Hosting（持久 host 会话设计）：清掉残留的 pair 状态，
-    /// 继续广播 + 接受新 guest。**不 emit 任何事件** —— host 会话本身未中断，
+    /// 继续接受新 guest。**不 emit 任何事件** —— host 会话本身未中断，
     /// 只是拒绝了一个 guest（区别于 `reset_to_idle` 会停掉整个 host）。
     pub(crate) fn resume_hosting(&self) {
         let mut inner = self.inner.lock().expect("lan inner poisoned");
