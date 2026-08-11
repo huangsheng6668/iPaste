@@ -29,6 +29,7 @@ async fn handshake(
     let msg = LanMessage::Handshake {
         code: code.to_string(),
         device_name: local_name,
+        auto: false,
     };
     if conn.write_message(&msg, None).await.is_err() {
         manager.emit_join_failed("连接已断开".to_string());

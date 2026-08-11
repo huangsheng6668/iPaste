@@ -100,7 +100,7 @@ async fn handle_guest(
         Err(_) => return,
     };
     // 注意：字段重命名为 guest_device_name，避免遮蔽模块级 `device_name()` 函数。
-    let LanMessage::Handshake { code, device_name: guest_device_name } = msg else { return };
+    let LanMessage::Handshake { code, device_name: guest_device_name, auto: _ } = msg else { return };
 
     // code 校验（与 code_hash 一致，trim 后比较）
     if code.trim() != expected_code.trim() {
