@@ -683,6 +683,10 @@ pub(crate) fn show_clip_viewer_window(
 }
 
 pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let main_monitor = app
+        .get_webview_window(MAIN_WINDOW)
+        .and_then(|window| window.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
     let window = if let Some(window) = app.get_webview_window(LAN_SYNC_WINDOW) {
         window
     } else {
@@ -707,7 +711,15 @@ pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String>
         .build()
         .map_err(|error| error.to_string())?
     };
+    if let Some(monitor) = &main_monitor {
+        position_window_centered_on_monitor(&window, monitor, LAN_SYNC_WINDOW_GEOMETRY)?;
+    } else {
+        window.center().map_err(|error| error.to_string())?;
+    }
     window.show().map_err(|error| error.to_string())?;
+    if let Some(monitor) = &main_monitor {
+        position_window_centered_on_monitor(&window, monitor, LAN_SYNC_WINDOW_GEOMETRY)?;
+    }
     window
         .set_always_on_top(true)
         .map_err(|error| error.to_string())?;
