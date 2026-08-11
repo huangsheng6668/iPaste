@@ -35,8 +35,8 @@ pub(crate) async fn start_host(
 
     let hash = code_hash(&code);
 
-    // 3. UDP 广播任务：周期性向 255.255.255.255:LAN_UDP_PORT 发送 {codeHash, tcpPort}。
-    //    捕获 JoinHandle 以便 Task 6 的 disconnect 命令 abort。
+    // 3. UDP 组播任务：周期性向 LAN_MULTICAST_ADDR:LAN_UDP_PORT 发送 {codeHash, tcpPort, deviceName}。
+    //    捕获 JoinHandle 以便 disconnect 命令 abort。
     let broadcast_handle = {
         let manager = manager.clone();
         let payload = serde_json::json!({
@@ -45,17 +45,15 @@ pub(crate) async fn start_host(
             "deviceName": device_name(),
         })
         .to_string();
-        let bcast_addr: std::net::SocketAddr = format!("255.255.255.255:{}", LAN_UDP_PORT)
-            .parse()
-            .expect("broadcast 地址字面量必然可解析");
+        let mcast_addr: std::net::SocketAddr = (LAN_MULTICAST_ADDR, LAN_UDP_PORT).into();
         tokio::spawn(async move {
             let Ok(sock) = UdpSocket::bind("0.0.0.0:0").await else { return };
-            let _ = sock.set_broadcast(true);
+            let _ = sock.set_multicast_ttl_v4(1);
             loop {
                 if manager.status_is_idle_or_connected_break() {
                     break;
                 }
-                let _ = sock.send_to(payload.as_bytes(), bcast_addr).await;
+                let _ = sock.send_to(payload.as_bytes(), mcast_addr).await;
                 tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             }
         })

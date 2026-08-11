@@ -1,4 +1,5 @@
-use tokio::net::{TcpListener, TcpStream};
+use std::net::Ipv4Addr;
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::session::Connection;
@@ -87,4 +88,31 @@ async fn handshake_auto_true_roundtrips_with_payload() {
     let (msg, _) = client.read_message().await.unwrap();
     assert!(matches!(msg, LanMessage::PairAccepted { host_device_name } if host_device_name == "host"));
     host.await.unwrap();
+}
+
+#[tokio::test]
+async fn multicast_loopback_receives_packet() {
+    let sock = UdpSocket::bind(("0.0.0.0", LAN_UDP_PORT))
+        .await
+        .unwrap();
+    sock.join_multicast_v4(LAN_MULTICAST_ADDR, Ipv4Addr::new(127, 0, 0, 1))
+        .unwrap();
+    sock.set_multicast_loop_v4(true).unwrap();
+
+    let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    sender
+        .send_to(b"mcast-hello", (LAN_MULTICAST_ADDR, LAN_UDP_PORT))
+        .await
+        .unwrap();
+
+    let mut buf = [0u8; 64];
+    let (n, src) = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        sock.recv_from(&mut buf),
+    )
+    .await
+    .expect("组播 loopback 应在 3s 内收到")
+    .expect("recv 失败");
+    assert_eq!(&buf[..n], b"mcast-hello");
+    assert!(!src.ip().is_unspecified(), "组播包源地址应为发送端 IP");
 }
