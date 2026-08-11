@@ -46,3 +46,45 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
     client.write_message(&LanMessage::Disconnect, None).await.unwrap();
     host.await.unwrap();
 }
+
+#[tokio::test]
+async fn handshake_auto_true_roundtrips_with_payload() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let host = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = Connection::new(stream);
+        let (msg, _) = conn.read_message().await.unwrap();
+        match msg {
+            LanMessage::Handshake { code, device_name, auto } => {
+                assert_eq!(code, "");
+                assert_eq!(device_name, "guest");
+                assert!(auto, "auto must be true for scanned join");
+            }
+            _ => panic!("wrong variant"),
+        }
+        conn.write_message(
+            &LanMessage::PairAccepted { host_device_name: "host".into() },
+            None,
+        )
+        .await
+        .unwrap();
+    });
+
+    let mut client = Connection::new(TcpStream::connect(addr).await.unwrap());
+    client
+        .write_message(
+            &LanMessage::Handshake {
+                code: "".into(),
+                device_name: "guest".into(),
+                auto: true,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let (msg, _) = client.read_message().await.unwrap();
+    assert!(matches!(msg, LanMessage::PairAccepted { host_device_name } if host_device_name == "host"));
+    host.await.unwrap();
+}
