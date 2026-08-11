@@ -1,7 +1,7 @@
 import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
-import type { LanClipSource, LanSessionInfo } from "../types";
+import type { LanClipSource, LanDevice, LanSessionInfo } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -17,6 +17,9 @@ export function useLanSync() {
   // pair-request 时携带的对方设备名；与 info.peerDeviceName（仅 Connected 后由
   // set_connected 写入）分离，避免确认弹窗读到空名。
   const pendingPeerName = ref("");
+  // LAN 自动扫描：scannedDevices 存最近一次扫描到的设备，isScanning 标记扫描中。
+  const scannedDevices = ref<LanDevice[]>([]);
+  const isScanning = ref(false);
   let unlistenFns: UnlistenFn[] = [];
 
   function applyInfo(next: LanSessionInfo) {
@@ -71,6 +74,28 @@ export function useLanSync() {
     try { await ipasteApi.lanDisconnect(); } catch (e) { error.value = String(e); }
   }
 
+  async function scanDevices() {
+    error.value = null;
+    // 进入扫描前立即清空旧列表，避免 5s 扫描窗口期间仍展示并可点击上一次的过期设备。
+    scannedDevices.value = [];
+    isScanning.value = true;
+    try {
+      scannedDevices.value = await ipasteApi.lanScanDevices(5);
+    } catch (e) {
+      error.value = String(e);
+      scannedDevices.value = [];
+    } finally {
+      isScanning.value = false;
+    }
+  }
+
+  async function joinScanned(device: LanDevice) {
+    error.value = null;
+    try {
+      await ipasteApi.lanJoinScanned(device.addr);
+    } catch (e) { error.value = String(e); }
+  }
+
   onMounted(async () => {
     await refresh();
     if (!isTauri) return;
@@ -105,7 +130,9 @@ export function useLanSync() {
 
   return {
     isTauri, info, code, manualAddress, manualCode, error, notice, pendingPeerName,
+    scannedDevices, isScanning,
     refresh, createSession, joinSession, joinByAddress,
     acceptPair, sendCurrent, sendItem, requestClip, disconnect,
+    scanDevices, joinScanned,
   };
 }

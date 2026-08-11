@@ -201,7 +201,9 @@ pub fn run() {
             lan_request_clip,
             lan_disconnect,
             lan_get_state,
-            open_lan_sync
+            open_lan_sync,
+            lan_scan_devices,
+            lan_join_scanned
         ])
         .setup(|app| {
             app.handle()

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
-use crate::lan_sync::client::{join_by_address, join_by_broadcast};
+use crate::lan_sync::client::{join_by_address, join_by_broadcast, join_scanned, scan_devices};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
@@ -152,4 +152,20 @@ pub(crate) fn lan_get_state(app: AppHandle) -> Result<LanSessionInfo, String> {
 #[tauri::command]
 pub(crate) async fn open_lan_sync(app: AppHandle) -> Result<(), String> {
     crate::window::open_lan_sync_window(&app)
+}
+
+#[tauri::command]
+pub(crate) async fn lan_scan_devices(_app: AppHandle, timeout_secs: u64) -> Result<Vec<LanDevice>, String> {
+    Ok(scan_devices(timeout_secs).await)
+}
+
+#[tauri::command]
+pub(crate) async fn lan_join_scanned(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    addr: String,
+) -> Result<(), String> {
+    let manager = app.lan_manager();
+    join_scanned(manager, state.store.clone(), addr).await;
+    Ok(())
 }

@@ -58,6 +58,14 @@ pub(crate) struct LanClipReceived { pub(crate) clip_type: String }
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LanJoinFailed { pub(crate) reason: String }
 
+/// 扫描发现的局域网设备（供 Guest 自动扫描列表展示）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanDevice {
+    pub(crate) device_name: String,
+    pub(crate) addr: String,
+}
+
 /// session loop 的控制指令
 #[derive(Debug)]
 pub(crate) enum ControlMsg {

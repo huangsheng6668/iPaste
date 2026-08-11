@@ -339,6 +339,10 @@ const messages = {
     "lan.received": "Clipboard received",
     "lan.notFound": "Not found. Try manual IP.",
     "lan.firewallHint": "If blocked, allow iPaste on private networks in your firewall.",
+    "lan.scanNearby": "Scan nearby devices",
+    "lan.startScan": "Start scan",
+    "lan.scanning": "Scanning…",
+    "lan.scanEmpty": "No devices found. Try code or manual IP.",
   },
   "zh-CN": {
     "automation.entry": "动作",
@@ -652,6 +656,10 @@ const messages = {
     "lan.received": "已接收剪贴板",
     "lan.notFound": "未发现，请用手动 IP。",
     "lan.firewallHint": "若无法连接，请在防火墙中允许 iPaste 访问\"专用网络\"。",
+    "lan.scanNearby": "扫描附近设备",
+    "lan.startScan": "开始扫描",
+    "lan.scanning": "扫描中…",
+    "lan.scanEmpty": "未发现设备，可改用输码或手动 IP。",
   },
   "ja": {
     "automation.entry": "アクション",
@@ -955,6 +963,10 @@ const messages = {
     "lan.received": "クリップボード受信",
     "lan.notFound": "見つかりません。手動IPで。",
     "lan.firewallHint": "ブロック時はファイアウォールで iPaste を許可。",
+    "lan.scanNearby": "近くのデバイスをスキャン",
+    "lan.startScan": "スキャン開始",
+    "lan.scanning": "スキャン中…",
+    "lan.scanEmpty": "デバイス未検出。コード/手動IPで。",
   },
   "ko": {
     "automation.entry": "동작",
@@ -1258,6 +1270,10 @@ const messages = {
     "lan.received": "클립보드 수신됨",
     "lan.notFound": "찾을 수 없음. 수동 IP 사용.",
     "lan.firewallHint": "차단 시 방화벽에서 iPaste 허용.",
+    "lan.scanNearby": "주변 기기 스캔",
+    "lan.startScan": "스캔 시작",
+    "lan.scanning": "스캔 중…",
+    "lan.scanEmpty": "기기 없음. 코드/수동 IP 사용.",
   },
   "es": {
     "automation.entry": "Acciones",
@@ -1561,6 +1577,10 @@ const messages = {
     "lan.received": "Portapapeles recibido",
     "lan.notFound": "No encontrado. Use IP manual.",
     "lan.firewallHint": "Si bloqueado, permite iPaste en redes privadas.",
+    "lan.scanNearby": "Escanear dispositivos",
+    "lan.startScan": "Iniciar escaneo",
+    "lan.scanning": "Escaneando…",
+    "lan.scanEmpty": "Sin dispositivos. Use código/IP.",
   },
   "fr": {
     "automation.entry": "Actions",
@@ -1864,6 +1884,10 @@ const messages = {
     "lan.received": "Presse-papiers reçu",
     "lan.notFound": "Introuvable. IP manuel.",
     "lan.firewallHint": "Si bloqué, autorisez iPaste.",
+    "lan.scanNearby": "Scanner les appareils",
+    "lan.startScan": "Lancer la recherche",
+    "lan.scanning": "Recherche…",
+    "lan.scanEmpty": "Aucun appareil. Code/IP manuel.",
   },
   "de": {
     "automation.entry": "Aktionen",
@@ -2167,6 +2191,10 @@ const messages = {
     "lan.received": "Zwischenablage empfangen",
     "lan.notFound": "Nicht gefunden. Manuelle IP.",
     "lan.firewallHint": "Bei Blockierung iPaste in der Firewall erlauben.",
+    "lan.scanNearby": "Geräte in der Nähe suchen",
+    "lan.startScan": "Suche starten",
+    "lan.scanning": "Suche…",
+    "lan.scanEmpty": "Keine Geräte. Code/IP manuell.",
   },
 } as const;
 

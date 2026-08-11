@@ -9,12 +9,25 @@ pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum LanMessage {
-    Handshake { code: String, device_name: String },
-    PairAccepted { host_device_name: String },
+    Handshake {
+        code: String,
+        device_name: String,
+        #[serde(default)]
+        auto: bool,
+    },
+    PairAccepted {
+        host_device_name: String,
+    },
     PairRejected,
-    ClipPush { clip_type: String, empty: bool },
+    ClipPush {
+        clip_type: String,
+        empty: bool,
+    },
     ClipRequest,
-    ClipResponse { clip_type: String, empty: bool },
+    ClipResponse {
+        clip_type: String,
+        empty: bool,
+    },
     Disconnect,
 }
 
@@ -64,7 +77,7 @@ mod tests {
 
     #[test]
     fn handshake_roundtrips() {
-        let msg = LanMessage::Handshake { code: "abc".into(), device_name: "MBP".into() };
+        let msg = LanMessage::Handshake { code: "abc".into(), device_name: "MBP".into(), auto: false };
         let bytes = encode_frame(&msg).unwrap();
         let decoded = decode_frame(&bytes).unwrap();
         assert_eq!(msg, decoded);
@@ -87,5 +100,32 @@ mod tests {
         let mut bytes = (LAN_MAX_PAYLOAD as u32 + 1).to_le_bytes().to_vec();
         bytes.push(0);
         assert!(decode_frame(&bytes).is_err());
+    }
+
+    #[test]
+    fn handshake_auto_true_roundtrips() {
+        let msg = LanMessage::Handshake {
+            code: "c".into(),
+            device_name: "d".into(),
+            auto: true,
+        };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    #[test]
+    fn handshake_legacy_without_auto_defaults_false() {
+        // 模拟 0.3.14 老版本 Guest 不发 auto 字段的 JSON。
+        // 注意：字段名必须是 snake_case（device_name）——这是 0.3.14 实际的线上格式。
+        // enum 上的 rename_all="camelCase" 只对 variant 名（kind tag）生效，不作用于
+        // struct variant 内部字段。
+        let json = r#"{"kind":"handshake","code":"c","device_name":"d"}"#;
+        let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        let msg = decode_frame(&bytes).unwrap();
+        match msg {
+            LanMessage::Handshake { auto, .. } => assert!(!auto, "legacy handshake must default auto=false"),
+            _ => panic!("wrong variant"),
+        }
     }
 }
