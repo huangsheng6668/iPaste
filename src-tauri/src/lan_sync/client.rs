@@ -2,6 +2,7 @@
 //!
 //! 见 `task-5-brief.md`。本模块在 Task 5 取消注释启用。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ async fn handshake(
     manager: &Arc<LanSessionManager>,
     store: &Store,
     code: &str,
+    auto: bool,
 ) {
     let mut conn = Connection::new(stream);
     // 本机设备名（区别于握手响应里 host 回传的 host_device_name）
@@ -29,7 +31,7 @@ async fn handshake(
     let msg = LanMessage::Handshake {
         code: code.to_string(),
         device_name: local_name,
-        auto: false,
+        auto,
     };
     if conn.write_message(&msg, None).await.is_err() {
         manager.emit_join_failed("连接已断开".to_string());
@@ -88,7 +90,7 @@ pub(crate) async fn join_by_address(
             return;
         }
     };
-    handshake(stream, &manager, &store, &code).await;
+    handshake(stream, &manager, &store, &code, false).await;
 }
 
 /// 广播发现模式：绑定 LAN_UDP_PORT 监听 host 广播，3s 内匹配 codeHash，
@@ -142,5 +144,88 @@ pub(crate) async fn join_by_broadcast(
             return;
         }
     };
-    handshake(stream, &manager, &store, &code).await;
+    handshake(stream, &manager, &store, &code, false).await;
+}
+
+/// 自动扫描模式：绑定 LAN_UDP_PORT 监听 `timeout_secs` 秒内收到的所有 host 广播，
+/// 解析 `{codeHash, tcpPort, deviceName}` 负载，按 `addr`（src_ip:tcpPort）去重，
+/// 返回设备列表。bind 失败（端口被占用）返回空 vec 而非 panic。
+pub(crate) async fn scan_devices(timeout_secs: u64) -> Vec<LanDevice> {
+    let sock = match UdpSocket::bind(("0.0.0.0", LAN_UDP_PORT)).await {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let mut found: HashMap<String, LanDevice> = HashMap::new();
+    let _ = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
+        let mut buf = [0u8; 512];
+        loop {
+            if let Ok((n, src)) = sock.recv_from(&mut buf).await {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) {
+                    let tcp_port =
+                        val.get("tcpPort").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                    let device_name = val
+                        .get("deviceName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    if tcp_port > 0 {
+                        let addr = format!("{}:{}", src.ip(), tcp_port);
+                        found
+                            .entry(addr.clone())
+                            .or_insert(LanDevice { device_name, addr });
+                    }
+                }
+            }
+        }
+    })
+    .await;
+    found.into_values().collect()
+}
+
+/// 自动扫描后直连：与 `join_by_address` 类似，但握手发送 `auto: true` 且 code 为空，
+/// 触发 host 端的自动接受分支（host 仍在 Hosting 态即自动放行）。
+pub(crate) async fn join_scanned(manager: Arc<LanSessionManager>, store: Store, addr: String) {
+    let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
+    manager.set_joining(String::new(), control_tx, control_rx);
+    let stream = match tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(addr.trim()),
+    )
+    .await
+    {
+        Ok(Ok(s)) => s,
+        _ => {
+            manager.emit_join_failed("无法连接到对方".to_string());
+            manager.reset_to_idle("连接失败".to_string());
+            return;
+        }
+    };
+    handshake(stream, &manager, &store, "", true).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::UdpSocket;
+
+    #[tokio::test]
+    async fn scan_devices_collects_broadcast_payload() {
+        // scan_devices 会 bind LAN_UDP_PORT(45131)；测试用单独 socket 向它发广播
+        // 注意：广播到 255.255.255.255 在 CI 可能不通，这里用 unicast 到 localhost
+        // 先启动 scan（它 bind 0.0.0.0:LAN_UDP_PORT）
+        // 由于 scan bind 同端口，测试改为：scan 监听，sender 发到 127.0.0.1:LAN_UDP_PORT
+        let scan = tokio::spawn(async { scan_devices(2).await });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let payload = r#"{"codeHash":"x","tcpPort":45130,"deviceName":"TestHost"}"#;
+        sock.send_to(payload.as_bytes(), ("127.0.0.1", LAN_UDP_PORT))
+            .await
+            .unwrap();
+        let found = scan.await.unwrap();
+        let target = found.iter().find(|d| d.device_name == "TestHost");
+        assert!(target.is_some(), "scan should find TestHost, got: {:?}", found);
+        if let Some(d) = target {
+            assert!(d.addr.ends_with(":45130"));
+        }
+    }
 }
