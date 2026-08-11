@@ -1,14 +1,11 @@
-//! Guest 客户端：通过 UDP 广播发现 host 或直连 IP，握手后进入会话循环。
-//!
-//! 见 `task-5-brief.md`。本模块在 Task 5 取消注释启用。
+//! Guest 客户端：通过 TCP 子网扫描发现 host 或直连 IP，握手后进入会话循环。
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
-use tokio::net::UdpSocket;
+use tokio::sync::{mpsc, Semaphore};
 
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::session::{run_session_loop, Connection};
@@ -16,8 +13,7 @@ use crate::lan_sync::*;
 use crate::store::Store;
 
 /// 推断本机主要出口 IPv4 地址（UDP "connect" 8.8.8.8 技巧，不真正发包），
-/// 供 `join_multicast_v4` 选定出接口。失败返回 None —— 调用方 fallback 到
-/// `Ipv4Addr::UNSPECIFIED`（仍可能 join 成功，由内核选默认接口）。
+/// 供 `tcp_scan` 推断子网。失败返回 None。
 ///
 /// 注：`server.rs` 的 `local_ip()` 是私有 `fn` 且返回 `Option<String>`，
 /// 这里不复用它；本 helper 直接返回 `Option<Ipv4Addr>`，省去调用点 parse。
@@ -109,109 +105,71 @@ pub(crate) async fn join_by_address(
     handshake(stream, &manager, &store, &code, false).await;
 }
 
-/// 广播发现模式：绑定 LAN_UDP_PORT 监听 host 广播，3s 内匹配 codeHash，
-/// 命中后用 **广播包源 IP**（即 host 出口 IP）+ tcpPort 拨号 TCP。
-pub(crate) async fn join_by_broadcast(
-    manager: Arc<LanSessionManager>,
-    store: Store,
-    code: String,
-) {
-    let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
-    manager.set_joining(code.clone(), control_tx, control_rx);
-    let target_hash = code_hash(&code);
+/// 纯 TCP 子网扫描：并发探测 1..=254 × [45130,45131,45132]，
+/// 连上发 Discover，收到 DiscoverResponse 即识别为 iPaste Host。
+pub(crate) async fn tcp_scan() -> Vec<LanDevice> {
+    let Some(ip) = local_ipv4_addr() else {
+        return Vec::new();
+    };
+    let parts = ip.to_string().split('.').map(|s| s.to_string()).collect::<Vec<_>>();
+    if parts.len() != 4 {
+        return Vec::new();
+    }
+    let subnet = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
+    let ports = [LAN_TCP_BASE_PORT, LAN_TCP_BASE_PORT + 1, LAN_TCP_BASE_PORT + 2];
 
-    let found = tokio::time::timeout(Duration::from_secs(3), async {
-        let Ok(sock) = UdpSocket::bind(("0.0.0.0", LAN_UDP_PORT)).await else {
-            return None::<(String, u16)>;
-        };
-        // 加入组播组（与 scan_devices 同款）—— 这样 guest 既能收 host 的组播广播，
-        // 也兼容旧的 unicast 广播（recv_from 在已 join 的 socket 上两种都收）。
-        // 注：tokio 的 `join_multicast_v4` 是同步方法（底层 setsockopt），不要 .await。
-        if let Some(interface) = local_ipv4_addr() {
-            let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, interface);
-        } else {
-            let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, std::net::Ipv4Addr::UNSPECIFIED);
-        }
-        let mut buf = [0u8; 256];
-        loop {
-            let Ok((n, src)) = sock.recv_from(&mut buf).await else {
-                continue;
-            };
-            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) {
-                let h = val.get("codeHash").and_then(|v| v.as_str()).unwrap_or("");
-                let port = val.get("tcpPort").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                if h == target_hash && port > 0 {
-                    // UDP 广播 datagram 的源地址即发送方 IP，直接复用。
-                    return Some((src.ip().to_string(), port));
+    let semaphore = Arc::new(Semaphore::new(16));
+    let mut tasks = Vec::new();
+    for i in 1..=254u16 {
+        let semaphore = semaphore.clone();
+        let subnet = subnet.clone();
+        tasks.push(tokio::spawn(async move {
+            let _permit = semaphore.acquire().await.unwrap();
+            for port in ports {
+                let addr = format!("{subnet}.{i}:{port}");
+                let Ok(Ok(stream)) = tokio::time::timeout(
+                    Duration::from_millis(300),
+                    TcpStream::connect(addr.as_str()),
+                )
+                .await
+                else {
+                    continue;
+                };
+                if let Some(device) = probe_discover(stream, format!("{subnet}.{i}"), port).await {
+                    return Some(device);
                 }
             }
-        }
-    })
-    .await;
+            None
+        }));
+    }
 
-    let (ip, port) = match found {
-        Ok(Some((ip, port))) => (ip, port),
-        _ => {
-            manager.emit_join_failed("未发现设备，请改用手动 IP".to_string());
-            manager.reset_to_idle("未发现".to_string());
-            return;
+    let mut found: HashMap<String, LanDevice> = HashMap::new();
+    for task in tasks {
+        if let Ok(Some(device)) = task.await {
+            found.entry(device.addr.clone()).or_insert(device);
         }
-    };
-    let addr = format!("{}:{}", ip, port);
-    // 与 join_by_address 一致：TCP 拨号加 5s 超时，防止 UDP 可达但 TCP SYN 被丢弃
-    // 时 guest 在 WaitingPair 态无限挂起。
-    let stream = match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr)).await {
-        Ok(Ok(s)) => s,
-        _ => {
-            manager.emit_join_failed("无法连接到对方".to_string());
-            manager.reset_to_idle("连接失败".to_string());
-            return;
-        }
-    };
-    handshake(stream, &manager, &store, &code, false).await;
+    }
+    found.into_values().collect()
 }
 
-/// 自动扫描模式：绑定 LAN_UDP_PORT 监听 `timeout_secs` 秒内收到的所有 host 广播，
-/// 解析 `{codeHash, tcpPort, deviceName}` 负载，按 `addr`（src_ip:tcpPort）去重，
-/// 返回设备列表。bind 失败（端口被占用）返回空 vec 而非 panic。
-pub(crate) async fn scan_devices(timeout_secs: u64) -> Vec<LanDevice> {
-    let sock = match UdpSocket::bind(("0.0.0.0", LAN_UDP_PORT)).await {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    // 加入组播组（默认接口 = local_ip() 推断的主 IP；失败则 fallback 到
-    // `UNSPECIFIED` 让内核选默认接口。join 失败静默忽略 —— 收不到组播但不 panic。
-    // 注：tokio 的 `join_multicast_v4` 是同步方法（底层 setsockopt），不要 .await。）
-    if let Some(interface) = local_ipv4_addr() {
-        let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, interface);
-    } else {
-        let _ = sock.join_multicast_v4(LAN_MULTICAST_ADDR, std::net::Ipv4Addr::UNSPECIFIED);
+/// 对已连接 stream 发 Discover，读 DiscoverResponse；失败/非 Host 返回 None。
+async fn probe_discover(stream: TcpStream, ip: String, port: u16) -> Option<LanDevice> {
+    let mut conn = Connection::new(stream);
+    if conn.write_message(&LanMessage::Discover, None).await.is_err() {
+        return None;
     }
-    let mut found: HashMap<String, LanDevice> = HashMap::new();
-    let _ = tokio::time::timeout(Duration::from_secs(timeout_secs), async {
-        let mut buf = [0u8; 512];
-        loop {
-            if let Ok((n, src)) = sock.recv_from(&mut buf).await {
-                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) {
-                    let tcp_port =
-                        val.get("tcpPort").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                    let device_name = val
-                        .get("deviceName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    if tcp_port > 0 {
-                        let addr = format!("{}:{}", src.ip(), tcp_port);
-                        found
-                            .entry(addr.clone())
-                            .or_insert(LanDevice { device_name, addr });
-                    }
-                }
-            }
+    let (msg, _) = tokio::time::timeout(Duration::from_millis(500), conn.read_message())
+        .await
+        .ok()?
+        .ok()?;
+    match msg {
+        LanMessage::DiscoverResponse { device_name, tcp_port } => {
+            let effective_port = if tcp_port > 0 { tcp_port } else { port };
+            let addr = format!("{ip}:{effective_port}");
+            Some(LanDevice { device_name, addr })
         }
-    })
-    .await;
-    found.into_values().collect()
+        _ => None,
+    }
 }
 
 /// 自动扫描后直连：与 `join_by_address` 类似，但握手发送 `auto: true` 且 code 为空，
@@ -237,30 +195,44 @@ pub(crate) async fn join_scanned(manager: Arc<LanSessionManager>, store: Store, 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tokio::net::UdpSocket;
+    use super::probe_discover;
+    use crate::lan_sync::protocol::LanMessage;
+    use crate::lan_sync::session::Connection;
+    use tokio::net::{TcpListener, TcpStream};
 
-    // 绑定生产端口 LAN_UDP_PORT(45131)：若端口被占（运行中的 iPaste、并发测试、TIME_WAIT）
-    // scan_devices 会静默返回空 Vec 导致断言失败。标 #[ignore] 避免 CI 误红，保留手动验证路径。
     #[tokio::test]
-    #[ignore = "binds LAN_UDP_PORT (45131); run with --ignored manually"]
-    async fn scan_devices_collects_broadcast_payload() {
-        // scan_devices 会 bind LAN_UDP_PORT(45131)；测试用单独 socket 向它发广播
-        // 注意：广播到 255.255.255.255 在 CI 可能不通，这里用 unicast 到 localhost
-        // 先启动 scan（它 bind 0.0.0.0:LAN_UDP_PORT）
-        // 由于 scan bind 同端口，测试改为：scan 监听，sender 发到 127.0.0.1:LAN_UDP_PORT
-        let scan = tokio::spawn(async { scan_devices(2).await });
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let payload = r#"{"codeHash":"x","tcpPort":45130,"deviceName":"TestHost"}"#;
-        sock.send_to(payload.as_bytes(), ("127.0.0.1", LAN_UDP_PORT))
+    async fn tcp_scan_finds_discoverable_host() {
+        // mock Host：监听一个端口，读 Discover → 回 DiscoverResponse
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mock_port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut conn = Connection::new(stream);
+            let (msg, _) = conn.read_message().await.unwrap();
+            assert!(matches!(msg, LanMessage::Discover));
+            conn.write_message(
+                &LanMessage::DiscoverResponse {
+                    device_name: "MockHost".into(),
+                    tcp_port: mock_port,
+                },
+                None,
+            )
             .await
             .unwrap();
-        let found = scan.await.unwrap();
-        let target = found.iter().find(|d| d.device_name == "TestHost");
-        assert!(target.is_some(), "scan should find TestHost, got: {:?}", found);
-        if let Some(d) = target {
-            assert!(d.addr.ends_with(":45130"));
-        }
+        });
+
+        // 直接测 probe_discover：连 mock 端口发 Discover 收响应
+        let stream = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            TcpStream::connect(("127.0.0.1", mock_port)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let device = probe_discover(stream, "127.0.0.1".to_string(), mock_port)
+            .await
+            .expect("probe should find MockHost");
+        assert_eq!(device.device_name, "MockHost");
+        assert!(device.addr.ends_with(&format!(":{mock_port}")));
     }
 }

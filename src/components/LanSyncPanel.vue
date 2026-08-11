@@ -10,14 +10,12 @@ import { t } from "../i18n";
 // (auto-unwrapped) for v-model. `info` stays as the reactive object.
 const {
   info,
-  code,
   manualAddress,
   manualCode,
   error,
   notice,
   pendingPeerName,
   createSession,
-  joinSession,
   joinByAddress,
   acceptPair,
   sendCurrent,
@@ -75,10 +73,6 @@ function onReject() {
     <!-- 初始：创建 / 加入 -->
     <div v-if="info.status === 'idle'" class="lan-section">
       <button class="lan-btn primary" @click="createSession">{{ t("lan.createSession") }}</button>
-      <div class="lan-row">
-        <input v-model="code" :placeholder="t('lan.codePlaceholder')" />
-        <button class="lan-btn" @click="joinSession">{{ t("lan.joinSession") }}</button>
-      </div>
       <details>
         <summary>{{ t("lan.manual") }}</summary>
         <div class="lan-row">

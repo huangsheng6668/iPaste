@@ -84,9 +84,9 @@ struct LanInner {
     pair_decision_tx: Option<oneshot::Sender<bool>>,
     control_tx: Option<mpsc::Sender<ControlMsg>>,
     control_rx: Option<mpsc::Receiver<ControlMsg>>,
-    /// Host 的 broadcast + accept 任务句柄；Task 6 的 disconnect 命令负责 abort 它们。
+    /// Host 的 accept 任务句柄；Task 6 的 disconnect 命令负责 abort 它以释放端口。
     /// `Option` 让 `#[derive(Default)]` 继续成立。
-    host_tasks: Option<(tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>)>,
+    host_tasks: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Default for LanStatus { fn default() -> Self { LanStatus::Idle } }
@@ -186,34 +186,24 @@ impl LanSessionManager {
         self.inner.lock().expect("lan inner poisoned").control_rx.take()
     }
 
-    /// 记录 host 的 broadcast + accept 任务句柄，供 Task 6 的 disconnect 命令 abort。
-    /// 调用方（`start_host`）在两个 `tokio::spawn` 都返回后立即调用；此处不 abort。
-    pub(crate) fn set_host_tasks(
+    /// 记录 host 的 accept 任务句柄，供 Task 6 的 disconnect 命令 abort 以释放端口。
+    /// 调用方（`start_host`）在 `tokio::spawn` 返回后立即调用；此处不 abort。
+    pub(crate) fn set_host_task(
         &self,
-        broadcast: tokio::task::JoinHandle<()>,
         accept: tokio::task::JoinHandle<()>,
     ) {
-        self.inner.lock().expect("lan inner poisoned").host_tasks = Some((broadcast, accept));
+        self.inner.lock().expect("lan inner poisoned").host_tasks = Some(accept);
     }
 
-    /// Task 6 的 disconnect 命令在 Hosting/WaitingPair 态下调用：abort 广播 + accept
+    /// Task 6 的 disconnect 命令在 Hosting/WaitingPair 态下调用：abort accept
     /// 任务以释放 TCP 端口。Connected 态不需要调用（session loop 会自清理）。
     /// Guest 在 WaitingPair 态调用为 no-op（其 `host_tasks` 为 None）。
     pub(crate) fn abort_host_tasks(&self) {
-        if let Some((broadcast, accept)) =
+        if let Some(accept) =
             self.inner.lock().expect("lan inner poisoned").host_tasks.take()
         {
-            broadcast.abort();
             accept.abort();
         }
-    }
-
-    /// 广播任务退出条件：状态回到 Idle（停 host）或已进入 Connected（停止广播）。
-    pub(crate) fn status_is_idle_or_connected_break(&self) -> bool {
-        matches!(
-            self.inner.lock().expect("lan inner poisoned").status,
-            LanStatus::Idle | LanStatus::Connected
-        )
     }
 
     /// Task 6 的 create_session 守门：已有进行中的会话时拒绝新建。
@@ -226,7 +216,7 @@ impl LanSessionManager {
     }
 
     /// 拒绝 guest 后回到 Hosting（持久 host 会话设计）：清掉残留的 pair 状态，
-    /// 继续广播 + 接受新 guest。**不 emit 任何事件** —— host 会话本身未中断，
+    /// 继续接受新 guest。**不 emit 任何事件** —— host 会话本身未中断，
     /// 只是拒绝了一个 guest（区别于 `reset_to_idle` 会停掉整个 host）。
     pub(crate) fn resume_hosting(&self) {
         let mut inner = self.inner.lock().expect("lan inner poisoned");
@@ -246,15 +236,15 @@ impl LanSessionManager {
             inner.pair_decision_tx = None;
             inner.control_tx = None;
             inner.control_rx = None;
-            // Abort broadcast+accept tasks. Safe: the session loop runs on an
-            // independently-spawned task (handle_guest), not a structured child of
-            // the accept loop, so aborting the accept task does not panic or unwind
-            // the caller. JoinHandle::abort schedules cancellation at the next .await.
+            // Abort accept task. Safe: the session loop runs on an
+            // independently-spawned task (handle_guest_with_handshake), not a
+            // structured child of the accept loop, so aborting the accept task
+            // does not panic or unwind the caller. JoinHandle::abort schedules
+            // cancellation at the next .await.
             // (lan_disconnect's Hosting|WaitingPair arm calls abort_host_tasks()
             // separately — double-abort is harmless since take() yields None the
             // second time.)
-            if let Some((broadcast, accept)) = inner.host_tasks.take() {
-                broadcast.abort();
+            if let Some(accept) = inner.host_tasks.take() {
                 accept.abort();
             }
         }

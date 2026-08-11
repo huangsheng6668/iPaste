@@ -194,7 +194,6 @@ pub fn run() {
             start_main_window_drag,
             apply_clip,
             lan_create_session,
-            lan_join_session,
             lan_join_by_address,
             lan_accept_pair,
             lan_send_clip,

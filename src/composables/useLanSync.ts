@@ -38,13 +38,6 @@ export function useLanSync() {
     } catch (e) { error.value = String(e); }
   }
 
-  async function joinSession() {
-    error.value = null;
-    try {
-      await ipasteApi.lanJoinSession(code.value.trim());
-    } catch (e) { error.value = String(e); }
-  }
-
   async function joinByAddress() {
     error.value = null;
     try {
@@ -129,9 +122,9 @@ export function useLanSync() {
   });
 
   return {
-    isTauri, info, code, manualAddress, manualCode, error, notice, pendingPeerName,
+    isTauri, info, manualAddress, manualCode, error, notice, pendingPeerName,
     scannedDevices, isScanning,
-    refresh, createSession, joinSession, joinByAddress,
+    refresh, createSession, joinByAddress,
     acceptPair, sendCurrent, sendItem, requestClip, disconnect,
     scanDevices, joinScanned,
   };

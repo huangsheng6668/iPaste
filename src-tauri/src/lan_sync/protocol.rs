@@ -1,17 +1,18 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::net::Ipv4Addr;
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
 pub(crate) const LAN_TCP_PORT_ATTEMPTS: usize = 6;
-pub(crate) const LAN_UDP_PORT: u16 = 45131;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
-/// 设备发现组播地址（IANA 管理范围 239.255.0.0/16；端口复用 LAN_UDP_PORT）
-pub(crate) const LAN_MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(239, 255, 42, 99);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum LanMessage {
+    Discover,
+    DiscoverResponse {
+        device_name: String,
+        tcp_port: u16,
+    },
     Handshake {
         code: String,
         device_name: String,
@@ -133,9 +134,19 @@ mod tests {
     }
 
     #[test]
-    fn lan_multicast_addr_is_management_range() {
-        // 239.255.0.0/16 是 IANA 管理范围组播段（局域网自由使用）
-        assert_eq!(LAN_MULTICAST_ADDR, Ipv4Addr::new(239, 255, 42, 99));
-        assert!(LAN_MULTICAST_ADDR.is_multicast());
+    fn discover_roundtrips() {
+        let msg = LanMessage::Discover;
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    #[test]
+    fn discover_response_roundtrips() {
+        let msg = LanMessage::DiscoverResponse {
+            device_name: "MBP".into(),
+            tcp_port: 45130,
+        };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
     }
 }
