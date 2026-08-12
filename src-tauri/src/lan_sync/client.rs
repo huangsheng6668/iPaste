@@ -12,19 +12,49 @@ use crate::lan_sync::session::{run_session_loop, Connection};
 use crate::lan_sync::*;
 use crate::store::Store;
 
-/// 推断本机主要出口 IPv4 地址（UDP "connect" 8.8.8.8 技巧，不真正发包），
-/// 供 `tcp_scan` 推断子网。失败返回 None。
+/// 枚举本机所有真实 IPv4 接口地址（滤除 loopback 与 169.254/16 link-local）。
 ///
-/// 注：`server.rs` 的 `local_ip()` 是私有 `fn` 且返回 `Option<String>`，
-/// 这里不复用它；本 helper 直接返回 `Option<Ipv4Addr>`，省去调用点 parse。
-fn local_ipv4_addr() -> Option<std::net::Ipv4Addr> {
-    use std::net::UdpSocket as StdUdp;
-    let sock = StdUdp::bind("0.0.0.0:0").ok()?;
-    sock.connect("8.8.8.8:80").ok()?;
-    match sock.local_addr().ok()?.ip() {
-        std::net::IpAddr::V4(v4) => Some(v4),
-        std::net::IpAddr::V6(_) => None,
-    }
+/// 取代旧的 UDP-connect-8.8.8.8 单 IP 推断：那种方法在多网卡（Windows 上常见
+/// Wi-Fi + WSL/Hyper-V/Docker/VMware 虚拟网卡）或无默认路由场景下只能取到一个、
+/// 甚至取不到 IP，导致 `tcp_scan` 推断的子网不是 peer 所在子网，从而扫不到 host。
+/// 枚举真实接口能覆盖本机所有本地子网。
+fn local_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    let Ok(entries) = local_ip_address::list_afinet_netifas() else {
+        return Vec::new();
+    };
+    entries
+        .into_iter()
+        .filter_map(|(_, ip)| match ip {
+            std::net::IpAddr::V4(v4) => Some(v4),
+            std::net::IpAddr::V6(_) => None,
+        })
+        .filter(|ip| !ip.is_loopback() && !is_link_local(*ip))
+        .collect()
+}
+
+/// 169.254.0.0/16（APIPA / link-local）—— DHCP 失败自动分配，扫描它无意义。
+fn is_link_local(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    o[0] == 169 && o[1] == 254
+}
+
+/// 取 /24 子网前缀（"a.b.c"）。iPaste 的 LAN 场景默认 /24 子网。
+fn subnet_prefix(ip: std::net::Ipv4Addr) -> String {
+    let o = ip.octets();
+    format!("{}.{}.{}", o[0], o[1], o[2])
+}
+
+/// 由一组本机 IPv4 地址推导要去扫描的 /24 子网前缀列表（去重，已排除 loopback /
+/// link-local）。抽成纯函数便于单测覆盖多网卡去重与过滤逻辑。
+fn scan_subnets(addrs: impl IntoIterator<Item = std::net::Ipv4Addr>) -> Vec<String> {
+    use std::collections::HashSet;
+    addrs
+        .into_iter()
+        .filter(|ip| !ip.is_loopback() && !is_link_local(*ip))
+        .map(subnet_prefix)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// 与 host 握手：发 Handshake → 读 PairAccepted/PairRejected → 进 session loop。
@@ -60,8 +90,15 @@ async fn handshake(
     };
     let peer_name = match reply {
         LanMessage::PairAccepted { host_device_name } => host_device_name,
-        LanMessage::PairRejected => {
-            manager.emit_join_failed("匹配码错误或被拒绝".to_string());
+        LanMessage::PairRejected { reason } => {
+            // 按真实原因提示，避免 host 忙/拒绝也一律报"码错"误导用户。
+            let msg = match reason {
+                PairRejectReason::WrongCode => "匹配码错误",
+                PairRejectReason::HostBusy => "对方正忙（已在会话中或正在配对）",
+                PairRejectReason::Declined => "对方拒绝了加入请求",
+                PairRejectReason::Unknown => "匹配码错误或被拒绝",
+            };
+            manager.emit_join_failed(msg.to_string());
             manager.reset_to_idle("被拒绝".to_string());
             return;
         }
@@ -105,42 +142,44 @@ pub(crate) async fn join_by_address(
     handshake(stream, &manager, &store, &code, false).await;
 }
 
-/// 纯 TCP 子网扫描：并发探测 1..=254 × [45130]，
-/// 连上发 Discover，收到 DiscoverResponse 即识别为 iPaste Host。
+/// 纯 TCP 子网扫描：枚举本机每个 IPv4 接口的 /24 子网（去重），并发探测
+/// .1..254 × [45130]，连上发 Discover，收到 DiscoverResponse 即识别为 iPaste Host。
+///
+/// 多网卡时必须扫每个本地子网——只扫默认路由那张卡会漏掉其它子网里的 host
+/// （这正是"手动填 IP 能连、扫描却扫不到"的根因）。
 pub(crate) async fn tcp_scan() -> Vec<LanDevice> {
-    let Some(ip) = local_ipv4_addr() else {
-        return Vec::new();
-    };
-    let parts = ip.to_string().split('.').map(|s| s.to_string()).collect::<Vec<_>>();
-    if parts.len() != 4 {
+    let subnets = scan_subnets(local_ipv4_addrs());
+    if subnets.is_empty() {
         return Vec::new();
     }
-    let subnet = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
     let ports = [LAN_TCP_BASE_PORT];
 
     let semaphore = Arc::new(Semaphore::new(16));
     let mut tasks = Vec::new();
-    for i in 1..=254u16 {
-        let semaphore = semaphore.clone();
-        let subnet = subnet.clone();
-        tasks.push(tokio::spawn(async move {
-            let _permit = semaphore.acquire().await.unwrap();
-            for port in ports {
-                let addr = format!("{subnet}.{i}:{port}");
-                let Ok(Ok(stream)) = tokio::time::timeout(
-                    Duration::from_millis(150),
-                    TcpStream::connect(addr.as_str()),
-                )
-                .await
-                else {
-                    continue;
-                };
-                if let Some(device) = probe_discover(stream, format!("{subnet}.{i}"), port).await {
-                    return Some(device);
+    for subnet in subnets {
+        for i in 1..=254u16 {
+            let semaphore = semaphore.clone();
+            let subnet = subnet.clone();
+            tasks.push(tokio::spawn(async move {
+                let _permit = semaphore.acquire().await.unwrap();
+                for port in ports {
+                    let host_ip = format!("{subnet}.{i}");
+                    let addr = format!("{host_ip}:{port}");
+                    let Ok(Ok(stream)) = tokio::time::timeout(
+                        Duration::from_millis(150),
+                        TcpStream::connect(addr.as_str()),
+                    )
+                    .await
+                    else {
+                        continue;
+                    };
+                    if let Some(device) = probe_discover(stream, host_ip, port).await {
+                        return Some(device);
+                    }
                 }
-            }
-            None
-        }));
+                None
+            }));
+        }
     }
 
     let mut found: HashMap<String, LanDevice> = HashMap::new();
@@ -195,9 +234,11 @@ pub(crate) async fn join_scanned(manager: Arc<LanSessionManager>, store: Store, 
 
 #[cfg(test)]
 mod tests {
-    use super::probe_discover;
+    use super::{is_link_local, probe_discover, scan_subnets, subnet_prefix};
     use crate::lan_sync::protocol::LanMessage;
     use crate::lan_sync::session::Connection;
+    use std::collections::HashSet;
+    use std::net::Ipv4Addr;
     use tokio::net::{TcpListener, TcpStream};
 
     #[tokio::test]
@@ -234,5 +275,42 @@ mod tests {
             .expect("probe should find MockHost");
         assert_eq!(device.device_name, "MockHost");
         assert!(device.addr.ends_with(&format!(":{mock_port}")));
+    }
+
+    #[test]
+    fn subnet_prefix_takes_first_three_octets() {
+        assert_eq!(subnet_prefix(Ipv4Addr::new(192, 168, 1, 42)), "192.168.1");
+        assert_eq!(subnet_prefix(Ipv4Addr::new(10, 0, 0, 1)), "10.0.0");
+    }
+
+    #[test]
+    fn is_link_local_detects_apipa() {
+        assert!(is_link_local(Ipv4Addr::new(169, 254, 1, 1)));
+        assert!(!is_link_local(Ipv4Addr::new(192, 168, 1, 1)));
+        assert!(!is_link_local(Ipv4Addr::new(127, 0, 0, 1)));
+    }
+
+    /// 多网卡场景：Wi-Fi 192.168.1.x + 虚拟网卡 192.168.99.x + 同子网重复 +
+    /// loopback + APIPA。期望只扫两个真实子网，且去重、排除无效地址。
+    #[test]
+    fn scan_subnets_dedupes_and_filters_multi_adapter() {
+        let addrs = vec![
+            Ipv4Addr::new(192, 168, 1, 5),    // Wi-Fi
+            Ipv4Addr::new(192, 168, 1, 6),    // 同子网，应去重
+            Ipv4Addr::new(192, 168, 99, 1),   // 虚拟网卡，另一子网
+            Ipv4Addr::new(127, 0, 0, 1),      // loopback，排除
+            Ipv4Addr::new(169, 254, 10, 20),  // APIPA，排除
+        ];
+        let got: HashSet<String> = scan_subnets(addrs).into_iter().collect();
+        let want: HashSet<String> = ["192.168.1".to_string(), "192.168.99".to_string()]
+            .into_iter()
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn scan_subnets_empty_when_only_loopback() {
+        assert!(scan_subnets(vec![Ipv4Addr::new(127, 0, 0, 1)]).is_empty());
+        assert!(scan_subnets(Vec::<Ipv4Addr>::new()).is_empty());
     }
 }

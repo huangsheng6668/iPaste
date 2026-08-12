@@ -4,6 +4,23 @@ use sha2::{Digest, Sha256};
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
 
+/// `PairRejected` 的具体原因。向后兼容：老版本 host 发的 `PairRejected` 无此字段，
+/// guest 侧 `#[serde(default)]` 得到 `Unknown`，仍按旧行为提示。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum PairRejectReason {
+    /// 匹配码错误（仅 manual join，auto=false 时触发）。
+    WrongCode,
+    /// host 不在 Hosting 态（已在会话中 / 正在配对 / 会话已结束）。
+    /// 这是"扫描加入却被报码错"的真因，也是 Bug B 的诊断关键。
+    HostBusy,
+    /// host 用户在配对弹窗点了拒绝。
+    Declined,
+    /// 老版本 / 未知原因。
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum LanMessage {
@@ -21,7 +38,10 @@ pub(crate) enum LanMessage {
     PairAccepted {
         host_device_name: String,
     },
-    PairRejected,
+    PairRejected {
+        #[serde(default)]
+        reason: PairRejectReason,
+    },
     ClipPush {
         clip_type: String,
         empty: bool,
@@ -147,5 +167,27 @@ mod tests {
         };
         let bytes = encode_frame(&msg).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    #[test]
+    fn pair_rejected_roundtrips_with_reason() {
+        let msg = LanMessage::PairRejected { reason: PairRejectReason::HostBusy };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    /// 老版本 host 发的 PairRejected 不带 reason 字段；新版本 guest 必须兼容，
+    /// reason 默认为 Unknown（保证 v0.3.18 新版 ↔ 旧版混合时不会反序列化失败）。
+    #[test]
+    fn pair_rejected_legacy_without_reason_defaults_unknown() {
+        let json = r#"{"kind":"pairRejected"}"#;
+        let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        match decode_frame(&bytes).unwrap() {
+            LanMessage::PairRejected { reason } => {
+                assert_eq!(reason, PairRejectReason::Unknown);
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }

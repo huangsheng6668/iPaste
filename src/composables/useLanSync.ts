@@ -23,6 +23,9 @@ export function useLanSync() {
   // 端口占用：lan_create_session 因 45130 被占用失败时，由后端错误字符串解析得到。
   // 非 null 时面板覆盖显示「杀进程 / 退出应用 / 取消」三按钮弹窗。
   const portConflict = ref<PortConflict | null>(null);
+  // host 因非 Hosting 态拒绝 guest（如扫描加入时本机已在会话中）——既给 host 端反馈，
+  // 也用于定位"扫描加入被报码错"的真因。带设备名 + 当时的 host 状态。
+  const rejectedGuest = ref<{ deviceName: string; hostStatus: string } | null>(null);
   let unlistenFns: UnlistenFn[] = [];
 
   function applyInfo(next: LanSessionInfo) {
@@ -142,6 +145,15 @@ export function useLanSync() {
         setTimeout(() => { if (notice.value === "clip-received") notice.value = null; }, 3000);
       }],
       ["ipaste://lan-join-failed", (v) => { error.value = String((v.payload as { reason?: string })?.reason ?? "join failed"); refresh(); }],
+      ["ipaste://lan-guest-rejected", (v) => {
+        const p = v.payload as { guestDeviceName?: string; hostStatus?: string } | undefined;
+        rejectedGuest.value = {
+          deviceName: p?.guestDeviceName ?? "",
+          hostStatus: p?.hostStatus ?? "",
+        };
+        // 8s 后自动清掉，避免常驻遮挡面板。
+        setTimeout(() => { rejectedGuest.value = null; }, 8000);
+      }],
     ];
     for (const [event, handler] of handlers) {
       const un = await listen(event, handler);
@@ -160,7 +172,7 @@ export function useLanSync() {
 
   return {
     isTauri, info, manualAddress, manualCode, error, notice, pendingPeerName,
-    scannedDevices, isScanning, portConflict,
+    scannedDevices, isScanning, portConflict, rejectedGuest,
     refresh, createSession, joinByAddress,
     acceptPair, sendCurrent, sendItem, requestClip, disconnect,
     scanDevices, joinScanned,

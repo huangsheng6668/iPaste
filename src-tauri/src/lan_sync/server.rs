@@ -107,14 +107,27 @@ async fn handle_guest_with_handshake(
     // auto=true：扫描加入路径，跳过码校验，仍由下方 try_begin_pairing + lan-pair-request
     // 经 Host 前端确认 gating（不会绕过 Host 同意环节）。
     if !auto && code.trim() != expected_code.trim() {
-        let _ = conn.write_message(&LanMessage::PairRejected, None).await;
+        let _ = conn
+            .write_message(&LanMessage::PairRejected { reason: PairRejectReason::WrongCode }, None)
+            .await;
         return;
     }
 
     // 原子配对门：Hosting → WaitingPair + 预留 oneshot，一次 lock 完成（修 TOCTOU）。
     // 已有配对进行中 / 已连接时直接拒绝，不破坏现有状态。
     let Some(rx) = manager.try_begin_pairing() else {
-        let _ = conn.write_message(&LanMessage::PairRejected, None).await;
+        // host 不在 Hosting 态（已在会话中 / 正在配对）。这是"扫描加入却被报码错"
+        // 的真因——emit host 侧诊断事件暴露当前状态，供前端提示 + 定位 Bug B。
+        let _ = app.emit(
+            "ipaste://lan-guest-rejected",
+            LanGuestRejected {
+                guest_device_name: guest_name.clone(),
+                host_status: manager.snapshot().status,
+            },
+        );
+        let _ = conn
+            .write_message(&LanMessage::PairRejected { reason: PairRejectReason::HostBusy }, None)
+            .await;
         return;
     };
 
@@ -133,7 +146,9 @@ async fn handle_guest_with_handshake(
         Err(_) => false, // sender 被 drop 视作拒绝
     };
     if !accepted {
-        let _ = conn.write_message(&LanMessage::PairRejected, None).await;
+        let _ = conn
+            .write_message(&LanMessage::PairRejected { reason: PairRejectReason::Declined }, None)
+            .await;
         // 回到 Hosting（持久 host 会话），不停掉整个 host —— 下一个 guest 仍可接入。
         manager.resume_hosting();
         return;

@@ -27,6 +27,7 @@ const {
   scanDevices,
   joinScanned,
   portConflict,
+  rejectedGuest,
   killPortProcess,
   quitApp,
   cancelPortConflict,
@@ -42,6 +43,19 @@ const statusText = computed(() => {
     default: return t("lan.title");
   }
 });
+
+// 把 host 状态枚举（来自后端的 camelCase）翻成本地化标签，复用现有文案。
+function hostStatusLabel(s: string): string {
+  switch (s) {
+    case "hosting": return t("lan.waitingJoin");
+    case "waitingPair": return t("lan.waitingConfirm");
+    case "connected": return t("lan.connected", { peer: "" });
+    default: return s;
+  }
+}
+function dismissRejected() {
+  rejectedGuest.value = null;
+}
 
 onMounted(() => store.load());
 
@@ -73,6 +87,13 @@ function onReject() {
 
     <p v-if="error" class="lan-error">{{ error }}</p>
     <p v-if="notice === 'clip-received'" class="lan-notice">{{ t("lan.received") }}</p>
+    <p
+      v-if="rejectedGuest"
+      class="lan-hint lan-rejected"
+      @click="dismissRejected"
+    >
+      {{ t("lan.guestRejected", { device: rejectedGuest.deviceName, status: hostStatusLabel(rejectedGuest.hostStatus) }) }}
+    </p>
 
     <!-- 初始：创建 / 加入 -->
     <div v-if="info.status === 'idle'" class="lan-section">
@@ -179,6 +200,7 @@ function onReject() {
 .lan-error { color: #b91c1c; }
 .lan-notice { color: #0D9488; }
 .lan-hint { color: #6b7280; font-size: 12px; }
+.lan-rejected { cursor: pointer; }
 .lan-history { max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; border: 1px solid #e5e7eb; border-radius: 6px; }
 .lan-history li { padding: 8px; cursor: pointer; border-bottom: 1px solid #f3f4f6; }
 .lan-history li:hover { background: #f9fafb; }
