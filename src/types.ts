@@ -238,3 +238,8 @@ export interface LanDevice {
   deviceName: string;
   addr: string;
 }
+
+export interface PortConflict {
+  pid: number;
+  name: string;
+}

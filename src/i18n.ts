@@ -343,6 +343,9 @@ const messages = {
     "lan.startScan": "Start scan",
     "lan.scanning": "Scanning…",
     "lan.scanEmpty": "No devices found. Try code or manual IP.",
+    "lan.portInUse": "Port {port} is in use by {name} (PID {pid})",
+    "lan.killProcess": "Kill process",
+    "lan.quitApp": "Quit app",
   },
   "zh-CN": {
     "automation.entry": "动作",
@@ -659,6 +662,9 @@ const messages = {
     "lan.startScan": "开始扫描",
     "lan.scanning": "扫描中…",
     "lan.scanEmpty": "未发现设备，可改用输码或手动 IP。",
+    "lan.portInUse": "端口 {port} 被 {name}（PID {pid}）占用",
+    "lan.killProcess": "杀死进程",
+    "lan.quitApp": "退出应用",
   },
   "ja": {
     "automation.entry": "アクション",
@@ -965,6 +971,9 @@ const messages = {
     "lan.startScan": "スキャン開始",
     "lan.scanning": "スキャン中…",
     "lan.scanEmpty": "デバイス未検出。コード/手動IPで。",
+    "lan.portInUse": "ポート {port} は {name}（PID {pid}）が使用中",
+    "lan.killProcess": "プロセスを終了",
+    "lan.quitApp": "アプリを終了",
   },
   "ko": {
     "automation.entry": "동작",
@@ -1271,6 +1280,9 @@ const messages = {
     "lan.startScan": "스캔 시작",
     "lan.scanning": "스캔 중…",
     "lan.scanEmpty": "기기 없음. 코드/수동 IP 사용.",
+    "lan.portInUse": "포트 {port}가 {name}(PID {pid})에 사용 중",
+    "lan.killProcess": "프로세스 종료",
+    "lan.quitApp": "앱 종료",
   },
   "es": {
     "automation.entry": "Acciones",
@@ -1577,6 +1589,9 @@ const messages = {
     "lan.startScan": "Iniciar escaneo",
     "lan.scanning": "Escaneando…",
     "lan.scanEmpty": "Sin dispositivos. Use código/IP.",
+    "lan.portInUse": "El puerto {port} está en uso por {name} (PID {pid})",
+    "lan.killProcess": "Matar proceso",
+    "lan.quitApp": "Salir de la app",
   },
   "fr": {
     "automation.entry": "Actions",
@@ -1883,6 +1898,9 @@ const messages = {
     "lan.startScan": "Lancer la recherche",
     "lan.scanning": "Recherche…",
     "lan.scanEmpty": "Aucun appareil. Code/IP manuel.",
+    "lan.portInUse": "Le port {port} est utilisé par {name} (PID {pid})",
+    "lan.killProcess": "Tuer le processus",
+    "lan.quitApp": "Quitter l'application",
   },
   "de": {
     "automation.entry": "Aktionen",
@@ -2189,6 +2207,9 @@ const messages = {
     "lan.startScan": "Suche starten",
     "lan.scanning": "Suche…",
     "lan.scanEmpty": "Keine Geräte. Code/IP manuell.",
+    "lan.portInUse": "Port {port} wird von {name} (PID {pid}) belegt",
+    "lan.killProcess": "Prozess beenden",
+    "lan.quitApp": "App beenden",
   },
 } as const;
 
