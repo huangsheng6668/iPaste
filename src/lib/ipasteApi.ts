@@ -23,6 +23,7 @@ import type {
   Language,
   OcrMode,
   OcrInstallStatus,
+  PortConflict,
   SearchResult,
 } from "../types";
 import { clipMatchesSearch } from "./clipSearch";
@@ -519,6 +520,15 @@ export const ipasteApi = {
   },
   lanJoinScanned(addr: string) {
     return call<void>("lan_join_scanned", { addr });
+  },
+  lanGetPortConflict() {
+    return call<PortConflict | null>("lan_get_port_conflict", undefined, null);
+  },
+  lanKillPortProcess(pid: number) {
+    return call<void>("lan_kill_port_process", { pid });
+  },
+  lanQuitApp() {
+    return call<void>("lan_quit_app");
   },
   listAutomations() {
     if (!isTauri) return Promise.resolve(structuredClone(mockAutomations));

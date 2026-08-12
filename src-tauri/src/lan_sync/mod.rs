@@ -3,6 +3,9 @@ pub(crate) mod session;  // Task 3
 pub(crate) mod server;   // Task 4
 pub(crate) mod client;   // Task 5
 pub(crate) mod commands; // Task 6
+pub(crate) mod port;     // Task 2: 跨平台端口占用检测
+
+pub(crate) use port::PortConflict;
 
 use std::sync::Mutex;
 use tokio::sync::{mpsc, oneshot};

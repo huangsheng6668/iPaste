@@ -1,7 +1,7 @@
 import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
-import type { LanClipSource, LanDevice, LanSessionInfo } from "../types";
+import type { LanClipSource, LanDevice, LanSessionInfo, PortConflict } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -20,6 +20,9 @@ export function useLanSync() {
   // LAN 自动扫描：scannedDevices 存最近一次扫描到的设备，isScanning 标记扫描中。
   const scannedDevices = ref<LanDevice[]>([]);
   const isScanning = ref(false);
+  // 端口占用：lan_create_session 因 45130 被占用失败时，由后端错误字符串解析得到。
+  // 非 null 时面板覆盖显示「杀进程 / 退出应用 / 取消」三按钮弹窗。
+  const portConflict = ref<PortConflict | null>(null);
   let unlistenFns: UnlistenFn[] = [];
 
   function applyInfo(next: LanSessionInfo) {
@@ -33,9 +36,43 @@ export function useLanSync() {
 
   async function createSession() {
     error.value = null;
+    portConflict.value = null;
     try {
       applyInfo(await ipasteApi.lanCreateSession(code.value.trim() || null));
+    } catch (e) {
+      // 后端错误格式「端口 45130 被 <name>（PID <pid>）占用。{原始 bind 错误}」。
+      // 正则不带 `$` 锚定——错误尾巴还有 bind 原因。name 用非贪婪避免吞掉 PID。
+      const message = String(e);
+      if (message.includes("端口") && message.includes("占用")) {
+        const m = message.match(/端口 (\d+) 被 (.+?)（PID (\d+)）占用/);
+        if (m) {
+          portConflict.value = { name: m[2], pid: Number(m[3]) };
+        } else {
+          portConflict.value = { name: "未知进程", pid: 0 };
+        }
+      } else {
+        error.value = message;
+      }
+    }
+  }
+
+  async function killPortProcess() {
+    if (!portConflict.value || portConflict.value.pid === 0) return;
+    error.value = null;
+    try {
+      await ipasteApi.lanKillPortProcess(portConflict.value.pid);
+      portConflict.value = null;
+      // 杀掉占用进程后自动重试创建会话，免去用户再点一次「Create Session」。
+      await createSession();
     } catch (e) { error.value = String(e); }
+  }
+
+  async function quitApp() {
+    await ipasteApi.lanQuitApp();
+  }
+
+  function cancelPortConflict() {
+    portConflict.value = null;
   }
 
   async function joinByAddress() {
@@ -123,9 +160,10 @@ export function useLanSync() {
 
   return {
     isTauri, info, manualAddress, manualCode, error, notice, pendingPeerName,
-    scannedDevices, isScanning,
+    scannedDevices, isScanning, portConflict,
     refresh, createSession, joinByAddress,
     acceptPair, sendCurrent, sendItem, requestClip, disconnect,
     scanDevices, joinScanned,
+    killPortProcess, quitApp, cancelPortConflict,
   };
 }

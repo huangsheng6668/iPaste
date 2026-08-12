@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
-pub(crate) const LAN_TCP_PORT_ATTEMPTS: usize = 6;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

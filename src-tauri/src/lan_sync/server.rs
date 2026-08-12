@@ -50,9 +50,8 @@ pub(crate) async fn start_host(
                 let expected_code = expected_code.clone();
                 tokio::spawn(async move {
                     let mut conn = Connection::new(stream);
-                    let (msg, _) = match conn.read_message().await {
-                        Ok(v) => v,
-                        Err(_) => return,
+                    let Ok((msg, _)) = conn.read_message().await else {
+                        return;
                     };
                     match msg {
                         LanMessage::Discover => {
@@ -159,24 +158,19 @@ async fn handle_guest_with_handshake(
     run_session_loop(raw, manager.clone(), store.clone(), guest_name, control_rx).await;
 }
 
-/// 在 `LAN_TCP_BASE_PORT .. +LAN_TCP_PORT_ATTEMPTS` 范围内尝试绑定，返回首个成功的
-/// `std::net::TcpListener`。
+/// 只绑定固定端口 `LAN_TCP_BASE_PORT`（45130）；被占即返回端口占用错误，
+/// 由 `lan_create_session` 检测占用进程后弹窗让用户处理。
 ///
 /// 保持同步、不触碰 tokio reactor —— 这样 `bind_tcp` 在纯 `#[test]` 中也可调用；
 /// 调用方（`start_host`，async 上下文）再自行 `TcpListener::from_std` 切非阻塞。
 fn bind_tcp() -> Result<(std::net::TcpListener, u16), String> {
-    let mut last_err = None;
-    for i in 0..LAN_TCP_PORT_ATTEMPTS {
-        let port = LAN_TCP_BASE_PORT + i as u16;
-        match std::net::TcpListener::bind(("0.0.0.0", port)) {
-            Ok(listener) => return Ok((listener, port)),
-            Err(e) => last_err = Some(e),
-        }
+    match std::net::TcpListener::bind(("0.0.0.0", LAN_TCP_BASE_PORT)) {
+        Ok(listener) => Ok((listener, LAN_TCP_BASE_PORT)),
+        Err(error) => Err(format!(
+            "端口 {} 被占用：{error}",
+            LAN_TCP_BASE_PORT
+        )),
     }
-    Err(format!(
-        "无法绑定局域网同步端口：{}",
-        last_err.map(|e| e.to_string()).unwrap_or_default()
-    ))
 }
 
 /// 拼接本机主要出口 IP 与端口，作为对端可拨的 listen_addr。
@@ -200,7 +194,7 @@ mod tests {
     #[test]
     fn bind_tcp_returns_listener() {
         let (listener, port) = bind_tcp().unwrap();
-        assert!((LAN_TCP_BASE_PORT..LAN_TCP_BASE_PORT + LAN_TCP_PORT_ATTEMPTS as u16).contains(&port));
+        assert_eq!(port, LAN_TCP_BASE_PORT);
         drop(listener);
     }
 

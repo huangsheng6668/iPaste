@@ -17,6 +17,8 @@ use tauri::{AppHandle, State};
 
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
 use crate::lan_sync::client::{join_by_address, join_scanned, tcp_scan};
+use crate::lan_sync::port::{get_port_conflict, kill_port_process};
+use crate::lan_sync::protocol::LAN_TCP_BASE_PORT;
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
@@ -42,7 +44,16 @@ pub(crate) async fn lan_create_session(
         .filter(|c| !c.is_empty())
         .unwrap_or_else(random_code);
     // start_host 内部会把状态置为 Hosting 并存好 control_tx/rx + host_tasks。
-    start_host(app.clone(), Arc::clone(&manager), state.store.clone(), code).await?;
+    // 端口被占用时 start_host 返回错误；这里查占用进程把信息并入错误，前端据此弹窗。
+    if let Err(error) = start_host(app.clone(), Arc::clone(&manager), state.store.clone(), code).await {
+        let port = LAN_TCP_BASE_PORT;
+        let detail = get_port_conflict(port)
+            .ok()
+            .flatten()
+            .map(|c| format!("端口 {port} 被 {}（PID {}）占用", c.name, c.pid))
+            .unwrap_or_else(|| format!("端口 {port} 被占用"));
+        return Err(format!("{detail}。{error}"));
+    }
     Ok(manager.snapshot())
 }
 
@@ -156,4 +167,22 @@ pub(crate) async fn lan_join_scanned(
     let manager = app.lan_manager();
     join_scanned(manager, state.store.clone(), addr).await;
     Ok(())
+}
+
+/// 查询固定端口 `LAN_TCP_BASE_PORT` 的占用进程（用于 UI 提示与一键 kill）。
+#[tauri::command]
+pub(crate) fn lan_get_port_conflict() -> Result<Option<PortConflict>, String> {
+    get_port_conflict(LAN_TCP_BASE_PORT)
+}
+
+/// 结束占用固定端口的进程（前端弹窗确认后调用）。
+#[tauri::command]
+pub(crate) fn lan_kill_port_process(pid: u32) -> Result<(), String> {
+    kill_port_process(pid)
+}
+
+/// 退出整个 App（前端在「占用进程是自身残留实例」等场景下调用）。
+#[tauri::command]
+pub(crate) fn lan_quit_app(app: AppHandle) {
+    app.exit(0);
 }

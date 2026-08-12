@@ -26,6 +26,10 @@ const {
   isScanning,
   scanDevices,
   joinScanned,
+  portConflict,
+  killPortProcess,
+  quitApp,
+  cancelPortConflict,
 } = useLanSync();
 const store = useIpasteStore();
 const showHistory = ref(false);
@@ -140,6 +144,24 @@ function onReject() {
       <p>{{ statusText }}</p>
       <button class="lan-btn" @click="disconnect">{{ t("lan.disconnect") }}</button>
     </div>
+
+    <!-- 端口占用弹窗：覆盖在面板上，三选一 -->
+    <div v-if="portConflict" class="lan-conflict-overlay">
+      <div class="lan-conflict-dialog">
+        <p>{{ t("lan.portInUse", { port: "45130", name: portConflict.name, pid: String(portConflict.pid) }) }}</p>
+        <div class="lan-row">
+          <button type="button" class="lan-btn primary" @click="killPortProcess">
+            {{ t("lan.killProcess") }}
+          </button>
+          <button type="button" class="lan-btn" @click="quitApp">
+            {{ t("lan.quitApp") }}
+          </button>
+          <button type="button" class="lan-btn" @click="cancelPortConflict">
+            {{ t("common.cancel") }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -160,4 +182,29 @@ function onReject() {
 .lan-history { max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; border: 1px solid #e5e7eb; border-radius: 6px; }
 .lan-history li { padding: 8px; cursor: pointer; border-bottom: 1px solid #f3f4f6; }
 .lan-history li:hover { background: #f9fafb; }
+
+/* 端口占用弹窗：绝对定位覆盖整个 lan-sync-panel。根 div 需 position: relative。 */
+.lan-sync-panel { position: relative; }
+.lan-conflict-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 20;
+}
+.lan-conflict-dialog {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 320px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+.lan-conflict-dialog p { margin: 0; color: #111827; }
+.lan-conflict-dialog .lan-row { justify-content: space-between; }
 </style>
