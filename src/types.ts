@@ -234,11 +234,6 @@ export interface LanSessionInfo {
 }
 export type LanClipSource = { kind: "current" } | { kind: "item"; id: string };
 
-export interface LanDevice {
-  deviceName: string;
-  addr: string;
-}
-
 export interface PortConflict {
   pid: number;
   name: string;

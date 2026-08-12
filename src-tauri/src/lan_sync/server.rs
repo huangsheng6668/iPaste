@@ -1,7 +1,6 @@
 //! Host 服务端：绑定 TCP 监听 + accept 循环 + 配对确认。
 //!
-//! Task 2 移除了 UDP 组播广播；accept 后按首条消息分流（Discover → 响应即断，
-//! Handshake → 配对流程）。
+//! accept 后按首条消息分流：Handshake → 配对流程；其余静默关闭。
 
 use std::sync::Arc;
 
@@ -34,8 +33,7 @@ pub(crate) async fn start_host(
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
     manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx);
 
-    // 3. accept 循环：对每个新连接读首条消息分流。
-    //    Discover → 响应 tcpPort + deviceName 后关闭；Handshake → 进入配对流程。
+    // 3. accept 循环：对每个新连接读首条消息分流。Handshake → 进入配对流程。
     let accept_handle = {
         let manager = manager.clone();
         let app = app.clone();
@@ -54,15 +52,7 @@ pub(crate) async fn start_host(
                         return;
                     };
                     match msg {
-                        LanMessage::Discover => {
-                            let response = LanMessage::DiscoverResponse {
-                                device_name: device_name(),
-                                tcp_port,
-                            };
-                            let _ = conn.write_message(&response, None).await;
-                            // 连接随即关闭（conn drop）
-                        }
-                        LanMessage::Handshake { code, device_name: guest_name, auto } => {
+                        LanMessage::Handshake { code, device_name: guest_name } => {
                             handle_guest_with_handshake(
                                 conn,
                                 &manager,
@@ -71,7 +61,6 @@ pub(crate) async fn start_host(
                                 &expected_code,
                                 code,
                                 guest_name,
-                                auto,
                             )
                             .await;
                         }
@@ -101,12 +90,9 @@ async fn handle_guest_with_handshake(
     expected_code: &str,
     code: String,
     guest_name: String,
-    auto: bool,
 ) {
     // code 校验（与 code_hash 一致，trim 后比较）。
-    // auto=true：扫描加入路径，跳过码校验，仍由下方 try_begin_pairing + lan-pair-request
-    // 经 Host 前端确认 gating（不会绕过 Host 同意环节）。
-    if !auto && code.trim() != expected_code.trim() {
+    if code.trim() != expected_code.trim() {
         let _ = conn
             .write_message(&LanMessage::PairRejected { reason: PairRejectReason::WrongCode }, None)
             .await;

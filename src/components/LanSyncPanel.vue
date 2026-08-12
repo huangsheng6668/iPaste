@@ -22,10 +22,6 @@ const {
   sendItem,
   requestClip,
   disconnect,
-  scannedDevices,
-  isScanning,
-  scanDevices,
-  joinScanned,
   portConflict,
   rejectedGuest,
   killPortProcess,
@@ -105,22 +101,6 @@ function onReject() {
           <input v-model="manualCode" :placeholder="t('lan.code')" />
           <button class="lan-btn" @click="joinByAddress">{{ t("lan.joinSession") }}</button>
         </div>
-      </details>
-      <details>
-        <summary>{{ t("lan.scanNearby") }}</summary>
-        <button type="button" class="lan-btn" :disabled="isScanning" @click="scanDevices">
-          {{ isScanning ? t("lan.scanning") : t("lan.startScan") }}
-        </button>
-        <ul v-if="scannedDevices.length" class="lan-history">
-          <li
-            v-for="d in scannedDevices"
-            :key="d.addr"
-            @click="joinScanned(d)"
-          >
-            {{ d.deviceName }}
-          </li>
-        </ul>
-        <p v-else-if="!isScanning" class="lan-hint">{{ t("lan.scanEmpty") }}</p>
       </details>
       <p class="lan-hint">{{ t("lan.firewallHint") }}</p>
     </div>

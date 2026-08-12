@@ -62,20 +62,12 @@ pub(crate) struct LanClipReceived { pub(crate) clip_type: String }
 pub(crate) struct LanJoinFailed { pub(crate) reason: String }
 
 /// host 因非 Hosting 态拒绝 guest 时发出（host 侧事件），携带当时 host 的状态，
-/// 用于前端提示"有设备尝试加入但当前正忙"以及定位扫描加入被拒的根因。
+/// 用于前端提示"有设备尝试加入但当前正忙"以及定位加入被拒的根因。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LanGuestRejected {
     pub(crate) guest_device_name: String,
     pub(crate) host_status: LanStatus,
-}
-
-/// 扫描发现的局域网设备（供 Guest 自动扫描列表展示）。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LanDevice {
-    pub(crate) device_name: String,
-    pub(crate) addr: String,
 }
 
 /// session loop 的控制指令

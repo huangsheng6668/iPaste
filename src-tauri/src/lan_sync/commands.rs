@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
-use crate::lan_sync::client::{join_by_address, join_scanned, tcp_scan};
+use crate::lan_sync::client::join_by_address;
 use crate::lan_sync::port::{get_port_conflict, kill_port_process};
 use crate::lan_sync::protocol::LAN_TCP_BASE_PORT;
 use crate::lan_sync::server::start_host;
@@ -151,22 +151,6 @@ pub(crate) fn lan_get_state(app: AppHandle) -> Result<LanSessionInfo, String> {
 #[tauri::command]
 pub(crate) async fn open_lan_sync(app: AppHandle) -> Result<(), String> {
     crate::window::open_lan_sync_window(&app)
-}
-
-#[tauri::command]
-pub(crate) async fn lan_scan_devices(_app: AppHandle, _timeout_secs: u64) -> Result<Vec<LanDevice>, String> {
-    Ok(tcp_scan().await)
-}
-
-#[tauri::command]
-pub(crate) async fn lan_join_scanned(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    addr: String,
-) -> Result<(), String> {
-    let manager = app.lan_manager();
-    join_scanned(manager, state.store.clone(), addr).await;
-    Ok(())
 }
 
 /// 查询固定端口 `LAN_TCP_BASE_PORT` 的占用进程（用于 UI 提示与一键 kill）。

@@ -18,7 +18,6 @@ import type {
   ClipViewItem,
   ImageOcrResult,
   LanClipSource,
-  LanDevice,
   LanSessionInfo,
   Language,
   OcrMode,
@@ -514,12 +513,6 @@ export const ipasteApi = {
   },
   openLanSync() {
     return call<void>("open_lan_sync");
-  },
-  lanScanDevices(timeoutSecs: number) {
-    return call<LanDevice[]>("lan_scan_devices", { timeoutSecs }, []);
-  },
-  lanJoinScanned(addr: string) {
-    return call<void>("lan_join_scanned", { addr });
   },
   lanGetPortConflict() {
     return call<PortConflict | null>("lan_get_port_conflict", undefined, null);

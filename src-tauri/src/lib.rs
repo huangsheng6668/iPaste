@@ -201,8 +201,6 @@ pub fn run() {
             lan_disconnect,
             lan_get_state,
             open_lan_sync,
-            lan_scan_devices,
-            lan_join_scanned,
             lan_get_port_conflict,
             lan_kill_port_process,
             lan_quit_app

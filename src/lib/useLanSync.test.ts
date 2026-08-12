@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reactive, ref } from "vue";
-import type { LanDevice, LanSessionInfo, PortConflict } from "../types";
+import type { LanSessionInfo, PortConflict } from "../types";
 
 describe("LanSessionInfo reactive model", () => {
   it("Object.assign merges status changes", () => {
@@ -20,16 +20,6 @@ describe("LanSessionInfo reactive model", () => {
   it("LanClipSource item variant shape", () => {
     const source = { kind: "item" as const, id: "abc" };
     expect(source.id).toBe("abc");
-  });
-});
-
-describe("LanDevice reactive model", () => {
-  it("scannedDevices list shape", () => {
-    const scannedDevices = ref<LanDevice[]>([
-      { deviceName: "HostA", addr: "192.168.1.5:45130" },
-    ]);
-    expect(scannedDevices.value[0].deviceName).toBe("HostA");
-    expect(scannedDevices.value[0].addr).toBe("192.168.1.5:45130");
   });
 });
 
