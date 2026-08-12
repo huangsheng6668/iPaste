@@ -202,7 +202,8 @@ pub fn run() {
             lan_get_state,
             open_lan_sync,
             lan_scan_devices,
-            lan_join_scanned
+            lan_join_scanned,
+            lan_get_port_conflict
         ])
         .setup(|app| {
             app.handle()

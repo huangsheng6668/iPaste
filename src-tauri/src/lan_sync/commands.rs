@@ -17,6 +17,8 @@ use tauri::{AppHandle, State};
 
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
 use crate::lan_sync::client::{join_by_address, join_scanned, tcp_scan};
+use crate::lan_sync::port::get_port_conflict;
+use crate::lan_sync::protocol::LAN_TCP_BASE_PORT;
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
@@ -156,4 +158,10 @@ pub(crate) async fn lan_join_scanned(
     let manager = app.lan_manager();
     join_scanned(manager, state.store.clone(), addr).await;
     Ok(())
+}
+
+/// 查询固定端口 `LAN_TCP_BASE_PORT` 的占用进程（用于 UI 提示与一键 kill）。
+#[tauri::command]
+pub(crate) fn lan_get_port_conflict() -> Result<Option<PortConflict>, String> {
+    get_port_conflict(LAN_TCP_BASE_PORT)
 }
