@@ -87,23 +87,41 @@ pub(crate) async fn lan_send_clip(
     source: ClipSource,
 ) -> Result<(), String> {
     let manager = app.lan_manager();
-    // 构造待发送的 (clip_type, payload_bytes)。
-    let (clip_type, payload) = match source {
+    // 构造待发送的 (clip_type, payload_bytes, category_name, category_color)。
+    // category_name 为 None 表示历史/无分组条目；Some 表示分组条目（接收端按名称匹配分组）。
+    let (clip_type, payload, category_name, category_color) = match source {
         ClipSource::Current => {
             let opt = clipboard_read_to_payload(read_current_clipboard()?)?;
-            opt.ok_or_else(|| "当前剪贴板为空".to_string())?
+            let (ct, data) = opt.ok_or_else(|| "当前剪贴板为空".to_string())?;
+            (ct, data, None, None)
         }
         ClipSource::Item { id } => {
             let conn = state.store.connect()?;
             let clip = state.store.get_clip_with_conn(&conn, &id)?;
             // 图片条目的 text 字段存储为 data url（见 store/clips.rs::insert_captured_item）。
-            (clip.clip_type, clip.text.into_bytes())
+            (clip.clip_type, clip.text.into_bytes(), None, None)
+        }
+        ClipSource::CategoryItem { id, category_id } => {
+            let conn = state.store.connect()?;
+            let item = state.store.get_category_item_with_conn(&conn, &id)?;
+            // 校验条目确实属于所声明分组，避免前端传错 id。
+            if item.category_id != category_id {
+                return Err("条目不属于该分组".to_string());
+            }
+            let category = state.store.get_category_with_conn(&conn, &category_id)?;
+            // category_items.text 对图片条目也是 data url（与 clips.text 一致）。
+            (
+                item.clip_type,
+                item.text.into_bytes(),
+                Some(category.name),
+                Some(category.color),
+            )
         }
     };
     let Some(tx) = manager.control_tx() else {
         return Err("未连接".to_string());
     };
-    tx.send(ControlMsg::SendClip { clip_type, payload })
+    tx.send(ControlMsg::SendClip { clip_type, payload, category_name, category_color })
         .await
         .map_err(|_| "会话已关闭".to_string())
 }

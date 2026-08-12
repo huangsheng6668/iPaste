@@ -232,7 +232,16 @@ export interface LanSessionInfo {
   listenAddr: string | null;
   peerDeviceName: string | null;
 }
-export type LanClipSource = { kind: "current" } | { kind: "item"; id: string };
+export type LanClipSource =
+  | { kind: "current" }
+  | { kind: "item"; id: string }
+  | { kind: "categoryItem"; id: string; categoryId: string };
+
+/** LAN 同步收到条目事件 payload：clipType 总有；categoryName 仅分组条目有。 */
+export interface LanClipReceivedEvent {
+  clipType: string;
+  categoryName?: string;
+}
 
 export interface PortConflict {
   pid: number;

@@ -1,7 +1,8 @@
 import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
-import type { LanClipSource, LanSessionInfo, PortConflict } from "../types";
+import { useIpasteStore } from "../stores/ipasteStore";
+import type { LanClipReceivedEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -24,6 +25,8 @@ export function useLanSync() {
   // 也用于定位"加入被报码错"的真因。带设备名 + 当时的 host 状态。
   const rejectedGuest = ref<{ deviceName: string; hostStatus: string } | null>(null);
   let unlistenFns: UnlistenFn[] = [];
+  // 收到分组条目时需要刷新本地分类数据（分组/条目落库后才能在 UI 显示）。
+  const store = useIpasteStore();
 
   function applyInfo(next: LanSessionInfo) {
     Object.assign(info, next);
@@ -96,6 +99,11 @@ export function useLanSync() {
     try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = String(e); }
   }
 
+  async function sendCategoryItem(id: string, categoryId: string) {
+    const source: LanClipSource = { kind: "categoryItem", id, categoryId };
+    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = String(e); }
+  }
+
   async function requestClip() {
     try { await ipasteApi.lanRequestClip(); } catch (e) { error.value = String(e); }
   }
@@ -114,10 +122,13 @@ export function useLanSync() {
       }],
       ["ipaste://lan-session-ready", () => refresh()],
       ["ipaste://lan-disconnected", () => { notice.value = "disconnected"; refresh(); }],
-      ["ipaste://lan-clip-received", () => {
+      ["ipaste://lan-clip-received", (e) => {
         notice.value = "clip-received";
         // 3s 后自动清掉"已接收"提示，避免常驻。
         setTimeout(() => { if (notice.value === "clip-received") notice.value = null; }, 3000);
+        // 分组条目落到 category_items 表，需刷新才能在分组标签下显示。
+        const p = e.payload as LanClipReceivedEvent | undefined;
+        if (p?.categoryName) void store.load();
       }],
       ["ipaste://lan-join-failed", (v) => { error.value = String((v.payload as { reason?: string })?.reason ?? "join failed"); refresh(); }],
       ["ipaste://lan-guest-rejected", (v) => {
@@ -149,7 +160,7 @@ export function useLanSync() {
     isTauri, info, manualAddress, manualCode, error, notice, pendingPeerName,
     portConflict, rejectedGuest,
     refresh, createSession, joinByAddress,
-    acceptPair, sendCurrent, sendItem, requestClip, disconnect,
+    acceptPair, sendCurrent, sendItem, sendCategoryItem, requestClip, disconnect,
     killPortProcess, quitApp, cancelPortConflict,
   };
 }

@@ -20,6 +20,7 @@ const {
   acceptPair,
   sendCurrent,
   sendItem,
+  sendCategoryItem,
   requestClip,
   disconnect,
   portConflict,
@@ -29,7 +30,30 @@ const {
   cancelPortConflict,
 } = useLanSync();
 const store = useIpasteStore();
-const showHistory = ref(false);
+// 条目选择器：先展开/收起；展开后用 sourceTab 在「历史 / 各分组」之间切换。
+const showPicker = ref(false);
+// "history" 或某个 category.id。默认历史，与主面板一致。
+const sourceTab = ref<string>("history");
+
+const pickerItems = computed(() => {
+  if (sourceTab.value === "history") {
+    // 历史：取最近 20 条，点击发送走 sendItem(clip.id)
+    return store.clips.slice(0, 20).map((clip) => ({
+      key: clip.id,
+      label: clip.previewText || clip.displayName || clip.clipType,
+      onClick: () => sendItem(clip.id),
+    }));
+  }
+  // 分组：该分组下所有条目，点击发送走 sendCategoryItem(item.id, item.categoryId)
+  return store.categoryItems
+    .filter((item) => item.categoryId === sourceTab.value)
+    .slice(0, 20)
+    .map((item) => ({
+      key: item.id,
+      label: item.previewText || item.displayName || item.clipType,
+      onClick: () => sendCategoryItem(item.id, item.categoryId),
+    }));
+});
 
 const statusText = computed(() => {
   switch (info.status) {
@@ -131,12 +155,34 @@ function onReject() {
         <button class="lan-btn primary" @click="sendCurrent"><ArrowUp :size="14" /> {{ t("lan.pushMine") }}</button>
         <button class="lan-btn" @click="requestClip"><ArrowDown :size="14" /> {{ t("lan.pullTheirs") }}</button>
       </div>
-      <button class="lan-btn" @click="showHistory = !showHistory"><History :size="14" /> {{ t("lan.fromHistory") }}</button>
-      <ul v-if="showHistory" class="lan-history">
-        <li v-for="clip in store.clips.slice(0, 20)" :key="clip.id" @click="sendItem(clip.id)">
-          {{ clip.previewText || clip.displayName || clip.clipType }}
-        </li>
-      </ul>
+      <button class="lan-btn" @click="showPicker = !showPicker"><History :size="14" /> {{ t("lan.selectSource") }}</button>
+      <div v-if="showPicker" class="lan-picker">
+        <div class="lan-tabs">
+          <button
+            class="lan-tab"
+            :class="{ active: sourceTab === 'history' }"
+            @click="sourceTab = 'history'"
+          >
+            {{ t("lan.history") }}
+          </button>
+          <button
+            v-for="cat in store.categories"
+            :key="cat.id"
+            class="lan-tab"
+            :class="{ active: sourceTab === cat.id }"
+            @click="sourceTab = cat.id"
+          >
+            <span class="lan-tab-dot" :style="{ backgroundColor: cat.color }" />
+            {{ cat.name }}
+          </button>
+        </div>
+        <ul class="lan-history">
+          <li v-for="item in pickerItems" :key="item.key" @click="item.onClick">
+            {{ item.label }}
+          </li>
+          <li v-if="pickerItems.length === 0" class="lan-empty">{{ t("lan.empty") }}</li>
+        </ul>
+      </div>
       <button class="lan-btn danger" @click="disconnect"><WifiOff :size="14" /> {{ t("lan.disconnect") }}</button>
     </div>
 
@@ -184,6 +230,19 @@ function onReject() {
 .lan-history { max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; border: 1px solid #e5e7eb; border-radius: 6px; }
 .lan-history li { padding: 8px; cursor: pointer; border-bottom: 1px solid #f3f4f6; }
 .lan-history li:hover { background: #f9fafb; }
+.lan-history li.lan-empty { color: #9ca3af; cursor: default; }
+.lan-history li.lan-empty:hover { background: transparent; }
+
+/* 条目选择器：顶部一行 tab（历史 + 各分组），下方列表 */
+.lan-picker { display: flex; flex-direction: column; gap: 8px; }
+.lan-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.lan-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; border: 1px solid #d1d5db;
+  background: #fff; cursor: pointer; font-size: 12px;
+}
+.lan-tab.active { background: #0D9488; color: #fff; border-color: #0D9488; }
+.lan-tab-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
 
 /* 端口占用弹窗：绝对定位覆盖整个 lan-sync-panel。根 div 需 position: relative。 */
 .lan-sync-panel { position: relative; }

@@ -401,7 +401,7 @@ impl Store {
         Ok(())
     }
 
-    pub(super) fn get_category_item_with_conn(
+    pub(crate) fn get_category_item_with_conn(
         &self,
         conn: &Connection,
         id: &str,
@@ -434,11 +434,194 @@ impl Store {
         .optional()
         .map_err(|error| error.to_string())
     }
+
+    /// 按 id 查单个分组。供 lan_send_clip 解析分组名/颜色用。
+    pub(crate) fn get_category_with_conn(
+        &self,
+        conn: &Connection,
+        id: &str,
+    ) -> Result<Category, String> {
+        conn.query_row(
+            "SELECT id, name, color, sort_order, created_at, updated_at FROM categories WHERE id = ?1",
+            params![id],
+            map_category,
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "未找到分类".to_string())
+    }
+
+    /// LAN 同步接收侧：把收到的条目落到「按名称匹配的同名分组」下。
+    ///
+    /// 为保持与本地「加入分组」流程（`add_clip_to_category_with_conn`）及 clips 合并逻辑
+    /// 一致，会先确保存在一条对应内容的 `clips` 行：若历史表已有同 content_hash 则复用其
+    /// id，否则插入一条占位 clips 行；`clip_snapshot_id` 始终指向真实存在的 clips 记录。
+    ///
+    /// 幂等：同一分组下相同 content_hash 的条目不重复创建。
+    /// color 仅在新建分组时采用；已有同名分组保持其原色。
+    pub(crate) fn insert_received_category_item(
+        &self,
+        clip_type: String,
+        content_hash: String,
+        preview_text: String,
+        text: String,
+        category_name: String,
+        category_color: Option<String>,
+    ) -> Result<CategoryItem, String> {
+        let category_name = clean_category_name(category_name)?;
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
+
+        // 1. 按名称查分组；不存在则新建（color 用传入值或默认灰）。
+        let category: Category = match tx
+            .query_row(
+                "SELECT id, name, color, sort_order, created_at, updated_at FROM categories WHERE name = ?1",
+                params![category_name],
+                map_category,
+            )
+            .optional()
+            .map_err(|error| error.to_string())?
+        {
+            Some(cat) => cat,
+            None => {
+                let sort_order: i64 = tx
+                    .query_row(
+                        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM categories",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| error.to_string())?;
+                let now = now();
+                let color = category_color
+                    .map(|c| clean_color(c))
+                    .unwrap_or_else(|| "#9CA3AF".to_string());
+                let cat = Category {
+                    id: new_id(),
+                    name: category_name.clone(),
+                    color,
+                    sort_order,
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+                tx.execute(
+                    "INSERT INTO categories (id, name, color, sort_order, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        cat.id,
+                        cat.name,
+                        cat.color,
+                        cat.sort_order,
+                        cat.created_at,
+                        cat.updated_at
+                    ],
+                )
+                .map_err(|error| error.to_string())?;
+                cat
+            }
+        };
+
+        // 2. 幂等：同分组同 content_hash 已存在则直接返回。
+        if let Some(existing) = tx
+            .query_row(
+                "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
+                 FROM category_items WHERE category_id = ?1 AND content_hash = ?2",
+                params![category.id, content_hash],
+                map_category_item,
+            )
+            .optional()
+            .map_err(|error| error.to_string())?
+        {
+            tx.commit().map_err(|error| error.to_string())?;
+            return Ok(existing);
+        }
+
+        // 3. 为该内容找到/创建对应的 clips 行，作为 clip_snapshot_id 的引用。
+        //    clips.content_hash 是 UNIQUE 的：若历史表已有同内容（比如用户先复制过、
+        //    又从分组同步过来），复用已有 clips.id；否则插入一条占位 clips 行。
+        //    这样 clip_snapshot_id 始终指向真实存在的 clips 记录，与本地「加入分组」
+        //    流程（add_clip_to_category_with_conn）以及 clips 合并逻辑保持一致，
+        //    避免「孤立」snapshot id 在未来引发查询/合并问题。
+        let now = now();
+        let clip_id: String = tx
+            .query_row(
+                "SELECT id FROM clips WHERE content_hash = ?1",
+                params![content_hash],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?
+            .unwrap_or_else(|| {
+                // 不存在则插入占位 clips 行（ON CONFLICT 兜底并发/重复场景）。
+                let new_clip_id = new_id();
+                tx.execute(
+                    "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+                     VALUES (?1, ?2, ?3, NULL, ?4, ?5, NULL, ?6, 0, 0)
+                     ON CONFLICT(content_hash) DO NOTHING",
+                    params![new_clip_id, clip_type, content_hash, preview_text, text, now],
+                )
+                .ok();
+                // 再查一次：并发或已存在时拿到真实 id（new_clip_id 可能因 ON CONFLICT 未写入）。
+                tx.query_row(
+                    "SELECT id FROM clips WHERE content_hash = ?1",
+                    params![content_hash],
+                    |row| row.get(0),
+                )
+                .unwrap_or(new_clip_id)
+            });
+
+        // 4. 插入 category_items。sort_order 取当前最小值 - 1，新条目排在分组顶部。
+        let sort_order: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MIN(sort_order), 0) - 1 FROM category_items WHERE category_id = ?1",
+                params![category.id],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        let item = CategoryItem {
+            id: new_id(),
+            category_id: category.id.clone(),
+            clip_snapshot_id: clip_id,
+            clip_type,
+            content_hash,
+            display_name: None,
+            preview_text,
+            text,
+            sort_order,
+            created_at: now.clone(),
+            updated_at: now,
+            sync_state: "local".to_string(),
+            is_pinned: false,
+        };
+
+        tx.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                item.id,
+                item.category_id,
+                item.clip_snapshot_id,
+                item.clip_type,
+                item.content_hash,
+                item.display_name,
+                item.preview_text,
+                item.text,
+                item.sort_order,
+                item.created_at,
+                item.updated_at,
+                item.sync_state,
+                item.is_pinned
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+
+        tx.commit().map_err(|error| error.to_string())?;
+        Ok(item)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::store::test_support::{create_category, seed_category_item, temp_store};
+    use crate::store::test_support::{create_category, seed_category_item, seed_clip, temp_store};
 
     #[test]
     fn search_all_category_items_groups_by_category() {
@@ -511,5 +694,221 @@ mod tests {
             )
             .unwrap();
         assert_eq!(tomb, 1, "delete_category should record a tombstone");
+    }
+
+    /// LAN 同步接收：分组不存在时自动创建，并落到该分组下。
+    #[test]
+    fn insert_received_category_item_creates_category_and_item() {
+        let store = temp_store();
+        let text = "hello-sync";
+        let hash = crate::util::hash_text(text);
+        let item = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+            )
+            .unwrap();
+
+        let conn = store.connect().unwrap();
+        // 分组被创建，颜色采用传入值
+        let cat_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM categories WHERE name = '工作' AND color = '#0D9488'",
+                rusqlite::params![],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cat_count, 1);
+        // 条目落到该分组下
+        let item_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM category_items WHERE category_id = ?1 AND content_hash = ?2",
+                rusqlite::params![item.category_id, hash],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(item_count, 1);
+    }
+
+    /// 同名分组已存在时复用，不重复创建；颜色保持原色（不被传入值覆盖）。
+    #[test]
+    fn insert_received_category_item_reuses_existing_category() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let existing_id = create_category(&conn, "工作", "#ff0000", 0);
+
+        let text = "hello-sync";
+        let item = store
+            .insert_received_category_item(
+                "text".to_string(),
+                crate::util::hash_text(text),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+            )
+            .unwrap();
+
+        assert_eq!(item.category_id, existing_id, "should reuse existing category");
+        // 仍是单分组，且颜色不变
+        let cat_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM categories WHERE name = '工作'",
+                rusqlite::params![],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cat_count, 1);
+        let color: String = conn
+            .query_row(
+                "SELECT color FROM categories WHERE id = ?1",
+                rusqlite::params![existing_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(color, "#ff0000", "existing category color must be preserved");
+    }
+
+    /// 同分组同内容幂等：重复同步不产生副本。
+    #[test]
+    fn insert_received_category_item_is_idempotent() {
+        let store = temp_store();
+        let text = "hello-sync";
+        let hash = crate::util::hash_text(text);
+
+        let first = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+            )
+            .unwrap();
+        let second = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+            )
+            .unwrap();
+
+        assert_eq!(first.id, second.id, "duplicate sync should return existing item");
+        let conn = store.connect().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM category_items WHERE category_id = ?1 AND content_hash = ?2",
+                rusqlite::params![first.category_id, hash],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "no duplicate category_items row");
+    }
+
+    /// 空分组名应被拒绝（复用 clean_category_name 校验）。
+    #[test]
+    fn insert_received_category_item_rejects_empty_name() {
+        let store = temp_store();
+        let result = store.insert_received_category_item(
+            "text".to_string(),
+            crate::util::hash_text("x"),
+            "x".to_string(),
+            "x".to_string(),
+            "   ".to_string(),
+            None,
+        );
+        assert!(result.is_err());
+    }
+
+    /// 接收分组条目时，clip_snapshot_id 必须指向一条真实存在的 clips 行
+    /// （而非孤立的随机 id），保证与本地「加入分组」及 clips 合并逻辑一致。
+    #[test]
+    fn insert_received_category_item_creates_backing_clip_row() {
+        let store = temp_store();
+        let text = "hello-sync";
+        let hash = crate::util::hash_text(text);
+        let item = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+            )
+            .unwrap();
+
+        let conn = store.connect().unwrap();
+        let clip_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE id = ?1 AND content_hash = ?2 AND text = ?3",
+                rusqlite::params![item.clip_snapshot_id, hash, text],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(clip_count, 1, "clip_snapshot_id must reference a real clips row");
+    }
+
+    /// 历史表已有同内容时，复用已有 clips.id 作 snapshot 引用，不新建占位行。
+    #[test]
+    fn insert_received_category_item_reuses_existing_clip_row() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        // 预置一条历史记录
+        seed_clip(&conn, "text", "hello-sync", "hello-sync");
+        let existing_clip_id: String = conn
+            .query_row(
+                "SELECT id FROM clips WHERE text = 'hello-sync'",
+                rusqlite::params![],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let clips_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+
+        let item = store
+            .insert_received_category_item(
+                "text".to_string(),
+                crate::util::hash_text("hello-sync"),
+                "hello-sync".to_string(),
+                "hello-sync".to_string(),
+                "工作".to_string(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(item.clip_snapshot_id, existing_clip_id, "should reuse existing clips.id");
+        let clips_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(clips_after, clips_before, "no new clips row should be created");
+    }
+
+    /// get_category_with_conn 能按 id 取到分组。
+    #[test]
+    fn get_category_with_conn_returns_existing() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let id = create_category(&conn, "A", "#abc", 3);
+        let cat = store.get_category_with_conn(&conn, &id).unwrap();
+        assert_eq!(cat.name, "A");
+        assert_eq!(cat.color, "#abc");
+        assert_eq!(cat.sort_order, 3);
+    }
+
+    #[test]
+    fn get_category_with_conn_missing_is_error() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        assert!(store.get_category_with_conn(&conn, "nope").is_err());
     }
 }

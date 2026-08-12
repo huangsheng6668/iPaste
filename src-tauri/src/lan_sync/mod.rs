@@ -39,6 +39,13 @@ pub(crate) struct LanSessionInfo {
 pub(crate) enum ClipSource {
     Current,
     Item { id: String },
+    /// 分组（category）条目：id 为 `category_items.id`，category_id 为其所属分组。
+    /// 发送时会附带分组名/颜色，接收端按名称匹配或新建分组。
+    CategoryItem {
+        id: String,
+        #[serde(rename = "categoryId")]
+        category_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,7 +62,12 @@ pub(crate) struct LanDisconnected { pub(crate) reason: String }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LanClipReceived { pub(crate) clip_type: String }
+pub(crate) struct LanClipReceived {
+    pub(crate) clip_type: String,
+    /// 收到的是分组条目时，携带分组名；历史/无分组条目为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) category_name: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +85,14 @@ pub(crate) struct LanGuestRejected {
 /// session loop 的控制指令
 #[derive(Debug)]
 pub(crate) enum ControlMsg {
-    SendClip { clip_type: String, payload: Vec<u8> },
+    SendClip {
+        clip_type: String,
+        payload: Vec<u8>,
+        /// 分组名（按名称在接收端匹配/创建分组）；None = 历史/无分组。
+        category_name: Option<String>,
+        /// 分组颜色（随分组名一起传，新建分组时采用）。
+        category_color: Option<String>,
+    },
     RequestClip,
     Disconnect,
 }
@@ -255,8 +274,11 @@ impl LanSessionManager {
         let _ = self.app.emit("ipaste://lan-disconnected", LanDisconnected { reason });
     }
 
-    pub(crate) fn emit_clip_received(&self, clip_type: String) {
-        let _ = self.app.emit("ipaste://lan-clip-received", LanClipReceived { clip_type });
+    pub(crate) fn emit_clip_received(&self, clip_type: String, category_name: Option<String>) {
+        let _ = self.app.emit(
+            "ipaste://lan-clip-received",
+            LanClipReceived { clip_type, category_name },
+        );
     }
 
     pub(crate) fn emit_join_failed(&self, reason: String) {
@@ -301,6 +323,20 @@ mod tests {
         let json = r#"{"kind":"item","id":"abc"}"#;
         let src: ClipSource = serde_json::from_str(json).unwrap();
         match src { ClipSource::Item { id } => assert_eq!(id, "abc"), _ => panic!("wrong variant") }
+    }
+
+    #[test]
+    fn clip_source_deserializes_category_item() {
+        // 前端 ipasteApi 走 camelCase（与 TS 类型一致）。
+        let json = r#"{"kind":"categoryItem","id":"i1","categoryId":"c1"}"#;
+        let src: ClipSource = serde_json::from_str(json).expect("camelCase variant must deserialize");
+        match src {
+            ClipSource::CategoryItem { id, category_id } => {
+                assert_eq!(id, "i1");
+                assert_eq!(category_id, "c1");
+            }
+            _ => panic!("wrong variant for {json}"),
+        }
     }
 }
 

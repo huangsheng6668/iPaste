@@ -37,11 +37,22 @@ pub(crate) enum LanMessage {
     ClipPush {
         clip_type: String,
         empty: bool,
+        /// 所属分组名（按名称在接收端匹配/创建分组）。`None` 表示历史/无分组。
+        /// 向后兼容：老版本发送的帧无此字段，反序列化得到 `None`，仍按历史处理。
+        #[serde(default)]
+        category_name: Option<String>,
+        /// 分组颜色（随分组名一起传，新建分组时采用）。老版本帧缺省为 `None`。
+        #[serde(default)]
+        category_color: Option<String>,
     },
     ClipRequest,
     ClipResponse {
         clip_type: String,
         empty: bool,
+        #[serde(default)]
+        category_name: Option<String>,
+        #[serde(default)]
+        category_color: Option<String>,
     },
     Disconnect,
 }
@@ -100,9 +111,47 @@ mod tests {
 
     #[test]
     fn clip_push_with_empty_roundtrips() {
-        let msg = LanMessage::ClipPush { clip_type: "text".into(), empty: true };
+        let msg = LanMessage::ClipPush {
+            clip_type: "text".into(),
+            empty: true,
+            category_name: None,
+            category_color: None,
+        };
         let bytes = encode_frame(&msg).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    #[test]
+    fn clip_push_with_category_roundtrips() {
+        let msg = LanMessage::ClipPush {
+            clip_type: "text".into(),
+            empty: false,
+            category_name: Some("工作".into()),
+            category_color: Some("#0D9488".into()),
+        };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    /// 老版本帧不含 category_name/category_color 字段；新版本必须兼容，
+    /// 缺省字段反序列化为 None（保证新版 ↔ 旧版混合不会反序列化失败）。
+    #[test]
+    fn clip_push_legacy_without_category_defaults_none() {
+        // 老版本发的 JSON：仅有 kind/clip_type/empty（无分组字段）。
+        // 注意：该 enum 为 internally-tagged，serde 字段名为 snake_case（rename_all
+        // 不作用于 internally-tagged 内容的字段），仅 variant tag 走 camelCase。
+        let json = r#"{"kind":"clipPush","clip_type":"text","empty":false}"#;
+        let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        match decode_frame(&bytes).unwrap() {
+            LanMessage::ClipPush { clip_type, empty, category_name, category_color } => {
+                assert_eq!(clip_type, "text");
+                assert!(!empty);
+                assert_eq!(category_name, None);
+                assert_eq!(category_color, None);
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 
     #[test]
