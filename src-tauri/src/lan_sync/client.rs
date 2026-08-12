@@ -105,7 +105,7 @@ pub(crate) async fn join_by_address(
     handshake(stream, &manager, &store, &code, false).await;
 }
 
-/// 纯 TCP 子网扫描：并发探测 1..=254 × [45130,45131,45132]，
+/// 纯 TCP 子网扫描：并发探测 1..=254 × [45130]，
 /// 连上发 Discover，收到 DiscoverResponse 即识别为 iPaste Host。
 pub(crate) async fn tcp_scan() -> Vec<LanDevice> {
     let Some(ip) = local_ipv4_addr() else {
@@ -116,7 +116,7 @@ pub(crate) async fn tcp_scan() -> Vec<LanDevice> {
         return Vec::new();
     }
     let subnet = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
-    let ports = [LAN_TCP_BASE_PORT, LAN_TCP_BASE_PORT + 1, LAN_TCP_BASE_PORT + 2];
+    let ports = [LAN_TCP_BASE_PORT];
 
     let semaphore = Arc::new(Semaphore::new(16));
     let mut tasks = Vec::new();
@@ -128,7 +128,7 @@ pub(crate) async fn tcp_scan() -> Vec<LanDevice> {
             for port in ports {
                 let addr = format!("{subnet}.{i}:{port}");
                 let Ok(Ok(stream)) = tokio::time::timeout(
-                    Duration::from_millis(300),
+                    Duration::from_millis(150),
                     TcpStream::connect(addr.as_str()),
                 )
                 .await
@@ -158,7 +158,7 @@ async fn probe_discover(stream: TcpStream, ip: String, port: u16) -> Option<LanD
     if conn.write_message(&LanMessage::Discover, None).await.is_err() {
         return None;
     }
-    let (msg, _) = tokio::time::timeout(Duration::from_millis(500), conn.read_message())
+    let (msg, _) = tokio::time::timeout(Duration::from_millis(2000), conn.read_message())
         .await
         .ok()?
         .ok()?;
