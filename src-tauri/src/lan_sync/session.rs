@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use crate::clipboard::{
     captured_item_from_payload, read_current_clipboard, write_clipboard_image, write_clipboard_text,
 };
+use crate::lan_sync::crypto::SecureConnection;
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::{ControlMsg, LanSessionManager};
 use crate::models::ClipboardRead;
@@ -181,14 +182,13 @@ fn image_data_url(bytes: &Option<Vec<u8>>) -> Result<String, String> {
 ///
 /// 调用方（Task 4/5）保证在进入前已调用 `set_hosting`/`set_joining`，因此 `role` 已设置。
 pub(crate) async fn run_session_loop(
-    stream: TcpStream,
+    mut conn: SecureConnection,
     manager: Arc<LanSessionManager>,
     store: Store,
     peer_device_name: String,
     mut control_rx: mpsc::Receiver<ControlMsg>,
 ) {
     manager.set_connected(peer_device_name);
-    let mut conn = Connection::new(stream);
 
     loop {
         tokio::select! {

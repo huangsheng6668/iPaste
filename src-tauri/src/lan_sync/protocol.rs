@@ -2,7 +2,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
-pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
+pub(crate) const LAN_MAX_PAYLOAD: usize = 8 * 1024 * 1024;
+pub(crate) const LAN_PROTOCOL_VERSION: u32 = 2;
+/// 配对码字母表：31 字符（A-Z 去掉 I/L/O = 23 字母 + 数字 2-9 = 8），无易混淆字符。
+pub(crate) const PAIR_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+pub(crate) const PAIR_CODE_LEN: usize = 8;
 
 /// `PairRejected` 的具体原因。向后兼容：老版本 host 发的 `PairRejected` 无此字段，
 /// guest 侧 `#[serde(default)]` 得到 `Unknown`，仍按旧行为提示。
@@ -24,11 +28,25 @@ pub(crate) enum PairRejectReason {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum LanMessage {
     Handshake {
-        code: String,
+        /// 协议版本。老客户端无此字段 → 默认 1，host 校验版本不符直接拒绝。
+        #[serde(default = "default_protocol_version")]
+        version: u32,
+        /// HMAC 派生码（配对码不以明文上线）。老帧/未知场景为 None。
+        #[serde(default)]
+        code_claim: Option<String>,
         device_name: String,
+        /// base64 编码的 X25519 公钥（32 字节）。
+        #[serde(default)]
+        guest_pubkey: Option<String>,
     },
     PairAccepted {
         host_device_name: String,
+        /// base64 编码的 host X25519 公钥。老 host 无此字段。
+        #[serde(default)]
+        host_pubkey: Option<String>,
+        /// HMAC(session_key) 认证标签，guest 据此确认双方持有相同配对码。
+        #[serde(default)]
+        auth_tag: Option<String>,
     },
     PairRejected {
         #[serde(default)]
@@ -55,6 +73,48 @@ pub(crate) enum LanMessage {
         category_color: Option<String>,
     },
     Disconnect,
+}
+
+/// 生成 8 位随机配对码（约 39 bit 熵：log2(31^8) ≈ 39.6）。
+///
+/// 用拒绝采样（rejection sampling）消除取模偏差：字母表 31 字符，而
+/// `256 % 31 = 8 ≠ 0`，若直接 `% 31` 则前 8 个字符会被多命中。故对每字节只接受
+/// `[0, 248)`（`floor(256/31)*31 = 248`，`248 % 31 == 0` 分布均匀），落在
+/// `[248, 256)` 则丢弃重抽。
+pub(crate) fn generate_pair_code() -> String {
+    let alphabet_len = PAIR_CODE_ALPHABET.len(); // 31
+    // 接受区间上界（不含）：`floor(256 / alphabet_len) * alphabet_len`。
+    // 31 时为 248，接受 [0, 248)，丢弃 [248, 256)（共 8 个值），消除取模偏差。
+    let accept_limit = (256 / alphabet_len) * alphabet_len; // 248
+    (0..PAIR_CODE_LEN)
+        .map(|_| {
+            let mut buf = [0u8; 1];
+            loop {
+                getrandom::getrandom(&mut buf).expect("os rng unavailable");
+                if (buf[0] as usize) < accept_limit {
+                    return PAIR_CODE_ALPHABET[buf[0] as usize % alphabet_len] as char;
+                }
+            }
+        })
+        .collect()
+}
+
+/// 归一化配对码：None/空串 → 随机生成；Some → trim 后校验长度 6..=16。
+pub(crate) fn normalize_pair_code(input: Option<String>) -> Result<String, String> {
+    match input.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) {
+        None => Ok(generate_pair_code()),
+        Some(code) => {
+            let len = code.chars().count();
+            if !(6..=16).contains(&len) {
+                return Err("匹配码需为 6-16 位字符".to_string());
+            }
+            Ok(code)
+        }
+    }
+}
+
+fn default_protocol_version() -> u32 {
+    1
 }
 
 pub(crate) fn code_hash(code: &str) -> String {
@@ -102,11 +162,60 @@ mod tests {
     }
 
     #[test]
-    fn handshake_roundtrips() {
-        let msg = LanMessage::Handshake { code: "abc".into(), device_name: "MBP".into() };
+    fn handshake_v2_roundtrips() {
+        let msg = LanMessage::Handshake {
+            version: LAN_PROTOCOL_VERSION,
+            code_claim: Some("aabbccdd".into()),
+            device_name: "MBP".into(),
+            guest_pubkey: Some("QUJD".into()),
+        };
         let bytes = encode_frame(&msg).unwrap();
-        let decoded = decode_frame(&bytes).unwrap();
-        assert_eq!(msg, decoded);
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    #[test]
+    fn pair_accepted_v2_roundtrips() {
+        let msg = LanMessage::PairAccepted {
+            host_device_name: "host".into(),
+            host_pubkey: Some("REVG".into()),
+            auth_tag: Some("ffeeddcc".into()),
+        };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    /// 老版本（v1）Handshake 帧：只有 code/device_name，缺 version/code_claim/guest_pubkey。
+    /// 新 host 必须能反序列化（字段默认 None / version 默认 1），再按协议拒绝。
+    #[test]
+    fn legacy_handshake_deserializes_with_defaults() {
+        let json = r#"{"kind":"handshake","code":"ROOM","device_name":"old"}"#;
+        let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        match decode_frame(&bytes).unwrap() {
+            LanMessage::Handshake { version, code_claim, guest_pubkey, device_name } => {
+                assert_eq!(version, 1);
+                assert_eq!(code_claim, None);
+                assert_eq!(guest_pubkey, None);
+                assert_eq!(device_name, "old");
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    /// 老版本 PairAccepted 帧：只有 host_device_name。guest 侧据此提示对方版本过旧。
+    #[test]
+    fn legacy_pair_accepted_deserializes_with_defaults() {
+        let json = r#"{"kind":"pairAccepted","host_device_name":"old-host"}"#;
+        let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        match decode_frame(&bytes).unwrap() {
+            LanMessage::PairAccepted { host_device_name, host_pubkey, auth_tag } => {
+                assert_eq!(host_device_name, "old-host");
+                assert_eq!(host_pubkey, None);
+                assert_eq!(auth_tag, None);
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
     }
 
     #[test]
@@ -186,5 +295,51 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn pair_code_is_eight_chars_from_alphabet() {
+        let code = generate_pair_code();
+        assert_eq!(code.chars().count(), PAIR_CODE_LEN);
+        assert!(code
+            .bytes()
+            .all(|b| PAIR_CODE_ALPHABET.contains(&b)));
+    }
+
+    #[test]
+    fn pair_code_avoids_confusable_chars() {
+        for c in ['I', 'L', 'O', '0', '1'] {
+            assert!(!PAIR_CODE_ALPHABET.contains(&(c as u8)));
+        }
+    }
+
+    #[test]
+    fn pair_code_alphabet_is_thirty_one_chars() {
+        // 31 字符（A-Z 去 I/L/O = 23 + 数字 2-9 = 8），无重复。
+        assert_eq!(PAIR_CODE_ALPHABET.len(), 31);
+        let set: std::collections::HashSet<u8> = PAIR_CODE_ALPHABET.iter().copied().collect();
+        assert_eq!(set.len(), 31, "字母表不能有重复字符");
+    }
+
+    #[test]
+    fn normalize_pair_code_generates_when_none_or_empty() {
+        for input in [None, Some("".into()), Some("   ".into())] {
+            let code = normalize_pair_code(input).unwrap();
+            assert_eq!(code.chars().count(), PAIR_CODE_LEN);
+        }
+    }
+
+    #[test]
+    fn normalize_pair_code_trims_and_validates_length() {
+        assert_eq!(normalize_pair_code(Some("  AB12CD  ".into())).unwrap(), "AB12CD");
+        assert!(normalize_pair_code(Some("ABCDE".into())).is_err()); // 5 位太短
+        assert!(normalize_pair_code(Some("A".repeat(17)).into()).is_err()); // 17 位太长
+        assert_eq!(normalize_pair_code(Some("A".repeat(16)).into()).unwrap(), "A".repeat(16));
+    }
+
+    /// 防回归：payload 上限必须保持 8MB（剪贴板图片 data url 足够，过大会放大内存 DoS）。
+    #[test]
+    fn payload_limit_is_eight_megabytes() {
+        assert_eq!(LAN_MAX_PAYLOAD, 8 * 1024 * 1024);
     }
 }

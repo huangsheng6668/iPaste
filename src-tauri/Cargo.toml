@@ -19,10 +19,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+aes-gcm = "0.10"
 arboard = "3.6.1"
 base64 = "0.22.1"
 chrono = { version = "0.4", features = ["serde"] }
 enigo = "0.6.1"
+getrandom = "0.2"
+hkdf = "0.12"
+hmac = "0.12"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 rusqlite = { version = "=0.32.1", features = ["bundled"] }
@@ -39,6 +43,7 @@ uuid = { version = "1", features = ["v4"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 hostname = "0.4"
+x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
 zip = { version = "4.6.1", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]

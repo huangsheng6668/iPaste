@@ -2,6 +2,7 @@
 //!
 //! accept 后按首条消息分流：Handshake → 配对流程；其余静默关闭。
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
@@ -12,6 +13,11 @@ use crate::lan_sync::protocol::*;
 use crate::lan_sync::session::{run_session_loop, Connection};
 use crate::lan_sync::*;
 use crate::store::Store;
+
+/// 握手/配对阶段的最大并发连接数，超出即丢弃新连接（防 slowloris 型资源耗尽）。
+pub(crate) const MAX_CONCURRENT_HANDSHAKES: usize = 8;
+/// 首条握手消息的读取超时。
+pub(crate) const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 
 /// 启动 Host：绑定 TCP + accept 循环。
 ///
@@ -33,34 +39,64 @@ pub(crate) async fn start_host(
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
     manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx);
 
-    // 3. accept 循环：对每个新连接读首条消息分流。Handshake → 进入配对流程。
+    // 3. accept 循环：并发限额 + 握手读取超时 + 按 IP 清理防爆破记录
+    let sem = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_HANDSHAKES));
     let accept_handle = {
         let manager = manager.clone();
         let app = app.clone();
         let store = store.clone();
         let expected_code = code.clone();
+        let sem = sem.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((stream, _)) = listener.accept().await else { continue };
+                let Ok((stream, peer)) = listener.accept().await else { continue };
+                let ip = peer.ip();
+                // 并发已满：直接丢弃新连接（防资源耗尽）
+                let Ok(permit) = sem.clone().try_acquire_owned() else {
+                    drop(stream);
+                    continue;
+                };
                 let manager = manager.clone();
                 let app = app.clone();
                 let store = store.clone();
                 let expected_code = expected_code.clone();
+                manager.pair_guard().prune(std::time::Instant::now());
                 tokio::spawn(async move {
+                    let _permit = permit; // 任务结束自动释放额度
                     let mut conn = Connection::new(stream);
-                    let Ok((msg, _)) = conn.read_message().await else {
+                    // 握手读取超时，防 slowloris 型慢连接占用任务与内存
+                    let read = tokio::time::timeout(
+                        std::time::Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+                        conn.read_message(),
+                    )
+                    .await;
+                    let Ok(Ok((msg, _))) = read else {
                         return;
                     };
+                    // 后续 match 分流（与 Task 4b 版本一致）
                     match msg {
-                        LanMessage::Handshake { code, device_name: guest_name } => {
+                        LanMessage::Handshake { version, code_claim, device_name: guest_name, guest_pubkey } => {
+                            // 老客户端 / 畸形帧：无 claim 或公钥 → 拒绝（老客户端收到
+                            // PairRejected 后提示"匹配码错误或被拒绝"）。
+                            if version != LAN_PROTOCOL_VERSION
+                                || code_claim.is_none()
+                                || guest_pubkey.is_none()
+                            {
+                                let _ = conn
+                                    .write_message(&LanMessage::PairRejected { reason: PairRejectReason::Unknown }, None)
+                                    .await;
+                                return;
+                            }
                             handle_guest_with_handshake(
                                 conn,
                                 &manager,
                                 &app,
                                 &store,
                                 &expected_code,
-                                code,
+                                code_claim.unwrap(),
                                 guest_name,
+                                guest_pubkey.unwrap(),
+                                ip,
                             )
                             .await;
                         }
@@ -88,16 +124,31 @@ async fn handle_guest_with_handshake(
     app: &AppHandle,
     store: &Store,
     expected_code: &str,
-    code: String,
+    claim: String,
     guest_name: String,
+    guest_pubkey_b64: String,
+    ip: IpAddr,
 ) {
-    // code 校验（与 code_hash 一致，trim 后比较）。
-    if code.trim() != expected_code.trim() {
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{code_claim, derive_session_key, generate_pair_keys, host_auth_tag, SecureConnection};
+
+    // 防爆破：封禁期直接丢弃；claim 错记失败并做指数退避；正确则清计数。
+    if manager.pair_guard().is_blocked(ip, std::time::Instant::now()) {
+        return;
+    }
+    if claim != code_claim(expected_code) {
+        let delay = manager.pair_guard().record_failure(ip, std::time::Instant::now());
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
         let _ = conn
             .write_message(&LanMessage::PairRejected { reason: PairRejectReason::WrongCode }, None)
             .await;
         return;
     }
+    manager.pair_guard().record_success(ip);
 
     // 原子配对门：Hosting → WaitingPair + 预留 oneshot，一次 lock 完成（修 TOCTOU）。
     // 已有配对进行中 / 已连接时直接拒绝，不破坏现有状态。
@@ -140,10 +191,33 @@ async fn handle_guest_with_handshake(
         return;
     }
 
-    // 接受：写 PairAccepted，转入 session loop
+    // 接受：解析 guest 公钥 → 派生会话密钥 → 回 PairAccepted（带公钥 + 认证标签）
+    let guest_public = {
+        let bytes: [u8; 32] = match base64::engine::general_purpose::STANDARD
+            .decode(&guest_pubkey_b64)
+            .map_err(|_| ())
+            .and_then(|v| v.try_into().map_err(|_| ()))
+        {
+            Ok(b) => b,
+            Err(_) => {
+                manager.reset_to_idle("握手数据无效".to_string());
+                return;
+            }
+        };
+        PublicKey::from(bytes)
+    };
+    let (host_secret, host_public) = generate_pair_keys();
+    let key = derive_session_key(&host_secret, &guest_public, expected_code);
     let host_name = device_name();
     if conn
-        .write_message(&LanMessage::PairAccepted { host_device_name: host_name }, None)
+        .write_message(
+            &LanMessage::PairAccepted {
+                host_device_name: host_name,
+                host_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes())),
+                auth_tag: Some(host_auth_tag(&key)),
+            },
+            None,
+        )
         .await
         .is_err()
     {
@@ -156,7 +230,7 @@ async fn handle_guest_with_handshake(
         manager.reset_to_idle("内部状态错误".to_string());
         return;
     };
-    run_session_loop(raw, manager.clone(), store.clone(), guest_name, control_rx).await;
+    run_session_loop(SecureConnection::new(raw, key), manager.clone(), store.clone(), guest_name, control_rx).await;
 }
 
 /// 只绑定固定端口 `LAN_TCP_BASE_PORT`（45130）；被占即返回端口占用错误，
