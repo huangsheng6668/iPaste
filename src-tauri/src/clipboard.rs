@@ -198,6 +198,21 @@ pub(crate) fn clipboard_read_to_payload(
     }
 }
 
+/// 判断剪贴板读取错误是否表示「该格式在当前剪贴板中不可用」，
+/// 调用方应 fallback 到另一种格式（如 get_image 失败 → 试 get_text）而非直接报错。
+///
+/// - `ContentNotAvailable`：剪贴板里没有该格式的内容（标准 fallback 信号）。
+/// - `ConversionFailure`：剪贴板有内容但无法转换成请求的格式（例如文本剪贴板
+///   调 `get_image`）。macOS 上文本剪贴板调 `get_image` 常返回此变体而非
+///   `ContentNotAvailable`，此前未容错会导致 watcher 抛出英文错误
+///   "could not be converted to the appropriate format"。
+fn format_not_available(error: &ClipboardError) -> bool {
+    matches!(
+        error,
+        ClipboardError::ContentNotAvailable | ClipboardError::ConversionFailure
+    )
+}
+
 fn read_clipboard_item() -> Result<ClipboardRead, String> {
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
 
@@ -208,7 +223,7 @@ fn read_clipboard_item() -> Result<ClipboardRead, String> {
 
     match clipboard.get_image() {
         Ok(image) => return captured_item_from_image(image).map(ClipboardRead::Item),
-        Err(ClipboardError::ContentNotAvailable) => {}
+        Err(error) if format_not_available(&error) => {}
         Err(ClipboardError::ClipboardOccupied) => return Ok(ClipboardRead::Occupied),
         Err(error) => return Err(error.to_string()),
     }
@@ -233,7 +248,7 @@ fn read_clipboard_item() -> Result<ClipboardRead, String> {
                 image_bytes: None,
             }));
         }
-        Err(ClipboardError::ContentNotAvailable) => {}
+        Err(error) if format_not_available(&error) => {}
         Err(ClipboardError::ClipboardOccupied) => return Ok(ClipboardRead::Occupied),
         Err(error) => return Err(error.to_string()),
     }
@@ -244,7 +259,7 @@ fn read_clipboard_item() -> Result<ClipboardRead, String> {
 fn read_clipboard_image_file(clipboard: &mut Clipboard) -> Result<Option<ClipboardRead>, String> {
     match clipboard.get().file_list() {
         Ok(paths) => captured_item_from_file_list(&paths).map(|item| item.map(ClipboardRead::Item)),
-        Err(ClipboardError::ContentNotAvailable) => Ok(None),
+        Err(error) if format_not_available(&error) => Ok(None),
         Err(ClipboardError::ClipboardOccupied) => Ok(Some(ClipboardRead::Occupied)),
         Err(error) => Err(error.to_string()),
     }
@@ -508,4 +523,21 @@ fn image_from_bytes(bytes: &[u8]) -> Result<ImageData<'static>, String> {
         height,
         bytes: decoded.into_raw().into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_not_available_treats_content_unavailable_as_fallback() {
+        assert!(format_not_available(&ClipboardError::ContentNotAvailable));
+    }
+
+    #[test]
+    fn format_not_available_treats_conversion_failure_as_fallback() {
+        // macOS 上文本剪贴板调 get_image 会返回 ConversionFailure 而非 ContentNotAvailable；
+        // 必须把它当 fallback 信号，否则 watcher 会向用户抛英文错误。
+        assert!(format_not_available(&ClipboardError::ConversionFailure));
+    }
 }
