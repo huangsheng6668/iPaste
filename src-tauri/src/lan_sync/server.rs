@@ -14,6 +14,11 @@ use crate::lan_sync::session::{run_session_loop, Connection};
 use crate::lan_sync::*;
 use crate::store::Store;
 
+/// 握手/配对阶段的最大并发连接数，超出即丢弃新连接（防 slowloris 型资源耗尽）。
+pub(crate) const MAX_CONCURRENT_HANDSHAKES: usize = 8;
+/// 首条握手消息的读取超时。
+pub(crate) const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
+
 /// 启动 Host：绑定 TCP + accept 循环。
 ///
 /// 成功返回 `listen_addr`（`ip:port`）。accept 任务在后台 spawn，
@@ -34,26 +39,41 @@ pub(crate) async fn start_host(
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
     manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx);
 
-    // 3. accept 循环：对每个新连接读首条消息分流。Handshake → 进入配对流程。
+    // 3. accept 循环：并发限额 + 握手读取超时 + 按 IP 清理防爆破记录
+    let sem = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_HANDSHAKES));
     let accept_handle = {
         let manager = manager.clone();
         let app = app.clone();
         let store = store.clone();
         let expected_code = code.clone();
+        let sem = sem.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((stream, peer)) = listener.accept().await else { continue };
                 let ip = peer.ip();
+                // 并发已满：直接丢弃新连接（防资源耗尽）
+                let Ok(permit) = sem.clone().try_acquire_owned() else {
+                    drop(stream);
+                    continue;
+                };
                 let manager = manager.clone();
                 let app = app.clone();
                 let store = store.clone();
                 let expected_code = expected_code.clone();
                 manager.pair_guard().prune(std::time::Instant::now());
                 tokio::spawn(async move {
+                    let _permit = permit; // 任务结束自动释放额度
                     let mut conn = Connection::new(stream);
-                    let Ok((msg, _)) = conn.read_message().await else {
+                    // 握手读取超时，防 slowloris 型慢连接占用任务与内存
+                    let read = tokio::time::timeout(
+                        std::time::Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+                        conn.read_message(),
+                    )
+                    .await;
+                    let Ok(Ok((msg, _))) = read else {
                         return;
                     };
+                    // 后续 match 分流（与 Task 4b 版本一致）
                     match msg {
                         LanMessage::Handshake { version, code_claim, device_name: guest_name, guest_pubkey } => {
                             // 老客户端 / 畸形帧：无 claim 或公钥 → 拒绝（老客户端收到

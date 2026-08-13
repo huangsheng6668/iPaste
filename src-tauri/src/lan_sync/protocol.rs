@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
-pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
+pub(crate) const LAN_MAX_PAYLOAD: usize = 8 * 1024 * 1024;
 pub(crate) const LAN_PROTOCOL_VERSION: u32 = 2;
 /// 配对码字母表：31 字符（A-Z 去掉 I/L/O = 23 字母 + 数字 2-9 = 8），无易混淆字符。
 pub(crate) const PAIR_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -335,5 +335,11 @@ mod tests {
         assert!(normalize_pair_code(Some("ABCDE".into())).is_err()); // 5 位太短
         assert!(normalize_pair_code(Some("A".repeat(17)).into()).is_err()); // 17 位太长
         assert_eq!(normalize_pair_code(Some("A".repeat(16)).into()).unwrap(), "A".repeat(16));
+    }
+
+    /// 防回归：payload 上限必须保持 8MB（剪贴板图片 data url 足够，过大会放大内存 DoS）。
+    #[test]
+    fn payload_limit_is_eight_megabytes() {
+        assert_eq!(LAN_MAX_PAYLOAD, 8 * 1024 * 1024);
     }
 }
