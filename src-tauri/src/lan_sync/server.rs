@@ -2,6 +2,7 @@
 //!
 //! accept 后按首条消息分流：Handshake → 配对流程；其余静默关闭。
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
@@ -41,11 +42,13 @@ pub(crate) async fn start_host(
         let expected_code = code.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((stream, _)) = listener.accept().await else { continue };
+                let Ok((stream, peer)) = listener.accept().await else { continue };
+                let ip = peer.ip();
                 let manager = manager.clone();
                 let app = app.clone();
                 let store = store.clone();
                 let expected_code = expected_code.clone();
+                manager.pair_guard().prune(std::time::Instant::now());
                 tokio::spawn(async move {
                     let mut conn = Connection::new(stream);
                     let Ok((msg, _)) = conn.read_message().await else {
@@ -61,6 +64,7 @@ pub(crate) async fn start_host(
                                 &expected_code,
                                 code,
                                 guest_name,
+                                ip,
                             )
                             .await;
                         }
@@ -90,14 +94,23 @@ async fn handle_guest_with_handshake(
     expected_code: &str,
     code: String,
     guest_name: String,
+    ip: IpAddr,
 ) {
-    // code 校验（与 code_hash 一致，trim 后比较）。
+    // 防爆破：封禁期直接丢弃；码错记失败并做指数退避；正确则清计数。
+    if manager.pair_guard().is_blocked(ip, std::time::Instant::now()) {
+        return;
+    }
     if code.trim() != expected_code.trim() {
+        let delay = manager.pair_guard().record_failure(ip, std::time::Instant::now());
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
         let _ = conn
             .write_message(&LanMessage::PairRejected { reason: PairRejectReason::WrongCode }, None)
             .await;
         return;
     }
+    manager.pair_guard().record_success(ip);
 
     // 原子配对门：Hosting → WaitingPair + 预留 oneshot，一次 lock 完成（修 TOCTOU）。
     // 已有配对进行中 / 已连接时直接拒绝，不破坏现有状态。

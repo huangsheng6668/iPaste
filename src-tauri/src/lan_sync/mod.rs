@@ -4,6 +4,7 @@ pub(crate) mod server;   // Task 4
 pub(crate) mod client;   // Task 5
 pub(crate) mod commands; // Task 6
 pub(crate) mod port;     // Task 2: 跨平台端口占用检测
+pub(crate) mod pair_guard; // Task 2: 按 IP 防爆破
 
 pub(crate) use port::PortConflict;
 
@@ -13,6 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::lan_sync::pair_guard::PairGuard;
 use crate::lan_sync::protocol::*;
 use crate::models::*;
 
@@ -117,11 +119,20 @@ impl Default for LanStatus { fn default() -> Self { LanStatus::Idle } }
 pub struct LanSessionManager {
     app: AppHandle,
     inner: Mutex<LanInner>,
+    pair_guard: PairGuard,
 }
 
 impl LanSessionManager {
     pub(crate) fn new(app: AppHandle) -> Self {
-        Self { app, inner: Mutex::new(LanInner::default()) }
+        Self {
+            app,
+            inner: Mutex::new(LanInner::default()),
+            pair_guard: PairGuard::new(),
+        }
+    }
+
+    pub(crate) fn pair_guard(&self) -> &PairGuard {
+        &self.pair_guard
     }
 
     pub(crate) fn snapshot(&self) -> LanSessionInfo {
