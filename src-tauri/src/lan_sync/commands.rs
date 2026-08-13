@@ -17,7 +17,7 @@ use tauri::{AppHandle, State};
 
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
 use crate::lan_sync::client::join_by_address;
-use crate::lan_sync::port::{get_port_conflict, kill_port_process};
+use crate::lan_sync::port::{get_port_conflict, kill_port_process, verify_port_owner};
 use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
@@ -172,6 +172,9 @@ pub(crate) fn lan_get_port_conflict() -> Result<Option<PortConflict>, String> {
 /// 结束占用固定端口的进程（前端弹窗确认后调用）。
 #[tauri::command]
 pub(crate) fn lan_kill_port_process(pid: u32) -> Result<(), String> {
+    // 后端复核：只有确实占用 45130 端口的进程才允许被结束
+    let conflict = get_port_conflict(LAN_TCP_BASE_PORT)?;
+    verify_port_owner(conflict, pid)?;
     kill_port_process(pid)
 }
 

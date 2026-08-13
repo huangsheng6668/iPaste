@@ -103,6 +103,15 @@ fn process_name_windows(pid: u32) -> Option<String> {
     if name.is_empty() { None } else { Some(name) }
 }
 
+/// 校验 pid 确实是当前占用同步端口的进程，防止前端传入任意 pid 杀进程。
+pub(crate) fn verify_port_owner(conflict: Option<PortConflict>, pid: u32) -> Result<(), String> {
+    match conflict {
+        None => Err("同步端口当前未被占用".to_string()),
+        Some(c) if c.pid == pid => Ok(()),
+        Some(_) => Err("该进程未占用同步端口".to_string()),
+    }
+}
+
 /// 结束占用端口的进程。
 ///
 /// - Windows：`taskkill /F /PID <pid>`；非零退出视为失败。
@@ -156,9 +165,28 @@ mod port_tests {
     #[test]
     fn parse_macos_lsof_line_finds_name_and_pid() {
         // macOS lsof 行：ipaste 52276 user 5u IPv4 0x... 0t0 TCP *:45130 (LISTEN)
-        let line = "ipaste  52276  user  5u  IPv4 0x1234 0t0  TCP *:45130 (LISTEN)";
+        let line = "ipaste  52276  user  5u  IPv4 0x1234 0t0 TCP *:45130 (LISTEN)";
         let conflict = parse_macos_lsof(line, 45130);
         assert_eq!(conflict.as_ref().map(|c| c.name.as_str()), Some("ipaste"));
         assert_eq!(conflict.as_ref().map(|c| c.pid), Some(52276));
+    }
+
+    #[test]
+    fn verify_port_owner_accepts_matching_pid() {
+        let conflict = PortConflict { pid: 52276, name: "ipaste.exe".into() };
+        assert!(verify_port_owner(Some(conflict), 52276).is_ok());
+    }
+
+    #[test]
+    fn verify_port_owner_rejects_unrelated_pid() {
+        let conflict = PortConflict { pid: 52276, name: "ipaste.exe".into() };
+        let err = verify_port_owner(Some(conflict), 1234).unwrap_err();
+        assert_eq!(err, "该进程未占用同步端口");
+    }
+
+    #[test]
+    fn verify_port_owner_rejects_when_port_free() {
+        let err = verify_port_owner(None, 52276).unwrap_err();
+        assert_eq!(err, "同步端口当前未被占用");
     }
 }
