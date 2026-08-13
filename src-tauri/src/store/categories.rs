@@ -451,6 +451,29 @@ impl Store {
         .ok_or_else(|| "未找到分类".to_string())
     }
 
+    /// 查询某条历史 clip 当前所属的分类（按 `category_items.clip_snapshot_id` 关联）。
+    ///
+    /// 供 LAN 同步发送历史条目（`ClipSource::Item`）时携带分类信息：同一条目可能
+    /// 加入多个分类，取最近更新的那个。无关联分类返回 `Ok(None)`。
+    pub(crate) fn get_category_for_clip_with_conn(
+        &self,
+        conn: &Connection,
+        clip_id: &str,
+    ) -> Result<Option<Category>, String> {
+        conn.query_row(
+            "SELECT c.id, c.name, c.color, c.sort_order, c.created_at, c.updated_at
+             FROM categories c
+             JOIN category_items ci ON ci.category_id = c.id
+             WHERE ci.clip_snapshot_id = ?1
+             ORDER BY ci.updated_at DESC
+             LIMIT 1",
+            params![clip_id],
+            map_category,
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+    }
+
     /// LAN 同步接收侧：把收到的条目落到「按名称匹配的同名分组」下。
     ///
     /// 为保持与本地「加入分组」流程（`add_clip_to_category_with_conn`）及 clips 合并逻辑
@@ -542,7 +565,7 @@ impl Store {
         //    流程（add_clip_to_category_with_conn）以及 clips 合并逻辑保持一致，
         //    避免「孤立」snapshot id 在未来引发查询/合并问题。
         let now = now();
-        let clip_id: String = tx
+        let clip_id: String = match tx
             .query_row(
                 "SELECT id FROM clips WHERE content_hash = ?1",
                 params![content_hash],
@@ -550,7 +573,9 @@ impl Store {
             )
             .optional()
             .map_err(|error| error.to_string())?
-            .unwrap_or_else(|| {
+        {
+            Some(existing_id) => existing_id,
+            None => {
                 // 不存在则插入占位 clips 行（ON CONFLICT 兜底并发/重复场景）。
                 let new_clip_id = new_id();
                 tx.execute(
@@ -559,15 +584,17 @@ impl Store {
                      ON CONFLICT(content_hash) DO NOTHING",
                     params![new_clip_id, clip_type, content_hash, preview_text, text, now],
                 )
-                .ok();
+                .map_err(|error| error.to_string())?;
                 // 再查一次：并发或已存在时拿到真实 id（new_clip_id 可能因 ON CONFLICT 未写入）。
+                // INSERT 已成功的情况下此行必然存在，失败必须向上传播而非伪造 id。
                 tx.query_row(
                     "SELECT id FROM clips WHERE content_hash = ?1",
                     params![content_hash],
                     |row| row.get(0),
                 )
-                .unwrap_or(new_clip_id)
-            });
+                .map_err(|error| error.to_string())?
+            }
+        };
 
         // 4. 插入 category_items。sort_order 取当前最小值 - 1，新条目排在分组顶部。
         let sort_order: i64 = tx
@@ -910,5 +937,110 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
         assert!(store.get_category_with_conn(&conn, "nope").is_err());
+    }
+
+    /// 历史条目已加入分类时，`get_category_for_clip_with_conn` 能查到所属分类
+    /// （LAN 同步发送历史条目时携带分类信息的前提）。
+    #[test]
+    fn get_category_for_clip_returns_joined_category() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+
+        // 手工插入一条已知 id 的历史 clip，并把 category_items.clip_snapshot_id
+        // 指向它（等价于本地「加入分组」流程的落库结果）。
+        let clip_id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'test', ?5, 0, 0)",
+            rusqlite::params![
+                clip_id,
+                crate::util::hash_text("api-key-123"),
+                "api-key-123",
+                "api-key-123",
+                now,
+            ],
+        )
+        .unwrap();
+        let cat_id = create_category(&conn, "api_key", "#3B82F6", 0);
+        let item_id = crate::new_id();
+        conn.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
+            rusqlite::params![
+                item_id,
+                cat_id,
+                clip_id,
+                crate::util::hash_text("api-key-123"),
+                "api-key-123",
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .unwrap();
+
+        let found = store
+            .get_category_for_clip_with_conn(&conn, &clip_id)
+            .unwrap()
+            .expect("joined clip should resolve to its category");
+        assert_eq!(found.name, "api_key");
+        assert_eq!(found.color, "#3B82F6");
+    }
+
+    /// 未加入任何分类的历史条目返回 None（发送侧保持无分组旧行为）。
+    #[test]
+    fn get_category_for_clip_returns_none_when_not_joined() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "plain", "plain text");
+        let clip_id: String = conn
+            .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+
+        let found = store.get_category_for_clip_with_conn(&conn, &clip_id).unwrap();
+        assert!(found.is_none(), "unjoined clip must resolve to None");
+    }
+
+    /// 同一条目加入多个分类时取最近更新的那个。
+    #[test]
+    fn get_category_for_clip_prefers_latest_category() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+
+        let clip_id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'test', ?5, 0, 0)",
+            rusqlite::params![clip_id, crate::util::hash_text("multi-cat"), "multi-cat", "multi-cat", now],
+        )
+        .unwrap();
+
+        let cat_a = create_category(&conn, "older", "#111111", 0);
+        let cat_b = create_category(&conn, "newer", "#222222", 1);
+        // 两条 category_items 指向同一 clip，updated_at 明确一旧一新。
+        for (item_id, cat_id, updated) in [
+            (crate::new_id(), &cat_a, "2024-01-01T00:00:00Z"),
+            (crate::new_id(), &cat_b, "2025-01-01T00:00:00Z"),
+        ] {
+            conn.execute(
+                "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+                 VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
+                rusqlite::params![
+                    item_id,
+                    cat_id,
+                    clip_id,
+                    crate::util::hash_text("multi-cat"),
+                    "multi-cat",
+                    updated,
+                ],
+            )
+            .unwrap();
+        }
+
+        let found = store
+            .get_category_for_clip_with_conn(&conn, &clip_id)
+            .unwrap()
+            .expect("joined clip should resolve");
+        assert_eq!(found.name, "newer", "most recently updated category wins");
     }
 }

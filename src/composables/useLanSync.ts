@@ -2,7 +2,7 @@ import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
-import type { LanClipReceivedEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
+import type { LanClipSource, LanSessionInfo, PortConflict } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -122,13 +122,19 @@ export function useLanSync() {
       }],
       ["ipaste://lan-session-ready", () => refresh()],
       ["ipaste://lan-disconnected", () => { notice.value = "disconnected"; refresh(); }],
-      ["ipaste://lan-clip-received", (e) => {
+      ["ipaste://lan-clip-received", () => {
         notice.value = "clip-received";
         // 3s 后自动清掉"已接收"提示，避免常驻。
         setTimeout(() => { if (notice.value === "clip-received") notice.value = null; }, 3000);
-        // 分组条目落到 category_items 表，需刷新才能在分组标签下显示。
-        const p = e.payload as LanClipReceivedEvent | undefined;
-        if (p?.categoryName) void store.load();
+        // 无论分组还是历史条目都已落库，刷新面板内的列表（分组条目落到
+        // category_items、历史条目落到 clips，都需重新加载才能显示）。
+        void store.load();
+      }],
+      // 接收对端条目落库/解析失败：把原因显示出来，避免「已接收但没入库」无从排查。
+      ["ipaste://lan-clip-receive-failed", (e) => {
+        const reason = String((e.payload as { reason?: string })?.reason ?? "receive failed");
+        error.value = reason;
+        notice.value = null;
       }],
       ["ipaste://lan-join-failed", (v) => { error.value = String((v.payload as { reason?: string })?.reason ?? "join failed"); refresh(); }],
       ["ipaste://lan-guest-rejected", (v) => {

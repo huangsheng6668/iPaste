@@ -149,6 +149,13 @@ export const useIpasteStore = defineStore("ipaste", () => {
       upsertClip(event.payload.clip, event.payload.clipTotalCount, event.payload.wasInserted);
     });
 
+    // 局域网同步收到条目（历史或分组）后，主窗口也要刷新列表：lan-clip-received
+    // 广播到所有窗口，但此前只有 LAN 同步窗口监听，主窗口列表不更新，
+    // 表现为「B 端提示已接收但列表里没有新条目」。
+    await listen("ipaste://lan-clip-received", () => {
+      void load();
+    });
+
     await listen<ListeningChangedEvent>("ipaste://listening-changed", (event) => {
       isListening.value = event.payload.isListening;
     });

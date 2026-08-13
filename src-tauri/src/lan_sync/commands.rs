@@ -23,6 +23,7 @@ use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
+use crate::Store;
 
 #[tauri::command]
 pub(crate) async fn lan_create_session(
@@ -89,12 +90,10 @@ pub(crate) async fn lan_send_clip(
             (ct, data, None, None)
         }
         ClipSource::Item { id } => {
-            let conn = state.store.connect()?;
-            let clip = state.store.get_clip_with_conn(&conn, &id)?;
-            // 图片条目的 text 存的是本地文件路径，build_send_payload 会读回字节并编码成
-            // 自包含的 data url；文本条目直接转 UTF-8 字节。
-            let payload = build_send_payload(&clip.clip_type, &clip.text)?;
-            (clip.clip_type, payload, None, None)
+            // 历史条目若已加入某个分类，一并携带分类名/颜色：接收端会按名称匹配或
+            // 新建同名分类并把条目放入该分类（用户期望的「条目 + 分类一起同步」）。
+            // 未入分类的普通历史条目保持旧行为（category_name = None）。
+            build_item_send(&state.store, &id)?
         }
         ClipSource::CategoryItem { id, category_id } => {
             let conn = state.store.connect()?;
@@ -206,6 +205,28 @@ fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>, String> {
     }
 }
 
+/// 从历史条目构造待发送的 `(clip_type, payload, category_name, category_color)`。
+///
+/// 历史条目若已加入某个分类，一并携带分类名/颜色——接收端 `apply_received` 会
+/// 按名称匹配或新建同名分类并把条目放入该分类（用户期望「条目 + 分类一起同步，
+/// B 端没有该分类则创建」）。未入分类的普通历史条目保持旧行为（分类均为 `None`）。
+fn build_item_send(
+    store: &Store,
+    id: &str,
+) -> Result<(String, Vec<u8>, Option<String>, Option<String>), String> {
+    let conn = store.connect()?;
+    let clip = store.get_clip_with_conn(&conn, id)?;
+    // 图片条目的 text 存的是本地文件路径，build_send_payload 会读回字节并编码成
+    // 自包含的 data url；文本条目直接转 UTF-8 字节。
+    let payload = build_send_payload(&clip.clip_type, &clip.text)?;
+    let (category_name, category_color) =
+        match store.get_category_for_clip_with_conn(&conn, id)? {
+            Some(category) => (Some(category.name), Some(category.color)),
+            None => (None, None),
+        };
+    Ok((clip.clip_type, payload, category_name, category_color))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +267,121 @@ mod tests {
         // 不存在的路径应返回可读错误，而非 panic 或发空 payload。
         let result = build_send_payload("image", "/definitely/not/here/xyz.png");
         assert!(result.is_err());
+    }
+
+    /// 历史条目已加入分类：发送时携带分类名/颜色（接收端据此匹配/创建分类）。
+    /// 覆盖用户报告的场景——A 端条目属于分类，B 端应收到分类信息并把条目放入分类。
+    #[test]
+    fn build_item_send_carries_category_for_joined_clip() {
+        use crate::store::test_support::{create_category, temp_store};
+
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+
+        // 手工插入一条已知 id 的历史 clip，并把 category_items.clip_snapshot_id 指向它。
+        let clip_id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'test', ?5, 0, 0)",
+            rusqlite::params![
+                clip_id,
+                crate::util::hash_text("sk-api-key-123"),
+                "sk-api-key-123",
+                "sk-api-key-123",
+                now,
+            ],
+        )
+        .unwrap();
+        let cat_id = create_category(&conn, "api_key", "#3B82F6", 0);
+        conn.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
+            rusqlite::params![
+                crate::new_id(),
+                cat_id,
+                clip_id,
+                crate::util::hash_text("sk-api-key-123"),
+                "sk-api-key-123",
+                now,
+            ],
+        )
+        .unwrap();
+
+        let (clip_type, payload, category_name, category_color) =
+            build_item_send(&store, &clip_id).unwrap();
+        assert_eq!(clip_type, "text");
+        assert_eq!(payload, b"sk-api-key-123");
+        assert_eq!(category_name.as_deref(), Some("api_key"));
+        assert_eq!(category_color.as_deref(), Some("#3B82F6"));
+    }
+
+    /// 未入分类的历史条目：保持旧行为（分类信息为 None），接收端落入历史表。
+    #[test]
+    fn build_item_send_has_no_category_for_plain_clip() {
+        use crate::store::test_support::{seed_clip, temp_store};
+
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "plain", "plain text");
+        let clip_id: String = conn
+            .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+
+        let (clip_type, payload, category_name, category_color) =
+            build_item_send(&store, &clip_id).unwrap();
+        assert_eq!(clip_type, "text");
+        assert_eq!(payload, b"plain text");
+        assert!(category_name.is_none());
+        assert!(category_color.is_none());
+    }
+
+    /// 接收侧落库与分类创建的联动：B 端没有该分类时创建，条目落到该分类下
+    /// （即 `insert_received_category_item`，由 store 层测试覆盖，这里验证
+    /// 发送侧产出的 category_name 能原样驱动该路径）。
+    #[test]
+    fn build_item_send_category_name_drives_receive_insert() {
+        use crate::store::test_support::{create_category, temp_store};
+
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+
+        let clip_id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'test', ?5, 0, 0)",
+            rusqlite::params![clip_id, crate::util::hash_text("token"), "token", "token", now],
+        )
+        .unwrap();
+        let cat_id = create_category(&conn, "工作", "#0D9488", 0);
+        conn.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
+            rusqlite::params![
+                crate::new_id(),
+                cat_id,
+                clip_id,
+                crate::util::hash_text("token"),
+                "token",
+                now,
+            ],
+        )
+        .unwrap();
+
+        let (clip_type, payload, category_name, category_color) =
+            build_item_send(&store, &clip_id).unwrap();
+        // 模拟 B 端接收：把发送侧产物原样交给接收侧落库函数。
+        let received = store
+            .insert_received_category_item(
+                clip_type,
+                crate::util::hash_text(&String::from_utf8(payload.clone()).unwrap()),
+                String::from_utf8(payload.clone()).unwrap(),
+                String::from_utf8(payload).unwrap(),
+                category_name.unwrap(),
+                category_color,
+            )
+            .unwrap();
+        assert_eq!(received.category_id, cat_id, "同名分类应被复用");
     }
 }

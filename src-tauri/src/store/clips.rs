@@ -299,7 +299,7 @@ impl Store {
         }
     }
 
-    pub(super) fn save_image_bytes(&self, content_hash: &str, bytes: &[u8]) -> Result<String, String> {
+    pub(crate) fn save_image_bytes(&self, content_hash: &str, bytes: &[u8]) -> Result<String, String> {
         let dir = self.image_dir()?;
         let filename = format!("{}.png", safe_filename(content_hash));
         let path = dir.join(filename);

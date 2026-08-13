@@ -10,7 +10,7 @@ mod sync;
 mod automations;
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 #[derive(Clone)]
 pub struct Store {

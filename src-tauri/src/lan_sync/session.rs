@@ -134,18 +134,38 @@ fn apply_received(
     match category_name {
         // 分组条目：不触碰系统剪贴板，直接落到 category_items
         Some(name) => {
+            // 图片条目：captured_item_from_payload 解码出的是内存字节（text 为空串），
+            // 先落盘成文件路径（与历史条目 insert_captured_item 的处理一致），
+            // 否则 B 端 category_items/clips 里存的 text 是空串，图片内容等于丢失。
+            let stored_text = if clip_type == "image" {
+                match item.image_bytes.as_deref() {
+                    Some(bytes) => match store.save_image_bytes(&item.content_hash, bytes) {
+                        Ok(path) => path,
+                        Err(reason) => {
+                            manager.emit_clip_receive_failed(format!("保存图片文件失败：{reason}"));
+                            return;
+                        }
+                    },
+                    None => item.text.clone(),
+                }
+            } else {
+                item.text.clone()
+            };
             match store.insert_received_category_item(
                 item.clip_type,
                 item.content_hash,
                 item.preview_text,
-                item.text,
+                stored_text,
                 name.clone(),
                 category_color,
             ) {
                 Ok(_) => manager.emit_clip_received(clip_type.to_string(), Some(name)),
-                // 落库失败（DB 约束/磁盘等）：暴露原因，不再静默吞掉
+                // 落库失败（DB 约束/磁盘等）：暴露原因，不再静默吞掉。
+                // name 是对端可控输入（协议层仅限制帧大小），失败提示里必须截断，
+                // 避免恶意对端把超长字符串灌进 UI。
                 Err(reason) => {
-                    manager.emit_clip_receive_failed(format!("保存到分组「{name}」失败：{reason}"));
+                    let short_name: String = name.chars().take(40).collect();
+                    manager.emit_clip_receive_failed(format!("保存到分组「{short_name}」失败：{reason}"));
                 }
             }
         }
@@ -160,8 +180,14 @@ fn apply_received(
                 manager.emit_clip_receive_failed(format!("写入系统剪贴板失败：{reason}"));
                 return;
             }
-            let _ = store.insert_captured_item(item);
-            manager.emit_clip_received(clip_type.to_string(), None);
+            // 落库失败必须暴露：此前静默吞掉后仍提示「已接收」，导致
+            // 「B 端提示已接收但条目未入库」且无从排查。
+            match store.insert_captured_item(item) {
+                Ok(_) => manager.emit_clip_received(clip_type.to_string(), None),
+                Err(reason) => {
+                    manager.emit_clip_receive_failed(format!("保存到历史失败：{reason}"));
+                }
+            }
         }
     }
 }

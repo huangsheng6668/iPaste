@@ -30,3 +30,7 @@ key/*.key
 /docs/superpowers/
 # SDD working files
 .superpowers/
+# Local AI agent/tooling state (never commit)
+.reasonix/
+.zcode/
+.codegraph/
