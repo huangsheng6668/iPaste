@@ -117,8 +117,18 @@ fn apply_received(
 ) {
     // 图片 = data url（utf-8）；文本 = 原文 utf-8
     let text = String::from_utf8_lossy(payload).to_string();
-    let Ok(Some(item)) = captured_item_from_payload(clip_type, &text) else {
-        return;
+    let item = match captured_item_from_payload(clip_type, &text) {
+        Ok(Some(item)) => item,
+        // 空文本（trim 后为空）：不诊断（对端发空 payload 是合法的「清空」语义之外的罕见情况）
+        Ok(None) => {
+            manager.emit_clip_receive_failed("收到空内容，已忽略".to_string());
+            return;
+        }
+        // 解析失败（如图片 data url 损坏 / 对端发了本地路径读不到）：暴露原因
+        Err(reason) => {
+            manager.emit_clip_receive_failed(format!("解析收到的内容失败：{reason}"));
+            return;
+        }
     };
 
     match category_name {
@@ -133,7 +143,10 @@ fn apply_received(
                 category_color,
             ) {
                 Ok(_) => manager.emit_clip_received(clip_type.to_string(), Some(name)),
-                Err(_) => return,
+                // 落库失败（DB 约束/磁盘等）：暴露原因，不再静默吞掉
+                Err(reason) => {
+                    manager.emit_clip_receive_failed(format!("保存到分组「{name}」失败：{reason}"));
+                }
             }
         }
         // 历史/无分组：保持旧行为
@@ -143,7 +156,8 @@ fn apply_received(
             } else {
                 write_clipboard_text(item.text.trim())
             };
-            if write_result.is_err() {
+            if let Err(reason) = write_result {
+                manager.emit_clip_receive_failed(format!("写入系统剪贴板失败：{reason}"));
                 return;
             }
             let _ = store.insert_captured_item(item);

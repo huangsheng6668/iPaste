@@ -246,3 +246,48 @@ async fn mismatched_key_prevents_decryption() {
     assert!(result.is_err(), "密钥不匹配时解密必须失败");
     server.await.unwrap();
 }
+
+/// 加密会话（SecureConnection）下，带 category_name/color 的纯文本 ClipPush
+/// 经真实 TCP + AES-256-GCM roundtrip 后字段必须完整保留。
+///
+/// 覆盖 v0.3.22 引入的加密通道 + 分组条目组合（此前该组合零测试，是用户报告
+/// 「分组条目丢失」时首先被怀疑的路径）。断言字段保留即证明加密层不丢 category 信息。
+#[tokio::test]
+async fn secure_connection_preserves_category_fields_over_encrypted_roundtrip() {
+    use crate::lan_sync::crypto::SecureConnection;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let key = [9u8; 32];
+
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = SecureConnection::new(stream, key);
+        let (msg, payload) = conn.read_message().await.unwrap();
+        match msg {
+            LanMessage::ClipPush { clip_type, empty, category_name, category_color } => {
+                assert_eq!(clip_type, "text");
+                assert!(!empty);
+                assert_eq!(category_name.as_deref(), Some("api_key"));
+                assert_eq!(category_color.as_deref(), Some("#3B82F6"));
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+        assert_eq!(payload.as_deref(), Some(&b"sk-test-12345"[..]));
+    });
+
+    let mut client = SecureConnection::new(TcpStream::connect(addr).await.unwrap(), key);
+    client
+        .write_message(
+            &LanMessage::ClipPush {
+                clip_type: "text".into(),
+                empty: false,
+                category_name: Some("api_key".into()),
+                category_color: Some("#3B82F6".into()),
+            },
+            Some(b"sk-test-12345"),
+        )
+        .await
+        .unwrap();
+    server.await.unwrap();
+}

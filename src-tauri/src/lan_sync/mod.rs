@@ -76,6 +76,15 @@ pub(crate) struct LanClipReceived {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LanJoinFailed { pub(crate) reason: String }
 
+/// 接收对端推送的条目时落库/解析失败发出（接收侧诊断事件）。
+///
+/// 此前 `session::apply_received` 在解析或落库失败时静默 return，导致"A 端显示成功、
+/// B 端无反应"且无从排查。现在改为 emit 本事件 + `eprintln!`，前端可据此提示用户，
+/// 开发者/用户也能从日志拿到具体原因（如 DB 约束冲突、图片解码失败等）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanClipReceiveFailed { pub(crate) reason: String }
+
 /// host 因非 Hosting 态拒绝 guest 时发出（host 侧事件），携带当时 host 的状态，
 /// 用于前端提示"有设备尝试加入但当前正忙"以及定位加入被拒的根因。
 #[derive(Debug, Clone, Serialize)]
@@ -295,6 +304,15 @@ impl LanSessionManager {
 
     pub(crate) fn emit_join_failed(&self, reason: String) {
         let _ = self.app.emit("ipaste://lan-join-failed", LanJoinFailed { reason });
+    }
+
+    /// 接收侧解析/落库失败时调用：emit 诊断事件 + 打印日志，避免静默丢弃。
+    pub(crate) fn emit_clip_receive_failed(&self, reason: String) {
+        eprintln!("[lan-sync] 接收条目失败：{reason}");
+        let _ = self.app.emit(
+            "ipaste://lan-clip-receive-failed",
+            LanClipReceiveFailed { reason },
+        );
     }
 }
 
