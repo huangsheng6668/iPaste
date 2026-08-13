@@ -55,15 +55,27 @@ pub(crate) async fn start_host(
                         return;
                     };
                     match msg {
-                        LanMessage::Handshake { code, device_name: guest_name } => {
+                        LanMessage::Handshake { version, code_claim, device_name: guest_name, guest_pubkey } => {
+                            // 老客户端 / 畸形帧：无 claim 或公钥 → 拒绝（老客户端收到
+                            // PairRejected 后提示"匹配码错误或被拒绝"）。
+                            if version != LAN_PROTOCOL_VERSION
+                                || code_claim.is_none()
+                                || guest_pubkey.is_none()
+                            {
+                                let _ = conn
+                                    .write_message(&LanMessage::PairRejected { reason: PairRejectReason::Unknown }, None)
+                                    .await;
+                                return;
+                            }
                             handle_guest_with_handshake(
                                 conn,
                                 &manager,
                                 &app,
                                 &store,
                                 &expected_code,
-                                code,
+                                code_claim.unwrap(),
                                 guest_name,
+                                guest_pubkey.unwrap(),
                                 ip,
                             )
                             .await;
@@ -92,15 +104,21 @@ async fn handle_guest_with_handshake(
     app: &AppHandle,
     store: &Store,
     expected_code: &str,
-    code: String,
+    claim: String,
     guest_name: String,
+    guest_pubkey_b64: String,
     ip: IpAddr,
 ) {
-    // 防爆破：封禁期直接丢弃；码错记失败并做指数退避；正确则清计数。
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{code_claim, derive_session_key, generate_pair_keys, host_auth_tag, SecureConnection};
+
+    // 防爆破：封禁期直接丢弃；claim 错记失败并做指数退避；正确则清计数。
     if manager.pair_guard().is_blocked(ip, std::time::Instant::now()) {
         return;
     }
-    if code.trim() != expected_code.trim() {
+    if claim != code_claim(expected_code) {
         let delay = manager.pair_guard().record_failure(ip, std::time::Instant::now());
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
@@ -153,10 +171,33 @@ async fn handle_guest_with_handshake(
         return;
     }
 
-    // 接受：写 PairAccepted，转入 session loop
+    // 接受：解析 guest 公钥 → 派生会话密钥 → 回 PairAccepted（带公钥 + 认证标签）
+    let guest_public = {
+        let bytes: [u8; 32] = match base64::engine::general_purpose::STANDARD
+            .decode(&guest_pubkey_b64)
+            .map_err(|_| ())
+            .and_then(|v| v.try_into().map_err(|_| ()))
+        {
+            Ok(b) => b,
+            Err(_) => {
+                manager.reset_to_idle("握手数据无效".to_string());
+                return;
+            }
+        };
+        PublicKey::from(bytes)
+    };
+    let (host_secret, host_public) = generate_pair_keys();
+    let key = derive_session_key(&host_secret, &guest_public, expected_code);
     let host_name = device_name();
     if conn
-        .write_message(&LanMessage::PairAccepted { host_device_name: host_name }, None)
+        .write_message(
+            &LanMessage::PairAccepted {
+                host_device_name: host_name,
+                host_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes())),
+                auth_tag: Some(host_auth_tag(&key)),
+            },
+            None,
+        )
         .await
         .is_err()
     {
@@ -169,7 +210,7 @@ async fn handle_guest_with_handshake(
         manager.reset_to_idle("内部状态错误".to_string());
         return;
     };
-    run_session_loop(raw, manager.clone(), store.clone(), guest_name, control_rx).await;
+    run_session_loop(SecureConnection::new(raw, key), manager.clone(), store.clone(), guest_name, control_rx).await;
 }
 
 /// 只绑定固定端口 `LAN_TCP_BASE_PORT`（45130）；被占即返回端口占用错误，
