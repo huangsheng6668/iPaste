@@ -3,6 +3,10 @@ use sha2::{Digest, Sha256};
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 64 * 1024 * 1024;
+pub(crate) const LAN_PROTOCOL_VERSION: u32 = 2;
+/// 配对码字母表：31 字符（A-Z 去掉 I/L/O = 23 字母 + 数字 2-9 = 8），无易混淆字符。
+pub(crate) const PAIR_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+pub(crate) const PAIR_CODE_LEN: usize = 8;
 
 /// `PairRejected` 的具体原因。向后兼容：老版本 host 发的 `PairRejected` 无此字段，
 /// guest 侧 `#[serde(default)]` 得到 `Unknown`，仍按旧行为提示。
@@ -55,6 +59,44 @@ pub(crate) enum LanMessage {
         category_color: Option<String>,
     },
     Disconnect,
+}
+
+/// 生成 8 位随机配对码（约 39 bit 熵：log2(31^8) ≈ 39.6）。
+///
+/// 用拒绝采样（rejection sampling）消除取模偏差：字母表 31 字符，而
+/// `256 % 31 = 8 ≠ 0`，若直接 `% 31` 则前 8 个字符会被多命中。故对每字节只接受
+/// `[0, 248)`（`floor(256/31)*31 = 248`，`248 % 31 == 0` 分布均匀），落在
+/// `[248, 256)` 则丢弃重抽。
+pub(crate) fn generate_pair_code() -> String {
+    let alphabet_len = PAIR_CODE_ALPHABET.len(); // 31
+    // 接受区间上界（不含）：`floor(256 / alphabet_len) * alphabet_len`。
+    // 31 时为 248，接受 [0, 248)，丢弃 [248, 256)（共 8 个值），消除取模偏差。
+    let accept_limit = (256 / alphabet_len) * alphabet_len; // 248
+    (0..PAIR_CODE_LEN)
+        .map(|_| {
+            let mut buf = [0u8; 1];
+            loop {
+                getrandom::getrandom(&mut buf).expect("os rng unavailable");
+                if (buf[0] as usize) < accept_limit {
+                    return PAIR_CODE_ALPHABET[buf[0] as usize % alphabet_len] as char;
+                }
+            }
+        })
+        .collect()
+}
+
+/// 归一化配对码：None/空串 → 随机生成；Some → trim 后校验长度 6..=16。
+pub(crate) fn normalize_pair_code(input: Option<String>) -> Result<String, String> {
+    match input.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) {
+        None => Ok(generate_pair_code()),
+        Some(code) => {
+            let len = code.chars().count();
+            if !(6..=16).contains(&len) {
+                return Err("匹配码需为 6-16 位字符".to_string());
+            }
+            Ok(code)
+        }
+    }
 }
 
 pub(crate) fn code_hash(code: &str) -> String {
@@ -186,5 +228,45 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn pair_code_is_eight_chars_from_alphabet() {
+        let code = generate_pair_code();
+        assert_eq!(code.chars().count(), PAIR_CODE_LEN);
+        assert!(code
+            .bytes()
+            .all(|b| PAIR_CODE_ALPHABET.contains(&b)));
+    }
+
+    #[test]
+    fn pair_code_avoids_confusable_chars() {
+        for c in ['I', 'L', 'O', '0', '1'] {
+            assert!(!PAIR_CODE_ALPHABET.contains(&(c as u8)));
+        }
+    }
+
+    #[test]
+    fn pair_code_alphabet_is_thirty_one_chars() {
+        // 31 字符（A-Z 去 I/L/O = 23 + 数字 2-9 = 8），无重复。
+        assert_eq!(PAIR_CODE_ALPHABET.len(), 31);
+        let set: std::collections::HashSet<u8> = PAIR_CODE_ALPHABET.iter().copied().collect();
+        assert_eq!(set.len(), 31, "字母表不能有重复字符");
+    }
+
+    #[test]
+    fn normalize_pair_code_generates_when_none_or_empty() {
+        for input in [None, Some("".into()), Some("   ".into())] {
+            let code = normalize_pair_code(input).unwrap();
+            assert_eq!(code.chars().count(), PAIR_CODE_LEN);
+        }
+    }
+
+    #[test]
+    fn normalize_pair_code_trims_and_validates_length() {
+        assert_eq!(normalize_pair_code(Some("  AB12CD  ".into())).unwrap(), "AB12CD");
+        assert!(normalize_pair_code(Some("ABCDE".into())).is_err()); // 5 位太短
+        assert!(normalize_pair_code(Some("A".repeat(17)).into()).is_err()); // 17 位太长
+        assert_eq!(normalize_pair_code(Some("A".repeat(16)).into()).unwrap(), "A".repeat(16));
     }
 }

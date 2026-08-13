@@ -18,15 +18,10 @@ use tauri::{AppHandle, State};
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
 use crate::lan_sync::client::join_by_address;
 use crate::lan_sync::port::{get_port_conflict, kill_port_process};
-use crate::lan_sync::protocol::LAN_TCP_BASE_PORT;
+use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
-
-/// 生成 6 位大写匹配码（取 uuid v4 前 6 位）。
-fn random_code() -> String {
-    crate::new_id()[..6].to_uppercase()
-}
 
 #[tauri::command]
 pub(crate) async fn lan_create_session(
@@ -39,10 +34,7 @@ pub(crate) async fn lan_create_session(
     if manager.status_is_connected_or_hosting() {
         return Err("已有进行中的会话".to_string());
     }
-    let code = code
-        .map(|c| c.trim().to_string())
-        .filter(|c| !c.is_empty())
-        .unwrap_or_else(random_code);
+    let code = normalize_pair_code(code)?;
     // start_host 内部会把状态置为 Hosting 并存好 control_tx/rx + host_tasks。
     // 端口被占用时 start_host 返回错误；这里查占用进程把信息并入错误，前端据此弹窗。
     if let Err(error) = start_host(app.clone(), Arc::clone(&manager), state.store.clone(), code).await {

@@ -2087,6 +2087,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "enigo",
+ "getrandom 0.2.17",
  "hostname",
  "image",
  "objc2",
