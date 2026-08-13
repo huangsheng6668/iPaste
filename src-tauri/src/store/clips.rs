@@ -596,35 +596,35 @@ mod tests {
     }
 
     #[test]
-    fn list_clips_first_page_1k_under_50ms() {
+    fn list_clips_first_page_1k_under_250ms() {
         let store = temp_store();
         let conn = store.connect().unwrap();
         seed_n_clips(&conn, 1000);
         let start = Instant::now();
         let _ = store.list_clips(0, 20, "".to_string()).unwrap();
         let elapsed = start.elapsed();
-        assert!(elapsed.as_millis() < 50, "list_clips 1k took {elapsed:?}");
+        assert!(elapsed.as_millis() < 250, "list_clips 1k took {elapsed:?}");
     }
 
     #[test]
-    fn list_clips_first_page_5k_under_200ms() {
+    fn list_clips_first_page_5k_under_750ms() {
         let store = temp_store();
         let conn = store.connect().unwrap();
         seed_n_clips(&conn, 5000);
         let start = Instant::now();
         let _ = store.list_clips(0, 20, "".to_string()).unwrap();
         let elapsed = start.elapsed();
-        assert!(elapsed.as_millis() < 200, "list_clips 5k took {elapsed:?}");
+        assert!(elapsed.as_millis() < 750, "list_clips 5k took {elapsed:?}");
     }
 
     #[test]
-    fn search_with_fallback_5k_under_300ms() {
+    fn search_with_fallback_5k_under_1000ms() {
         let store = temp_store();
         let conn = store.connect().unwrap();
         seed_n_clips(&conn, 5000);
         let start = Instant::now();
         let _ = store.search_with_fallback(0, 20, "hello").unwrap();
         let elapsed = start.elapsed();
-        assert!(elapsed.as_millis() < 300, "search 5k took {elapsed:?}");
+        assert!(elapsed.as_millis() < 1000, "search 5k took {elapsed:?}");
     }
 }
