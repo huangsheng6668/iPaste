@@ -13,9 +13,10 @@
 
 use std::sync::Arc;
 
+use base64::Engine as _;
 use tauri::{AppHandle, State};
 
-use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
+use crate::clipboard::{clipboard_read_to_payload, image_bytes_from_data_url, read_current_clipboard};
 use crate::lan_sync::client::join_by_address;
 use crate::lan_sync::port::{get_port_conflict, kill_port_process, verify_port_owner};
 use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
@@ -90,8 +91,10 @@ pub(crate) async fn lan_send_clip(
         ClipSource::Item { id } => {
             let conn = state.store.connect()?;
             let clip = state.store.get_clip_with_conn(&conn, &id)?;
-            // 图片条目的 text 字段存储为 data url（见 store/clips.rs::insert_captured_item）。
-            (clip.clip_type, clip.text.into_bytes(), None, None)
+            // 图片条目的 text 存的是本地文件路径，build_send_payload 会读回字节并编码成
+            // 自包含的 data url；文本条目直接转 UTF-8 字节。
+            let payload = build_send_payload(&clip.clip_type, &clip.text)?;
+            (clip.clip_type, payload, None, None)
         }
         ClipSource::CategoryItem { id, category_id } => {
             let conn = state.store.connect()?;
@@ -101,10 +104,11 @@ pub(crate) async fn lan_send_clip(
                 return Err("条目不属于该分组".to_string());
             }
             let category = state.store.get_category_with_conn(&conn, &category_id)?;
-            // category_items.text 对图片条目也是 data url（与 clips.text 一致）。
+            // 与 Item 分支一致：图片条目发 data url 而非本地路径。
+            let payload = build_send_payload(&item.clip_type, &item.text)?;
             (
                 item.clip_type,
-                item.text.into_bytes(),
+                payload,
                 Some(category.name),
                 Some(category.color),
             )
@@ -182,4 +186,65 @@ pub(crate) fn lan_kill_port_process(pid: u32) -> Result<(), String> {
 #[tauri::command]
 pub(crate) fn lan_quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+/// 把待发送的条目内容编码成 LAN 同步 payload 字节。
+///
+/// - 文本类条目：`text` 即原文，直接转 UTF-8 字节。
+/// - 图片类条目（`clip_type == "image"`）：DB 里 `text` 存的是**本地图片文件路径**
+///   （见 `store::clips::save_image_bytes` 与 `migrations::migrate_image_data_urls`），
+///   不能直接发路径（对端机器上不存在该文件）。这里读回图片字节并编码成自包含的
+///   `data:image/png;base64,...` 形式，与 `clipboard::clipboard_read_to_payload`
+///   处理「当前剪贴板图片」的方式一致，接收侧 `captured_item_from_payload` 能解码。
+fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>, String> {
+    if clip_type == "image" {
+        let bytes = std::fs::read(text).map_err(|e| format!("读取图片文件失败：{e}"))?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        Ok(format!("data:image/png;base64,{b64}").into_bytes())
+    } else {
+        Ok(text.as_bytes().to_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_send_payload_text_returns_utf8_bytes() {
+        let payload = build_send_payload("text", "hello-api-key").unwrap();
+        assert_eq!(payload, b"hello-api-key");
+    }
+
+    #[test]
+    fn build_send_payload_image_reads_file_and_encodes_data_url() {
+        // 建一个临时 png 文件模拟 DB 里图片条目的 text（文件路径）。
+        let dir = std::env::temp_dir().join(format!("ipaste-send-payload-{}", crate::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png_path = dir.join("img.png");
+        // 1x1 透明 png 的最小字节
+        let png_bytes = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // png signature
+        ];
+        std::fs::write(&png_path, png_bytes).unwrap();
+
+        let payload = build_send_payload("image", png_path.to_str().unwrap()).unwrap();
+        let text = String::from_utf8(payload).unwrap();
+        assert!(
+            text.starts_with("data:image/png;base64,"),
+            "图片 payload 应是 data url，实际：{text}"
+        );
+        // 解码回来的字节与原文件一致
+        let decoded = image_bytes_from_data_url(&text).unwrap();
+        assert_eq!(decoded, png_bytes);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn build_send_payload_image_missing_file_errors() {
+        // 不存在的路径应返回可读错误，而非 panic 或发空 payload。
+        let result = build_send_payload("image", "/definitely/not/here/xyz.png");
+        assert!(result.is_err());
+    }
 }
