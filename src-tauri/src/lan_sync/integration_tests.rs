@@ -14,8 +14,8 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
 
         // 1. 握手
         let (msg, _) = conn.read_message().await.unwrap();
-        assert!(matches!(msg, LanMessage::Handshake { code, device_name } if code == "ROOM" && device_name == "guest"));
-        conn.write_message(&LanMessage::PairAccepted { host_device_name: "host".into() }, None).await.unwrap();
+        assert!(matches!(msg, LanMessage::Handshake { device_name, .. } if device_name == "guest"));
+        conn.write_message(&LanMessage::PairAccepted { host_device_name: "host".into(), host_pubkey: None, auth_tag: None }, None).await.unwrap();
 
         // 2. 收推送
         let (msg, payload) = conn.read_message().await.unwrap();
@@ -33,9 +33,19 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
     });
 
     let mut client = Connection::new(TcpStream::connect(addr).await.unwrap());
-    client.write_message(&LanMessage::Handshake { code: "ROOM".into(), device_name: "guest".into() }, None).await.unwrap();
+    client.write_message(
+        &LanMessage::Handshake {
+            version: LAN_PROTOCOL_VERSION,
+            code_claim: None,
+            device_name: "guest".into(),
+            guest_pubkey: None,
+        },
+        None,
+    )
+    .await
+    .unwrap();
     let (msg, _) = client.read_message().await.unwrap();
-    assert!(matches!(msg, LanMessage::PairAccepted { host_device_name } if host_device_name == "host"));
+    assert!(matches!(msg, LanMessage::PairAccepted { host_device_name, .. } if host_device_name == "host"));
 
     client.write_message(&LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None }, Some(b"hi")).await.unwrap();
     client.write_message(&LanMessage::ClipRequest, None).await.unwrap();
