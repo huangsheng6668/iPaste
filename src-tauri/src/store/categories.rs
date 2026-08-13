@@ -451,23 +451,27 @@ impl Store {
         .ok_or_else(|| "未找到分类".to_string())
     }
 
-    /// 查询某条历史 clip 当前所属的分类（按 `category_items.clip_snapshot_id` 关联）。
+    /// 查询某条历史 clip 当前所属的分类（按内容 hash 关联 `category_items`）。
     ///
     /// 供 LAN 同步发送历史条目（`ClipSource::Item`）时携带分类信息：同一条目可能
     /// 加入多个分类，取最近更新的那个。无关联分类返回 `Ok(None)`。
+    ///
+    /// 注意必须按 `content_hash` 而非 `clip_snapshot_id` 关联：历史数据里存在
+    /// 大量孤儿 snapshot id（旧版 `insert_received_category_item` 伪造 id 的遗留），
+    /// 按 id 关联会把「实际已入分类」的条目误判为未入分类，导致发送时丢失分类。
     pub(crate) fn get_category_for_clip_with_conn(
         &self,
         conn: &Connection,
-        clip_id: &str,
+        content_hash: &str,
     ) -> Result<Option<Category>, String> {
         conn.query_row(
             "SELECT c.id, c.name, c.color, c.sort_order, c.created_at, c.updated_at
              FROM categories c
              JOIN category_items ci ON ci.category_id = c.id
-             WHERE ci.clip_snapshot_id = ?1
+             WHERE ci.content_hash = ?1
              ORDER BY ci.updated_at DESC
              LIMIT 1",
-            params![clip_id],
+            params![content_hash],
             map_category,
         )
         .optional()
@@ -939,47 +943,36 @@ mod tests {
         assert!(store.get_category_with_conn(&conn, "nope").is_err());
     }
 
-    /// 历史条目已加入分类时，`get_category_for_clip_with_conn` 能查到所属分类
-    /// （LAN 同步发送历史条目时携带分类信息的前提）。
+    /// 历史条目已加入分类时，`get_category_for_clip_with_conn` 按内容 hash 查到所属分类。
+    /// 刻意让 category_items.clip_snapshot_id 指向另一个 id（模拟历史孤儿 snapshot 遗留），
+    /// 验证按 content_hash 关联不依赖 snapshot id。
     #[test]
     fn get_category_for_clip_returns_joined_category() {
         let store = temp_store();
         let conn = store.connect().unwrap();
 
-        // 手工插入一条已知 id 的历史 clip，并把 category_items.clip_snapshot_id
-        // 指向它（等价于本地「加入分组」流程的落库结果）。
+        // 手工插入一条已知 id 的历史 clip。
         let clip_id = crate::new_id();
         let now = chrono::Utc::now().to_rfc3339();
+        let text = "api-key-123";
+        let hash = crate::util::hash_text(text);
         conn.execute(
             "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
              VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'test', ?5, 0, 0)",
-            rusqlite::params![
-                clip_id,
-                crate::util::hash_text("api-key-123"),
-                "api-key-123",
-                "api-key-123",
-                now,
-            ],
+            rusqlite::params![clip_id, hash, text, text, now],
         )
         .unwrap();
         let cat_id = create_category(&conn, "api_key", "#3B82F6", 0);
         let item_id = crate::new_id();
         conn.execute(
             "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
-             VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
-            rusqlite::params![
-                item_id,
-                cat_id,
-                clip_id,
-                crate::util::hash_text("api-key-123"),
-                "api-key-123",
-                chrono::Utc::now().to_rfc3339(),
-            ],
+             VALUES (?1, ?2, 'orphan-snapshot-id', 'text', ?3, NULL, ?4, ?4, 0, ?5, ?5, 'local', 0)",
+            rusqlite::params![item_id, cat_id, hash, text, chrono::Utc::now().to_rfc3339()],
         )
         .unwrap();
 
         let found = store
-            .get_category_for_clip_with_conn(&conn, &clip_id)
+            .get_category_for_clip_with_conn(&conn, &hash)
             .unwrap()
             .expect("joined clip should resolve to its category");
         assert_eq!(found.name, "api_key");
@@ -995,8 +988,11 @@ mod tests {
         let clip_id: String = conn
             .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
             .unwrap();
+        let hash: String = conn
+            .query_row("SELECT content_hash FROM clips WHERE id = ?1", [clip_id], |row| row.get(0))
+            .unwrap();
 
-        let found = store.get_category_for_clip_with_conn(&conn, &clip_id).unwrap();
+        let found = store.get_category_for_clip_with_conn(&conn, &hash).unwrap();
         assert!(found.is_none(), "unjoined clip must resolve to None");
     }
 
@@ -1008,16 +1004,17 @@ mod tests {
 
         let clip_id = crate::new_id();
         let now = chrono::Utc::now().to_rfc3339();
+        let hash = crate::util::hash_text("multi-cat");
         conn.execute(
             "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
              VALUES (?1, 'text', ?2, NULL, ?3, ?4, 'test', ?5, 0, 0)",
-            rusqlite::params![clip_id, crate::util::hash_text("multi-cat"), "multi-cat", "multi-cat", now],
+            rusqlite::params![clip_id, hash, "multi-cat", "multi-cat", now],
         )
         .unwrap();
 
         let cat_a = create_category(&conn, "older", "#111111", 0);
         let cat_b = create_category(&conn, "newer", "#222222", 1);
-        // 两条 category_items 指向同一 clip，updated_at 明确一旧一新。
+        // 两条 category_items 指向同一内容 hash，updated_at 明确一旧一新。
         for (item_id, cat_id, updated) in [
             (crate::new_id(), &cat_a, "2024-01-01T00:00:00Z"),
             (crate::new_id(), &cat_b, "2025-01-01T00:00:00Z"),
@@ -1025,20 +1022,13 @@ mod tests {
             conn.execute(
                 "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
                  VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
-                rusqlite::params![
-                    item_id,
-                    cat_id,
-                    clip_id,
-                    crate::util::hash_text("multi-cat"),
-                    "multi-cat",
-                    updated,
-                ],
+                rusqlite::params![item_id, cat_id, clip_id, hash, "multi-cat", updated],
             )
             .unwrap();
         }
 
         let found = store
-            .get_category_for_clip_with_conn(&conn, &clip_id)
+            .get_category_for_clip_with_conn(&conn, &hash)
             .unwrap()
             .expect("joined clip should resolve");
         assert_eq!(found.name, "newer", "most recently updated category wins");

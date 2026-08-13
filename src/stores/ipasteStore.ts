@@ -186,6 +186,9 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
     await listen<{ visible: boolean }>("ipaste://panel-visibility-changed", (event) => {
       if (event.payload.visible) {
+        // 每次面板显示时刷新快照：LAN 同步收到的条目/分类在面板隐藏期间落库，
+        // 若事件驱动的刷新错过（如 webview 重建），这里兜底保证数据可见。
+        void load();
         activatePanelDefault();
       }
     });

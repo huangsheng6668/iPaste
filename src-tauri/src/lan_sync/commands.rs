@@ -220,7 +220,7 @@ fn build_item_send(
     // 自包含的 data url；文本条目直接转 UTF-8 字节。
     let payload = build_send_payload(&clip.clip_type, &clip.text)?;
     let (category_name, category_color) =
-        match store.get_category_for_clip_with_conn(&conn, id)? {
+        match store.get_category_for_clip_with_conn(&conn, &clip.content_hash)? {
             Some(category) => (Some(category.name), Some(category.color)),
             None => (None, None),
         };
