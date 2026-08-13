@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reactive, ref } from "vue";
-import type { LanSessionInfo, PortConflict } from "../types";
+import type { LanCategoryReceivedEvent, LanCategorySentEvent, LanSessionInfo, PortConflict } from "../types";
 
 describe("LanSessionInfo reactive model", () => {
   it("Object.assign merges status changes", () => {
@@ -20,6 +20,22 @@ describe("LanSessionInfo reactive model", () => {
   it("LanClipSource item variant shape", () => {
     const source = { kind: "item" as const, id: "abc" };
     expect(source.id).toBe("abc");
+  });
+});
+
+describe("LanCategory transfer event models", () => {
+  it("category-sent payload carries counts", () => {
+    const event: LanCategorySentEvent = { categoryName: "工作", sent: 12, failed: 1 };
+    expect(event.categoryName).toBe("工作");
+    expect(event.sent).toBe(12);
+    expect(event.failed).toBe(1);
+  });
+
+  it("category-received payload carries counts", () => {
+    const event: LanCategoryReceivedEvent = { categoryName: "工作", count: 12, failed: 0 };
+    expect(event.categoryName).toBe("工作");
+    expect(event.count).toBe(12);
+    expect(event.failed).toBe(0);
   });
 });
 

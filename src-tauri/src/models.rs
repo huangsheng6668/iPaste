@@ -281,6 +281,8 @@ pub(crate) struct CapturedClipboardItem {
     pub(crate) preview_text: String,
     pub(crate) text: String,
     pub(crate) image_bytes: Option<Vec<u8>>,
+    /// 条目的重命名显示名；本地捕获恒为 `None`，LAN 接收侧可能携带对端重命名。
+    pub(crate) display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

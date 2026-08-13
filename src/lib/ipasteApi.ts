@@ -500,6 +500,9 @@ export const ipasteApi = {
   lanSendClip(source: LanClipSource) {
     return call<void>("lan_send_clip", { source });
   },
+  lanSendCategory(categoryId: string) {
+    return call<{ categoryName: string; sent: number; failed: number }>("lan_send_category", { categoryId });
+  },
   lanRequestClip() {
     return call<void>("lan_request_clip");
   },

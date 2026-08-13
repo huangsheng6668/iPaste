@@ -94,9 +94,36 @@ pub(crate) struct LanGuestRejected {
     pub(crate) host_status: LanStatus,
 }
 
+/// 发送端整组发送完成（`lan_send_category` 结束时发出，前端用于提示结果）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanCategorySent {
+    pub(crate) category_name: String,
+    pub(crate) sent: u32,
+    pub(crate) failed: u32,
+}
+
+/// 接收端整组接收完成（收到 `CategoryBatchEnd` 后发出；count/failed 为落库结果）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanCategoryReceived {
+    pub(crate) category_name: String,
+    pub(crate) count: u32,
+    pub(crate) failed: u32,
+}
+
 /// session loop 的控制指令
 #[derive(Debug)]
 pub(crate) enum ControlMsg {
+    /// 开始分组批量发送：session loop 先写 `CategoryBatchStart` 帧，随后
+    /// 逐条 `SendClip`，最后 `BatchEnd` 写 `CategoryBatchEnd` 帧。
+    BatchStart {
+        category_name: String,
+        category_color: Option<String>,
+        item_count: u32,
+    },
+    /// 结束分组批量发送。
+    BatchEnd,
     SendClip {
         clip_type: String,
         payload: Vec<u8>,
@@ -104,6 +131,8 @@ pub(crate) enum ControlMsg {
         category_name: Option<String>,
         /// 分组颜色（随分组名一起传，新建分组时采用）。
         category_color: Option<String>,
+        /// 条目的重命名显示名；None = 未重命名。
+        display_name: Option<String>,
     },
     RequestClip,
     Disconnect,
@@ -312,6 +341,22 @@ impl LanSessionManager {
         let _ = self.app.emit(
             "ipaste://lan-clip-receive-failed",
             LanClipReceiveFailed { reason },
+        );
+    }
+
+    /// 发送端整组发送完成：emit 汇总事件（前端用于提示）。
+    pub(crate) fn emit_category_sent(&self, category_name: String, sent: u32, failed: u32) {
+        let _ = self.app.emit(
+            "ipaste://lan-category-sent",
+            LanCategorySent { category_name, sent, failed },
+        );
+    }
+
+    /// 接收端整组接收完成：emit 汇总事件（前端据此刷新一次列表并提示）。
+    pub(crate) fn emit_category_received(&self, category_name: String, count: u32, failed: u32) {
+        let _ = self.app.emit(
+            "ipaste://lan-category-received",
+            LanCategoryReceived { category_name, count, failed },
         );
     }
 }

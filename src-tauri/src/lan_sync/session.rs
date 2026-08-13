@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use crate::clipboard::{
     captured_item_from_payload, read_current_clipboard, write_clipboard_image, write_clipboard_text,
 };
+use crate::util::clean_display_name;
 use crate::lan_sync::crypto::SecureConnection;
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::{ControlMsg, LanSessionManager};
@@ -107,6 +108,14 @@ impl Connection {
 /// - `category_name` 为 `None`：历史/无分组条目。写系统剪贴板 + 入 `clips`（历史）表（旧行为）。
 /// - `category_name` 为 `Some`：分组条目。**不写系统剪贴板**（避免打扰用户当前剪贴板），
 ///   落到匹配/新建的同名分组下的 `category_items` 表。
+///
+/// `display_name`：对端条目的重命名显示名（历史条目落到 `clips.display_name`，
+/// 分组条目落到 `category_items.display_name`）。
+/// `sort_order`：整组接收时预排的分组内顺序（保持发送顺序）；`None` 走旧行为
+/// （插到分组顶部）。
+/// `silent`：整组接收时为 true——不逐条 emit 事件，由调用方在批量结束时汇总。
+/// 返回是否成功落库（供批量统计）。
+#[allow(clippy::too_many_arguments)]
 fn apply_received(
     manager: &LanSessionManager,
     store: &Store,
@@ -114,22 +123,41 @@ fn apply_received(
     payload: &[u8],
     category_name: Option<String>,
     category_color: Option<String>,
-) {
+    display_name: Option<String>,
+    sort_order: Option<i64>,
+    silent: bool,
+) -> bool {
     // 图片 = data url（utf-8）；文本 = 原文 utf-8
     let text = String::from_utf8_lossy(payload).to_string();
-    let item = match captured_item_from_payload(clip_type, &text) {
+    let mut item = match captured_item_from_payload(clip_type, &text) {
         Ok(Some(item)) => item,
         // 空文本（trim 后为空）：不诊断（对端发空 payload 是合法的「清空」语义之外的罕见情况）
         Ok(None) => {
-            manager.emit_clip_receive_failed("收到空内容，已忽略".to_string());
-            return;
+            if !silent {
+                manager.emit_clip_receive_failed("收到空内容，已忽略".to_string());
+            }
+            return false;
         }
         // 解析失败（如图片 data url 损坏 / 对端发了本地路径读不到）：暴露原因
         Err(reason) => {
-            manager.emit_clip_receive_failed(format!("解析收到的内容失败：{reason}"));
-            return;
+            if !silent {
+                manager.emit_clip_receive_failed(format!("解析收到的内容失败：{reason}"));
+            }
+            return false;
         }
     };
+
+    // 对端重命名：清洗（trim、空 → None、超长报错）。清洗失败按该条目失败处理。
+    let display_name = match clean_display_name(display_name) {
+        Ok(name) => name,
+        Err(reason) => {
+            if !silent {
+                manager.emit_clip_receive_failed(format!("条目名称无效：{reason}"));
+            }
+            return false;
+        }
+    };
+    item.display_name = display_name.clone();
 
     match category_name {
         // 分组条目：不触碰系统剪贴板，直接落到 category_items
@@ -142,8 +170,10 @@ fn apply_received(
                     Some(bytes) => match store.save_image_bytes(&item.content_hash, bytes) {
                         Ok(path) => path,
                         Err(reason) => {
-                            manager.emit_clip_receive_failed(format!("保存图片文件失败：{reason}"));
-                            return;
+                            if !silent {
+                                manager.emit_clip_receive_failed(format!("保存图片文件失败：{reason}"));
+                            }
+                            return false;
                         }
                     },
                     None => item.text.clone(),
@@ -158,14 +188,24 @@ fn apply_received(
                 stored_text,
                 name.clone(),
                 category_color,
+                display_name,
+                sort_order,
             ) {
-                Ok(_) => manager.emit_clip_received(clip_type.to_string(), Some(name)),
+                Ok(_) => {
+                    if !silent {
+                        manager.emit_clip_received(clip_type.to_string(), Some(name));
+                    }
+                    true
+                }
                 // 落库失败（DB 约束/磁盘等）：暴露原因，不再静默吞掉。
                 // name 是对端可控输入（协议层仅限制帧大小），失败提示里必须截断，
                 // 避免恶意对端把超长字符串灌进 UI。
                 Err(reason) => {
-                    let short_name: String = name.chars().take(40).collect();
-                    manager.emit_clip_receive_failed(format!("保存到分组「{short_name}」失败：{reason}"));
+                    if !silent {
+                        let short_name: String = name.chars().take(40).collect();
+                        manager.emit_clip_receive_failed(format!("保存到分组「{short_name}」失败：{reason}"));
+                    }
+                    false
                 }
             }
         }
@@ -177,19 +217,42 @@ fn apply_received(
                 write_clipboard_text(item.text.trim())
             };
             if let Err(reason) = write_result {
-                manager.emit_clip_receive_failed(format!("写入系统剪贴板失败：{reason}"));
-                return;
+                if !silent {
+                    manager.emit_clip_receive_failed(format!("写入系统剪贴板失败：{reason}"));
+                }
+                return false;
             }
             // 落库失败必须暴露：此前静默吞掉后仍提示「已接收」，导致
             // 「B 端提示已接收但条目未入库」且无从排查。
             match store.insert_captured_item(item) {
-                Ok(_) => manager.emit_clip_received(clip_type.to_string(), None),
+                Ok(_) => {
+                    if !silent {
+                        manager.emit_clip_received(clip_type.to_string(), None);
+                    }
+                    true
+                }
                 Err(reason) => {
-                    manager.emit_clip_receive_failed(format!("保存到历史失败：{reason}"));
+                    if !silent {
+                        manager.emit_clip_receive_failed(format!("保存到历史失败：{reason}"));
+                    }
+                    false
                 }
             }
         }
     }
+}
+
+/// 接收侧整组传输的中间状态：`CategoryBatchStart` 与 `CategoryBatchEnd` 之间
+/// 收到的条目静默落库，结束时统一 emit 汇总事件。
+struct BatchState {
+    category_name: String,
+    category_color: Option<String>,
+    /// 第一条新条目的 sort_order（= 现有最小 sort_order - 预计条目数），
+    /// 之后每条 +1，保证新条目整体排在现有条目之上且保持发送顺序。
+    base_order: i64,
+    next_index: i64,
+    received: u32,
+    failed: u32,
 }
 
 /// 读当前剪贴板，返回 (clip_type, payload_bytes)；空返回 None
@@ -230,17 +293,34 @@ pub(crate) async fn run_session_loop(
 ) {
     manager.set_connected(peer_device_name);
 
+    // 接收侧整组传输状态：None = 未在批量中（逐条行为）。
+    let mut batch: Option<BatchState> = None;
+
     loop {
         tokio::select! {
             biased;
             control = control_rx.recv() => match control {
-                Some(ControlMsg::SendClip { clip_type, payload, category_name, category_color }) => {
+                Some(ControlMsg::BatchStart { category_name, category_color, item_count }) => {
+                    let msg = LanMessage::CategoryBatchStart { category_name, category_color, item_count };
+                    if conn.write_message(&msg, None).await.is_err() {
+                        manager.reset_to_idle("连接已断开".to_string());
+                        return;
+                    }
+                }
+                Some(ControlMsg::BatchEnd) => {
+                    if conn.write_message(&LanMessage::CategoryBatchEnd, None).await.is_err() {
+                        manager.reset_to_idle("连接已断开".to_string());
+                        return;
+                    }
+                }
+                Some(ControlMsg::SendClip { clip_type, payload, category_name, category_color, display_name }) => {
                     let empty = payload.is_empty();
                     let msg = LanMessage::ClipPush {
                         clip_type: clip_type.clone(),
                         empty,
                         category_name,
                         category_color,
+                        display_name,
                     };
                     if conn.write_message(&msg, if empty { None } else { Some(&payload) }).await.is_err() {
                         manager.reset_to_idle("连接已断开".to_string());
@@ -261,10 +341,47 @@ pub(crate) async fn run_session_loop(
                 }
             },
             read_result = conn.read_message() => match read_result {
-                Ok((LanMessage::ClipPush { clip_type, empty, category_name, category_color }, payload)) => {
+                Ok((LanMessage::CategoryBatchStart { category_name, category_color, item_count }, _)) => {
+                    // 预排 sort_order：新条目整体插到现有条目之上，且按发送顺序排列。
+                    // item_count 由对端提供，封顶 LAN_BATCH_MAX_ITEMS 防偏移被放大。
+                    let min_order = store.category_min_sort_order(&category_name).unwrap_or(0);
+                    let cap = i64::from(item_count.min(LAN_BATCH_MAX_ITEMS));
+                    batch = Some(BatchState {
+                        category_name,
+                        category_color,
+                        base_order: min_order - cap,
+                        next_index: 0,
+                        received: 0,
+                        failed: 0,
+                    });
+                }
+                Ok((LanMessage::CategoryBatchEnd, _)) => {
+                    if let Some(b) = batch.take() {
+                        manager.emit_category_received(b.category_name, b.received, b.failed);
+                    }
+                }
+                Ok((LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name }, payload)) => {
                     if !empty {
                         if let Some(data) = payload {
-                            apply_received(&manager, &store, &clip_type, &data, category_name, category_color);
+                            match batch.as_mut() {
+                                // 批量中：静默逐条落库（顺序预排），结束时统一 emit。
+                                Some(b) => {
+                                    let order = Some(b.base_order + b.next_index);
+                                    b.next_index += 1;
+                                    let ok = apply_received(
+                                        &manager, &store, &clip_type, &data,
+                                        Some(b.category_name.clone()), b.category_color.clone(),
+                                        display_name, order, true,
+                                    );
+                                    if ok { b.received += 1 } else { b.failed += 1 }
+                                }
+                                None => {
+                                    apply_received(
+                                        &manager, &store, &clip_type, &data,
+                                        category_name, category_color, display_name, None, false,
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -277,6 +394,7 @@ pub(crate) async fn run_session_loop(
                                 empty,
                                 category_name: None,
                                 category_color: None,
+                                display_name: None,
                             };
                             if conn.write_message(&msg, Some(&data)).await.is_err() {
                                 manager.reset_to_idle("连接已断开".to_string());
@@ -289,6 +407,7 @@ pub(crate) async fn run_session_loop(
                                 empty: true,
                                 category_name: None,
                                 category_color: None,
+                                display_name: None,
                             };
                             let _ = conn.write_message(&msg, None).await;
                         }
@@ -298,15 +417,19 @@ pub(crate) async fn run_session_loop(
                                 empty: true,
                                 category_name: None,
                                 category_color: None,
+                                display_name: None,
                             };
                             let _ = conn.write_message(&msg, None).await;
                         }
                     }
                 }
-                Ok((LanMessage::ClipResponse { clip_type, empty, category_name, category_color }, payload)) => {
+                Ok((LanMessage::ClipResponse { clip_type, empty, category_name, category_color, display_name }, payload)) => {
                     if !empty {
                         if let Some(data) = payload {
-                            apply_received(&manager, &store, &clip_type, &data, category_name, category_color);
+                            apply_received(
+                                &manager, &store, &clip_type, &data,
+                                category_name, category_color, display_name, None, false,
+                            );
                         }
                     }
                 }
@@ -350,6 +473,7 @@ mod tests {
                     empty: false,
                     category_name: None,
                     category_color: None,
+                    display_name: None,
                 },
                 Some(b"hello"),
             )
@@ -377,9 +501,53 @@ mod tests {
                     empty: true,
                     category_name: None,
                     category_color: None,
+                    display_name: None,
                 },
                 None,
             )
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    /// 整组传输帧（CategoryBatchStart/End）在 TCP 上往返后字段完整、无 payload。
+    #[tokio::test]
+    async fn category_batch_frames_roundtrip_without_payload() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut conn = Connection::new(stream);
+            let (msg, payload) = conn.read_message().await.unwrap();
+            match msg {
+                LanMessage::CategoryBatchStart { category_name, category_color, item_count } => {
+                    assert_eq!(category_name, "工作");
+                    assert_eq!(category_color.as_deref(), Some("#0D9488"));
+                    assert_eq!(item_count, 3);
+                }
+                other => panic!("wrong variant: {other:?}"),
+            }
+            assert_eq!(payload, None);
+            let (msg, payload) = conn.read_message().await.unwrap();
+            assert_eq!(msg, LanMessage::CategoryBatchEnd);
+            assert_eq!(payload, None);
+        });
+
+        let mut client = Connection::new(TcpStream::connect(addr).await.unwrap());
+        client
+            .write_message(
+                &LanMessage::CategoryBatchStart {
+                    category_name: "工作".into(),
+                    category_color: Some("#0D9488".into()),
+                    item_count: 3,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        client
+            .write_message(&LanMessage::CategoryBatchEnd, None)
             .await
             .unwrap();
         server.await.unwrap();

@@ -3,7 +3,9 @@ use sha2::{Digest, Sha256};
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 8 * 1024 * 1024;
-pub(crate) const LAN_PROTOCOL_VERSION: u32 = 2;
+pub(crate) const LAN_PROTOCOL_VERSION: u32 = 3;
+/// 单次分组批量传输最多接纳的条目数（用于接收端预排 sort_order 的上界）。
+pub(crate) const LAN_BATCH_MAX_ITEMS: u32 = 10_000;
 /// 配对码字母表：31 字符（A-Z 去掉 I/L/O = 23 字母 + 数字 2-9 = 8），无易混淆字符。
 pub(crate) const PAIR_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 pub(crate) const PAIR_CODE_LEN: usize = 8;
@@ -62,7 +64,23 @@ pub(crate) enum LanMessage {
         /// 分组颜色（随分组名一起传，新建分组时采用）。老版本帧缺省为 `None`。
         #[serde(default)]
         category_color: Option<String>,
+        /// 条目的重命名显示名（用户手动重命名后的名称，`None` 表示未重命名）。
+        /// 向后兼容：老版本发送的帧无此字段，反序列化得到 `None`。
+        #[serde(default)]
+        display_name: Option<String>,
     },
+    /// 分组批量传输开始：接收端进入批量收集态，直到收到 `CategoryBatchEnd`。
+    /// 协议 v3 两端之间使用（握手已保证双方版本一致，老版本不会遇到该帧）。
+    CategoryBatchStart {
+        /// 分组名（按名称在接收端匹配/创建分组）。
+        category_name: String,
+        /// 分组颜色（接收端新建分组时采用）。
+        category_color: Option<String>,
+        /// 预计条目数：接收端用它预排 sort_order 以保持发送顺序；0 表示未知。
+        item_count: u32,
+    },
+    /// 分组批量传输结束：接收端清点结果并发出汇总事件。
+    CategoryBatchEnd,
     ClipRequest,
     ClipResponse {
         clip_type: String,
@@ -71,6 +89,9 @@ pub(crate) enum LanMessage {
         category_name: Option<String>,
         #[serde(default)]
         category_color: Option<String>,
+        /// 与 ClipPush 一致；「拉取当前剪贴板」场景恒为 `None`。
+        #[serde(default)]
+        display_name: Option<String>,
     },
     Disconnect,
 }
@@ -225,6 +246,7 @@ mod tests {
             empty: true,
             category_name: None,
             category_color: None,
+            display_name: None,
         };
         let bytes = encode_frame(&msg).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), msg);
@@ -237,9 +259,26 @@ mod tests {
             empty: false,
             category_name: Some("工作".into()),
             category_color: Some("#0D9488".into()),
+            display_name: Some("重命名后的条目".into()),
         };
         let bytes = encode_frame(&msg).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    /// 分组批量传输的 Start/End 帧往返：字段完整、无 payload。
+    #[test]
+    fn category_batch_start_end_roundtrips() {
+        let start = LanMessage::CategoryBatchStart {
+            category_name: "工作".into(),
+            category_color: Some("#0D9488".into()),
+            item_count: 12,
+        };
+        let bytes = encode_frame(&start).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), start);
+
+        let end = LanMessage::CategoryBatchEnd;
+        let bytes = encode_frame(&end).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), end);
     }
 
     /// 老版本帧不含 category_name/category_color 字段；新版本必须兼容，
@@ -253,14 +292,29 @@ mod tests {
         let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(json.as_bytes());
         match decode_frame(&bytes).unwrap() {
-            LanMessage::ClipPush { clip_type, empty, category_name, category_color } => {
+            LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name } => {
                 assert_eq!(clip_type, "text");
                 assert!(!empty);
                 assert_eq!(category_name, None);
                 assert_eq!(category_color, None);
+                assert_eq!(display_name, None, "老帧缺省 display_name 应为 None");
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    /// 协议 v3 新字段 display_name 有值时的往返。
+    #[test]
+    fn clip_push_with_display_name_roundtrips() {
+        let msg = LanMessage::ClipPush {
+            clip_type: "link".into(),
+            empty: false,
+            category_name: None,
+            category_color: None,
+            display_name: Some("API 文档".into()),
+        };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
     }
 
     #[test]
@@ -341,5 +395,12 @@ mod tests {
     #[test]
     fn payload_limit_is_eight_megabytes() {
         assert_eq!(LAN_MAX_PAYLOAD, 8 * 1024 * 1024);
+    }
+
+    /// 批量传输接纳上限：用于接收端 sort_order 预排上界，防止恶意 item_count 放大偏移。
+    #[test]
+    fn batch_max_items_is_bounded() {
+        assert!(LAN_BATCH_MAX_ITEMS >= 100);
+        assert!(LAN_BATCH_MAX_ITEMS <= 1_000_000);
     }
 }

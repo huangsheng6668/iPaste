@@ -197,6 +197,7 @@ pub fn run() {
             lan_join_by_address,
             lan_accept_pair,
             lan_send_clip,
+            lan_send_category,
             lan_request_clip,
             lan_disconnect,
             lan_get_state,

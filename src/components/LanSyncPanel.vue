@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Wifi, WifiOff, ArrowUp, ArrowDown, Check, X, History } from "lucide-vue-next";
+import { Wifi, WifiOff, ArrowUp, ArrowDown, Check, X, History, FolderUp } from "lucide-vue-next";
 import { useLanSync } from "../composables/useLanSync";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { t } from "../i18n";
@@ -21,6 +21,10 @@ const {
   sendCurrent,
   sendItem,
   sendCategoryItem,
+  sendCategory,
+  sendingCategory,
+  lastCategorySent,
+  lastCategoryReceived,
   requestClip,
   disconnect,
   portConflict,
@@ -54,6 +58,35 @@ const pickerItems = computed(() => {
       onClick: () => sendCategoryItem(item.id, item.categoryId),
     }));
 });
+
+// 当前分类 tab 下的全部条目数（整组发送按钮用，不受列表 20 条截断影响）。
+const activeCategoryItemCount = computed(() => {
+  if (sourceTab.value === "history") return 0;
+  return store.categoryItems.filter((item) => item.categoryId === sourceTab.value).length;
+});
+const activeCategoryName = computed(() => {
+  if (sourceTab.value === "history") return "";
+  return store.categories.find((cat) => cat.id === sourceTab.value)?.name ?? "";
+});
+function sendWholeCategory() {
+  if (sourceTab.value !== "history") {
+    void sendCategory(sourceTab.value);
+  }
+}
+function categorySentText(): string {
+  const r = lastCategorySent.value;
+  if (!r) return "";
+  return r.failed > 0
+    ? t("lan.categorySentFailed", { category: r.categoryName, sent: r.sent, failed: r.failed })
+    : t("lan.categorySent", { category: r.categoryName, sent: r.sent });
+}
+function categoryReceivedText(): string {
+  const r = lastCategoryReceived.value;
+  if (!r) return "";
+  return r.failed > 0
+    ? t("lan.categoryReceivedFailed", { category: r.categoryName, count: r.count, failed: r.failed })
+    : t("lan.categoryReceived", { category: r.categoryName, count: r.count });
+}
 
 const statusText = computed(() => {
   switch (info.status) {
@@ -107,6 +140,8 @@ function onReject() {
 
     <p v-if="error" class="lan-error">{{ error }}</p>
     <p v-if="notice === 'clip-received'" class="lan-notice">{{ t("lan.received") }}</p>
+    <p v-if="notice === 'category-sent' && lastCategorySent" class="lan-notice">{{ categorySentText() }}</p>
+    <p v-if="notice === 'category-received' && lastCategoryReceived" class="lan-notice">{{ categoryReceivedText() }}</p>
     <p
       v-if="rejectedGuest"
       class="lan-hint lan-rejected"
@@ -176,6 +211,17 @@ function onReject() {
             {{ cat.name }}
           </button>
         </div>
+        <div v-if="sourceTab !== 'history' && activeCategoryItemCount > 0" class="lan-row lan-send-category-row">
+          <button
+            type="button"
+            class="lan-btn primary"
+            :disabled="sendingCategory === sourceTab"
+            @click="sendWholeCategory"
+          >
+            <FolderUp :size="14" />
+            {{ t("lan.sendCategory", { category: activeCategoryName, count: activeCategoryItemCount }) }}
+          </button>
+        </div>
         <ul class="lan-history">
           <li v-for="item in pickerItems" :key="item.key" @click="item.onClick">
             {{ item.label }}
@@ -235,6 +281,8 @@ function onReject() {
 
 /* 条目选择器：顶部一行 tab（历史 + 各分组），下方列表 */
 .lan-picker { display: flex; flex-direction: column; gap: 8px; }
+.lan-send-category-row { margin-top: 2px; }
+.lan-btn:disabled { opacity: 0.55; cursor: default; }
 .lan-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .lan-tab {
   display: inline-flex; align-items: center; gap: 6px;

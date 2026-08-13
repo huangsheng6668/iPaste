@@ -25,7 +25,7 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
         // 3. 收拉取请求，回响应
         let (msg, _) = conn.read_message().await.unwrap();
         assert!(matches!(msg, LanMessage::ClipRequest));
-        conn.write_message(&LanMessage::ClipResponse { clip_type: "text".into(), empty: false, category_name: None, category_color: None }, Some(b"back")).await.unwrap();
+        conn.write_message(&LanMessage::ClipResponse { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None }, Some(b"back")).await.unwrap();
 
         // 4. 收断开
         let (msg, _) = conn.read_message().await.unwrap();
@@ -47,7 +47,7 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
     let (msg, _) = client.read_message().await.unwrap();
     assert!(matches!(msg, LanMessage::PairAccepted { host_device_name, .. } if host_device_name == "host"));
 
-    client.write_message(&LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None }, Some(b"hi")).await.unwrap();
+    client.write_message(&LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None }, Some(b"hi")).await.unwrap();
     client.write_message(&LanMessage::ClipRequest, None).await.unwrap();
     let (msg, payload) = client.read_message().await.unwrap();
     assert!(matches!(msg, LanMessage::ClipResponse { empty: false, .. }));
@@ -68,11 +68,12 @@ async fn clip_push_with_category_roundtrips_over_tcp() {
         let mut conn = Connection::new(stream);
         let (msg, payload) = conn.read_message().await.unwrap();
         match msg {
-            LanMessage::ClipPush { clip_type, empty, category_name, category_color } => {
+            LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name } => {
                 assert_eq!(clip_type, "text");
                 assert!(!empty);
                 assert_eq!(category_name.as_deref(), Some("工作"));
                 assert_eq!(category_color.as_deref(), Some("#0D9488"));
+                assert_eq!(display_name.as_deref(), Some("重命名条目"));
             }
             other => panic!("wrong variant: {other:?}"),
         }
@@ -87,6 +88,7 @@ async fn clip_push_with_category_roundtrips_over_tcp() {
                 empty: false,
                 category_name: Some("工作".into()),
                 category_color: Some("#0D9488".into()),
+                display_name: Some("重命名条目".into()),
             },
             Some(b"hello"),
         )
@@ -151,7 +153,7 @@ async fn full_v2_handshake_and_secure_session_roundtrip() {
         assert_eq!(payload.as_deref(), Some(&b"secret"[..]));
         secure
             .write_message(
-                &LanMessage::ClipResponse { clip_type: "text".into(), empty: false, category_name: None, category_color: None },
+                &LanMessage::ClipResponse { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None },
                 Some(b"ack"),
             )
             .await
@@ -191,7 +193,7 @@ async fn full_v2_handshake_and_secure_session_roundtrip() {
     let mut secure = SecureConnection::new(conn.into_stream(), key);
     secure
         .write_message(
-            &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None },
+            &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None },
             Some(b"secret"),
         )
         .await
@@ -233,7 +235,7 @@ async fn mismatched_key_prevents_decryption() {
         let mut conn = SecureConnection::new(stream, host_key);
         // host 用 host_key 加密发送
         conn.write_message(
-            &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None },
+            &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None },
             Some(b"secret"),
         )
         .await
@@ -265,11 +267,12 @@ async fn secure_connection_preserves_category_fields_over_encrypted_roundtrip() 
         let mut conn = SecureConnection::new(stream, key);
         let (msg, payload) = conn.read_message().await.unwrap();
         match msg {
-            LanMessage::ClipPush { clip_type, empty, category_name, category_color } => {
+            LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name } => {
                 assert_eq!(clip_type, "text");
                 assert!(!empty);
                 assert_eq!(category_name.as_deref(), Some("api_key"));
                 assert_eq!(category_color.as_deref(), Some("#3B82F6"));
+                assert_eq!(display_name.as_deref(), Some("重命名后的密钥"));
             }
             other => panic!("wrong variant: {other:?}"),
         }
@@ -284,6 +287,7 @@ async fn secure_connection_preserves_category_fields_over_encrypted_roundtrip() 
                 empty: false,
                 category_name: Some("api_key".into()),
                 category_color: Some("#3B82F6".into()),
+                display_name: Some("重命名后的密钥".into()),
             },
             Some(b"sk-test-12345"),
         )

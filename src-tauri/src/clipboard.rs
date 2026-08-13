@@ -246,6 +246,7 @@ fn read_clipboard_item() -> Result<ClipboardRead, String> {
                 preview_text: preview(normalized),
                 text: normalized.to_string(),
                 image_bytes: None,
+                display_name: None,
             }));
         }
         Err(error) if format_not_available(&error) => {}
@@ -405,6 +406,7 @@ fn captured_item_from_image(image: ImageData<'static>) -> Result<CapturedClipboa
         preview_text: format!("{} x {}", width, height),
         text: String::new(),
         image_bytes: Some(png),
+        display_name: None,
     })
 }
 
@@ -460,6 +462,7 @@ pub(crate) fn captured_item_from_payload(
         preview_text: preview(normalized),
         text: normalized.to_string(),
         image_bytes: None,
+        display_name: None,
     }))
 }
 

@@ -74,6 +74,10 @@ pub(crate) fn lan_accept_pair(app: AppHandle, accept: bool) -> Result<(), String
     }
 }
 
+/// 待发送条目（clip_type, payload, category_name, category_color, display_name）。
+/// category_name 为 None 表示历史/无分组条目；Some 表示分组条目（接收端按名称匹配分组）。
+type SendItem = (String, Vec<u8>, Option<String>, Option<String>, Option<String>);
+
 #[tauri::command]
 pub(crate) async fn lan_send_clip(
     app: AppHandle,
@@ -81,13 +85,11 @@ pub(crate) async fn lan_send_clip(
     source: ClipSource,
 ) -> Result<(), String> {
     let manager = app.lan_manager();
-    // 构造待发送的 (clip_type, payload_bytes, category_name, category_color)。
-    // category_name 为 None 表示历史/无分组条目；Some 表示分组条目（接收端按名称匹配分组）。
-    let (clip_type, payload, category_name, category_color) = match source {
+    let (clip_type, payload, category_name, category_color, display_name) = match source {
         ClipSource::Current => {
             let opt = clipboard_read_to_payload(read_current_clipboard()?)?;
             let (ct, data) = opt.ok_or_else(|| "当前剪贴板为空".to_string())?;
-            (ct, data, None, None)
+            (ct, data, None, None, None)
         }
         ClipSource::Item { id } => {
             // 历史条目若已加入某个分类，一并携带分类名/颜色：接收端会按名称匹配或
@@ -96,29 +98,88 @@ pub(crate) async fn lan_send_clip(
             build_item_send(&state.store, &id)?
         }
         ClipSource::CategoryItem { id, category_id } => {
-            let conn = state.store.connect()?;
-            let item = state.store.get_category_item_with_conn(&conn, &id)?;
-            // 校验条目确实属于所声明分组，避免前端传错 id。
-            if item.category_id != category_id {
-                return Err("条目不属于该分组".to_string());
-            }
-            let category = state.store.get_category_with_conn(&conn, &category_id)?;
-            // 与 Item 分支一致：图片条目发 data url 而非本地路径。
-            let payload = build_send_payload(&item.clip_type, &item.text)?;
-            (
-                item.clip_type,
-                payload,
-                Some(category.name),
-                Some(category.color),
-            )
+            build_category_item_send(&state.store, &id, &category_id)?
         }
     };
     let Some(tx) = manager.control_tx() else {
         return Err("未连接".to_string());
     };
-    tx.send(ControlMsg::SendClip { clip_type, payload, category_name, category_color })
+    tx.send(ControlMsg::SendClip { clip_type, payload, category_name, category_color, display_name })
         .await
         .map_err(|_| "会话已关闭".to_string())
+}
+
+/// 整组发送：把某分组下的全部条目一次性推给对端（`lan_send_category`）。
+///
+/// 流程：`BatchStart` → 逐条 `SendClip`（携带分组名/颜色 + 条目重命名）→ `BatchEnd`。
+/// 单条 payload 构建失败（如图片文件缺失）跳过并计数，不中断整组；
+/// 通道关闭（会话已断）时立即中止并报错。完成后 emit `lan-category-sent` 汇总事件。
+#[tauri::command]
+pub(crate) async fn lan_send_category(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    category_id: String,
+) -> Result<LanCategorySent, String> {
+    let manager = app.lan_manager();
+    let Some(tx) = manager.control_tx() else {
+        return Err("未连接".to_string());
+    };
+
+    let conn = state.store.connect()?;
+    let category = state.store.get_category_with_conn(&conn, &category_id)?;
+    let items = state
+        .store
+        .list_category_items_for_category_with_conn(&conn, &category_id)?;
+    if items.is_empty() {
+        return Err("该分组没有可发送的条目".to_string());
+    }
+
+    let item_count = items.len().min(u32::MAX as usize) as u32;
+    tx.send(ControlMsg::BatchStart {
+        category_name: category.name.clone(),
+        category_color: Some(category.color.clone()),
+        item_count,
+    })
+    .await
+    .map_err(|_| "会话已关闭".to_string())?;
+
+    let mut sent: u32 = 0;
+    let mut failed: u32 = 0;
+    for item in &items {
+        match build_send_payload(&item.clip_type, &item.text) {
+            Ok(payload) => {
+                if tx
+                    .send(ControlMsg::SendClip {
+                        clip_type: item.clip_type.clone(),
+                        payload,
+                        category_name: Some(category.name.clone()),
+                        category_color: Some(category.color.clone()),
+                        display_name: item.display_name.clone(),
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Err("会话已关闭".to_string());
+                }
+                sent += 1;
+            }
+            Err(reason) => {
+                eprintln!("[lan-sync] 整组发送跳过条目 {}：{reason}", item.id);
+                failed += 1;
+            }
+        }
+    }
+
+    if tx.send(ControlMsg::BatchEnd).await.is_err() {
+        return Err("会话已关闭".to_string());
+    }
+
+    manager.emit_category_sent(category.name.clone(), sent, failed);
+    Ok(LanCategorySent {
+        category_name: category.name,
+        sent,
+        failed,
+    })
 }
 
 #[tauri::command]
@@ -205,15 +266,13 @@ fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-/// 从历史条目构造待发送的 `(clip_type, payload, category_name, category_color)`。
+/// 从历史条目构造待发送的 `SendItem`。
 ///
 /// 历史条目若已加入某个分类，一并携带分类名/颜色——接收端 `apply_received` 会
 /// 按名称匹配或新建同名分类并把条目放入该分类（用户期望「条目 + 分类一起同步，
 /// B 端没有该分类则创建」）。未入分类的普通历史条目保持旧行为（分类均为 `None`）。
-fn build_item_send(
-    store: &Store,
-    id: &str,
-) -> Result<(String, Vec<u8>, Option<String>, Option<String>), String> {
+/// 条目若有重命名（display_name），一并携带（接收端落到 `clips`/`category_items`）。
+fn build_item_send(store: &Store, id: &str) -> Result<SendItem, String> {
     let conn = store.connect()?;
     let clip = store.get_clip_with_conn(&conn, id)?;
     // 图片条目的 text 存的是本地文件路径，build_send_payload 会读回字节并编码成
@@ -224,7 +283,31 @@ fn build_item_send(
             Some(category) => (Some(category.name), Some(category.color)),
             None => (None, None),
         };
-    Ok((clip.clip_type, payload, category_name, category_color))
+    Ok((clip.clip_type, payload, category_name, category_color, clip.display_name))
+}
+
+/// 从分组条目构造待发送的 `SendItem`（携带分组名/颜色 + 条目重命名）。
+fn build_category_item_send(
+    store: &Store,
+    id: &str,
+    category_id: &str,
+) -> Result<SendItem, String> {
+    let conn = store.connect()?;
+    let item = store.get_category_item_with_conn(&conn, id)?;
+    // 校验条目确实属于所声明分组，避免前端传错 id。
+    if item.category_id != category_id {
+        return Err("条目不属于该分组".to_string());
+    }
+    let category = store.get_category_with_conn(&conn, category_id)?;
+    // 与 Item 分支一致：图片条目发 data url 而非本地路径。
+    let payload = build_send_payload(&item.clip_type, &item.text)?;
+    Ok((
+        item.clip_type,
+        payload,
+        Some(category.name),
+        Some(category.color),
+        item.display_name,
+    ))
 }
 
 #[cfg(test)]
@@ -308,12 +391,73 @@ mod tests {
         )
         .unwrap();
 
-        let (clip_type, payload, category_name, category_color) =
+        let (clip_type, payload, category_name, category_color, display_name) =
             build_item_send(&store, &clip_id).unwrap();
         assert_eq!(clip_type, "text");
         assert_eq!(payload, b"sk-api-key-123");
         assert_eq!(category_name.as_deref(), Some("api_key"));
         assert_eq!(category_color.as_deref(), Some("#3B82F6"));
+        assert_eq!(display_name, None, "未重命名的条目 display_name 应为 None");
+    }
+
+    /// 历史条目带重命名：发送时携带 display_name（用户报告的「A 端重命名
+    /// B 端收不到」场景——发送侧必须把重命名放进取帧）。
+    #[test]
+    fn build_item_send_carries_display_name() {
+        use crate::store::test_support::temp_store;
+
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+
+        let clip_id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+             VALUES (?1, 'text', ?2, '登录口令', ?3, ?4, 'test', ?5, 0, 0)",
+            rusqlite::params![
+                clip_id,
+                crate::util::hash_text("sk-api-key-456"),
+                "sk-api-key-456",
+                "sk-api-key-456",
+                now,
+            ],
+        )
+        .unwrap();
+
+        let (_, _, _, _, display_name) = build_item_send(&store, &clip_id).unwrap();
+        assert_eq!(display_name.as_deref(), Some("登录口令"));
+    }
+
+    /// 分组条目带重命名：发送时携带 display_name（单条发送路径）。
+    #[test]
+    fn build_category_item_send_carries_display_name() {
+        use crate::store::test_support::{create_category, temp_store};
+
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat_id = create_category(&conn, "api_key", "#3B82F6", 0);
+        let item_id = crate::new_id();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, 'snap', 'text', ?3, '重命名的密钥', ?4, ?4, 0, ?5, ?5, 'local', 0)",
+            rusqlite::params![
+                item_id,
+                cat_id,
+                crate::util::hash_text("sk-abc"),
+                "sk-abc",
+                now,
+            ],
+        )
+        .unwrap();
+
+        let (clip_type, payload, category_name, category_color, display_name) =
+            build_category_item_send(&store, &item_id, &cat_id).unwrap();
+        assert_eq!(clip_type, "text");
+        assert_eq!(payload, b"sk-abc");
+        assert_eq!(category_name.as_deref(), Some("api_key"));
+        assert_eq!(category_color.as_deref(), Some("#3B82F6"));
+        assert_eq!(display_name.as_deref(), Some("重命名的密钥"));
     }
 
     /// 未入分类的历史条目：保持旧行为（分类信息为 None），接收端落入历史表。
@@ -328,12 +472,13 @@ mod tests {
             .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
             .unwrap();
 
-        let (clip_type, payload, category_name, category_color) =
+        let (clip_type, payload, category_name, category_color, display_name) =
             build_item_send(&store, &clip_id).unwrap();
         assert_eq!(clip_type, "text");
         assert_eq!(payload, b"plain text");
         assert!(category_name.is_none());
         assert!(category_color.is_none());
+        assert!(display_name.is_none());
     }
 
     /// 接收侧落库与分类创建的联动：B 端没有该分类时创建，条目落到该分类下
@@ -369,7 +514,7 @@ mod tests {
         )
         .unwrap();
 
-        let (clip_type, payload, category_name, category_color) =
+        let (clip_type, payload, category_name, category_color, display_name) =
             build_item_send(&store, &clip_id).unwrap();
         // 模拟 B 端接收：把发送侧产物原样交给接收侧落库函数。
         let received = store
@@ -380,6 +525,8 @@ mod tests {
                 String::from_utf8(payload).unwrap(),
                 category_name.unwrap(),
                 category_color,
+                display_name,
+                None,
             )
             .unwrap();
         assert_eq!(received.category_id, cat_id, "同名分类应被复用");

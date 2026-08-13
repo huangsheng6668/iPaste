@@ -52,6 +52,27 @@ impl Store {
         collect_rows(rows)
     }
 
+    /// 查单个分组下的全部条目，排序与 `list_category_items_with_conn` 一致
+    /// （供 LAN 整组发送按 UI 顺序逐个推帧）。
+    pub(crate) fn list_category_items_for_category_with_conn(
+        &self,
+        conn: &Connection,
+        category_id: &str,
+    ) -> Result<Vec<CategoryItem>, String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
+                 FROM category_items WHERE category_id = ?1
+                 ORDER BY is_pinned DESC, sort_order ASC, datetime(created_at) DESC",
+            )
+            .map_err(|error| error.to_string())?;
+
+        let rows = stmt
+            .query_map(params![category_id], map_category_item)
+            .map_err(|error| error.to_string())?;
+        collect_rows(rows)
+    }
+
     /// 跨分类搜索 `category_items`，按命中条目的分类分组返回。
     ///
     /// 组间顺序由分类 `sort_order`（见 `list_categories_with_conn`）决定；
@@ -435,6 +456,29 @@ impl Store {
         .map_err(|error| error.to_string())
     }
 
+    /// 查某分组（按名称）当前条目的最小 sort_order；分组不存在或为空时返回 0。
+    /// 供 LAN 接收端在 `CategoryBatchStart` 时预排 sort_order 用。
+    pub(crate) fn category_min_sort_order_with_conn(
+        &self,
+        conn: &Connection,
+        category_name: &str,
+    ) -> Result<i64, String> {
+        conn.query_row(
+            "SELECT COALESCE(MIN(ci.sort_order), 0)
+             FROM categories c
+             LEFT JOIN category_items ci ON ci.category_id = c.id
+             WHERE c.name = ?1",
+            params![category_name],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn category_min_sort_order(&self, category_name: &str) -> Result<i64, String> {
+        let conn = self.connect()?;
+        self.category_min_sort_order_with_conn(&conn, category_name)
+    }
+
     /// 按 id 查单个分组。供 lan_send_clip 解析分组名/颜色用。
     pub(crate) fn get_category_with_conn(
         &self,
@@ -486,6 +530,11 @@ impl Store {
     ///
     /// 幂等：同一分组下相同 content_hash 的条目不重复创建。
     /// color 仅在新建分组时采用；已有同名分组保持其原色。
+    ///
+    /// `display_name`：对端条目的重命名显示名。仅当本地已有同名条目且本地未重命名时
+    /// 才会补齐，不覆盖 B 端用户自己的命名。
+    /// `sort_order`：批量接收时由调用方预排的值（保持发送顺序）；`None` 走旧的
+    /// 「插到分组顶部」（MIN - 1）行为。
     pub(crate) fn insert_received_category_item(
         &self,
         clip_type: String,
@@ -494,8 +543,11 @@ impl Store {
         text: String,
         category_name: String,
         category_color: Option<String>,
+        display_name: Option<String>,
+        sort_order: Option<i64>,
     ) -> Result<CategoryItem, String> {
         let category_name = clean_category_name(category_name)?;
+        let display_name = clean_display_name(display_name)?;
         let mut conn = self.connect()?;
         let tx = conn.transaction().map_err(|error| error.to_string())?;
 
@@ -548,7 +600,8 @@ impl Store {
         };
 
         // 2. 幂等：同分组同 content_hash 已存在则直接返回。
-        if let Some(existing) = tx
+        //    对端带重命名且本地未重命名时补齐 display_name（不覆盖本地命名）。
+        if let Some(mut existing) = tx
             .query_row(
                 "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
                  FROM category_items WHERE category_id = ?1 AND content_hash = ?2",
@@ -558,6 +611,18 @@ impl Store {
             .optional()
             .map_err(|error| error.to_string())?
         {
+            if existing.display_name.is_none() {
+                if let Some(name) = display_name.as_deref() {
+                    let updated_at = now();
+                    tx.execute(
+                        "UPDATE category_items SET display_name = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![name, updated_at, existing.id],
+                    )
+                    .map_err(|error| error.to_string())?;
+                    existing.display_name = Some(name.to_string());
+                    existing.updated_at = updated_at;
+                }
+            }
             tx.commit().map_err(|error| error.to_string())?;
             return Ok(existing);
         }
@@ -600,21 +665,26 @@ impl Store {
             }
         };
 
-        // 4. 插入 category_items。sort_order 取当前最小值 - 1，新条目排在分组顶部。
-        let sort_order: i64 = tx
-            .query_row(
-                "SELECT COALESCE(MIN(sort_order), 0) - 1 FROM category_items WHERE category_id = ?1",
-                params![category.id],
-                |row| row.get(0),
-            )
-            .map_err(|error| error.to_string())?;
+        // 4. 插入 category_items。
+        //    sort_order：批量接收时用调用方预排的值（保持发送顺序），否则取当前
+        //    最小值 - 1，新条目排在分组顶部（旧行为）。
+        let sort_order: i64 = match sort_order {
+            Some(order) => order,
+            None => tx
+                .query_row(
+                    "SELECT COALESCE(MIN(sort_order), 0) - 1 FROM category_items WHERE category_id = ?1",
+                    params![category.id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?,
+        };
         let item = CategoryItem {
             id: new_id(),
             category_id: category.id.clone(),
             clip_snapshot_id: clip_id,
             clip_type,
             content_hash,
-            display_name: None,
+            display_name,
             preview_text,
             text,
             sort_order,
@@ -741,6 +811,8 @@ mod tests {
                 text.to_string(),
                 "工作".to_string(),
                 Some("#0D9488".to_string()),
+                None,
+                None,
             )
             .unwrap();
 
@@ -781,6 +853,8 @@ mod tests {
                 text.to_string(),
                 "工作".to_string(),
                 Some("#0D9488".to_string()),
+                None,
+                None,
             )
             .unwrap();
 
@@ -819,6 +893,8 @@ mod tests {
                 text.to_string(),
                 "工作".to_string(),
                 Some("#0D9488".to_string()),
+                None,
+                None,
             )
             .unwrap();
         let second = store
@@ -829,6 +905,8 @@ mod tests {
                 text.to_string(),
                 "工作".to_string(),
                 Some("#0D9488".to_string()),
+                None,
+                None,
             )
             .unwrap();
 
@@ -844,6 +922,116 @@ mod tests {
         assert_eq!(count, 1, "no duplicate category_items row");
     }
 
+    /// LAN 整组接收：条目携带的重命名要落库；再次接收同名条目时，若本地未重命名
+    /// 则补齐对端重命名，本地已有重命名则不被覆盖。
+    #[test]
+    fn insert_received_category_item_stores_and_fills_display_name() {
+        let store = temp_store();
+        let text = "hello-sync";
+        let hash = crate::util::hash_text(text);
+
+        let first = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+                Some("登录口令".to_string()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(first.display_name.as_deref(), Some("登录口令"));
+
+        // 本地先清掉重命名，再收到带重命名的同一条目 → 应补齐。
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "UPDATE category_items SET display_name = NULL WHERE id = ?1",
+            rusqlite::params![first.id],
+        )
+        .unwrap();
+        let second = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+                Some("登录口令".to_string()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(second.display_name.as_deref(), Some("登录口令"), "本地未重命名时应补齐");
+
+        // 本地已有自己的重命名 → 不被对端值覆盖。
+        let third = store
+            .insert_received_category_item(
+                "text".to_string(),
+                hash.clone(),
+                text.to_string(),
+                text.to_string(),
+                "工作".to_string(),
+                Some("#0D9488".to_string()),
+                Some("对端的新名字".to_string()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(third.display_name.as_deref(), Some("登录口令"), "本地重命名优先");
+    }
+
+    /// 批量接收时显式 sort_order 被采用（保持发送顺序），而非插到分组顶部。
+    #[test]
+    fn insert_received_category_item_respects_explicit_sort_order() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat_id = create_category(&conn, "工作", "#0D9488", 0);
+        // 预置一条已存在的条目（sort_order = 5），模拟分组内已有内容。
+        conn.execute(
+            "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
+             VALUES (?1, ?2, 'snap-old', 'text', 'old-hash', NULL, 'old', 'old', 5, '2024-01-01', '2024-01-01', 'local', 0)",
+            rusqlite::params![crate::new_id(), cat_id],
+        )
+        .unwrap();
+
+        // 批量第二、三条：base_order = 5 - 3 = 2，index 1 → 3，index 2 → 4。
+        let a = store
+            .insert_received_category_item(
+                "text".to_string(),
+                "hash-a".to_string(),
+                "a".to_string(),
+                "a".to_string(),
+                "工作".to_string(),
+                None,
+                None,
+                Some(3),
+            )
+            .unwrap();
+        let b = store
+            .insert_received_category_item(
+                "text".to_string(),
+                "hash-b".to_string(),
+                "b".to_string(),
+                "b".to_string(),
+                "工作".to_string(),
+                None,
+                None,
+                Some(4),
+            )
+            .unwrap();
+        assert_eq!(a.sort_order, 3);
+        assert_eq!(b.sort_order, 4);
+
+        // 列表顺序（与 UI 一致）：a 在 b 前，且都排在旧条目（sort_order=5）之前。
+        let items = store
+            .list_category_items_for_category_with_conn(&conn, &cat_id)
+            .unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(&ids[..2], [a.id.as_str(), b.id.as_str()], "新条目按预排顺序位于顶部");
+        assert_eq!(items.len(), 3, "旧条目仍在列表中");
+    }
+
     /// 空分组名应被拒绝（复用 clean_category_name 校验）。
     #[test]
     fn insert_received_category_item_rejects_empty_name() {
@@ -854,6 +1042,8 @@ mod tests {
             "x".to_string(),
             "x".to_string(),
             "   ".to_string(),
+            None,
+            None,
             None,
         );
         assert!(result.is_err());
@@ -874,6 +1064,8 @@ mod tests {
                 text.to_string(),
                 "工作".to_string(),
                 Some("#0D9488".to_string()),
+                None,
+                None,
             )
             .unwrap();
 
@@ -913,6 +1105,8 @@ mod tests {
                 "hello-sync".to_string(),
                 "hello-sync".to_string(),
                 "工作".to_string(),
+                None,
+                None,
                 None,
             )
             .unwrap();

@@ -2,7 +2,7 @@ import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
-import type { LanClipSource, LanSessionInfo, PortConflict } from "../types";
+import type { LanCategoryReceivedEvent, LanCategorySentEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -24,6 +24,12 @@ export function useLanSync() {
   // host 因非 Hosting 态拒绝 guest（如本机已在会话中）——既给 host 端反馈，
   // 也用于定位"加入被报码错"的真因。带设备名 + 当时的 host 状态。
   const rejectedGuest = ref<{ deviceName: string; hostStatus: string } | null>(null);
+  // 整组发送进行中的分组 id（防重复点击）；完成后清空。
+  const sendingCategory = ref<string | null>(null);
+  // 整组发送完成汇总（发送端）。
+  const lastCategorySent = ref<LanCategorySentEvent | null>(null);
+  // 整组接收完成汇总（接收端）。
+  const lastCategoryReceived = ref<LanCategoryReceivedEvent | null>(null);
   let unlistenFns: UnlistenFn[] = [];
   // 收到分组条目时需要刷新本地分类数据（分组/条目落库后才能在 UI 显示）。
   const store = useIpasteStore();
@@ -104,6 +110,25 @@ export function useLanSync() {
     try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = String(e); }
   }
 
+  /** 整组发送：把分组下全部条目一次性推给对端（后端 BatchStart→逐条→BatchEnd）。 */
+  async function sendCategory(categoryId: string) {
+    if (sendingCategory.value) return;
+    error.value = null;
+    sendingCategory.value = categoryId;
+    try {
+      lastCategorySent.value = await ipasteApi.lanSendCategory(categoryId);
+      notice.value = "category-sent";
+      setTimeout(() => {
+        if (notice.value === "category-sent") notice.value = null;
+        lastCategorySent.value = null;
+      }, 5000);
+    } catch (e) {
+      error.value = String(e);
+    } finally {
+      sendingCategory.value = null;
+    }
+  }
+
   async function requestClip() {
     try { await ipasteApi.lanRequestClip(); } catch (e) { error.value = String(e); }
   }
@@ -128,6 +153,16 @@ export function useLanSync() {
         setTimeout(() => { if (notice.value === "clip-received") notice.value = null; }, 3000);
         // 无论分组还是历史条目都已落库，刷新面板内的列表（分组条目落到
         // category_items、历史条目落到 clips，都需重新加载才能显示）。
+        void store.load();
+      }],
+      // 整组接收完成：一次汇总提示 + 一次刷新（批量中后端不逐条 emit）。
+      ["ipaste://lan-category-received", (e) => {
+        lastCategoryReceived.value = e.payload as LanCategoryReceivedEvent;
+        notice.value = "category-received";
+        setTimeout(() => {
+          if (notice.value === "category-received") notice.value = null;
+          lastCategoryReceived.value = null;
+        }, 5000);
         void store.load();
       }],
       // 接收对端条目落库/解析失败：把原因显示出来，避免「已接收但没入库」无从排查。
@@ -164,9 +199,9 @@ export function useLanSync() {
 
   return {
     isTauri, info, manualAddress, manualCode, error, notice, pendingPeerName,
-    portConflict, rejectedGuest,
+    portConflict, rejectedGuest, sendingCategory, lastCategorySent, lastCategoryReceived,
     refresh, createSession, joinByAddress,
-    acceptPair, sendCurrent, sendItem, sendCategoryItem, requestClip, disconnect,
+    acceptPair, sendCurrent, sendItem, sendCategoryItem, sendCategory, requestClip, disconnect,
     killPortProcess, quitApp, cancelPortConflict,
   };
 }

@@ -33,6 +33,14 @@ impl Store {
                 params![captured_at, clip.id],
             )
             .map_err(|error| error.to_string())?;
+            // LAN 接收的重命名仅在本地还没有重命名时补齐，不覆盖用户自己的命名。
+            if item.display_name.is_some() && clip.display_name.is_none() {
+                conn.execute(
+                    "UPDATE clips SET display_name = ?1 WHERE id = ?2",
+                    params![&item.display_name, clip.id],
+                )
+                .map_err(|error| error.to_string())?;
+            }
             let clip = self.get_clip_with_conn(&conn, &clip.id)?;
             return Ok(Some((clip, self.clip_total_count_with_conn(&conn)?, false)));
         }
@@ -55,7 +63,7 @@ impl Store {
             id: new_id(),
             clip_type: item.clip_type,
             content_hash: item.content_hash,
-            display_name: None,
+            display_name: item.display_name,
             preview_text: item.preview_text,
             text,
             source_app: None,
@@ -573,6 +581,7 @@ mod tests {
             preview_text: "hello".to_string(),
             text: "hello".to_string(),
             image_bytes: None,
+            display_name: None,
         };
         let first = store.insert_captured_item(item.clone()).unwrap().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));

@@ -243,6 +243,20 @@ export interface LanClipReceivedEvent {
   categoryName?: string;
 }
 
+/** LAN 同步整组发送完成（发送端）事件 payload。 */
+export interface LanCategorySentEvent {
+  categoryName: string;
+  sent: number;
+  failed: number;
+}
+
+/** LAN 同步整组接收完成（接收端）事件 payload。 */
+export interface LanCategoryReceivedEvent {
+  categoryName: string;
+  count: number;
+  failed: number;
+}
+
 export interface PortConflict {
   pid: number;
   name: string;

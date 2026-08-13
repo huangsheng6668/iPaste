@@ -215,6 +215,7 @@ mod tests {
             empty: false,
             category_name: Some("工作".into()),
             category_color: Some("#0D9488".into()),
+            display_name: Some("重命名".into()),
         };
         let bytes = build_plaintext_frame(&msg, Some(b"hello")).unwrap();
         let (parsed, payload) = parse_plaintext_frame(&bytes).unwrap();
@@ -229,6 +230,7 @@ mod tests {
             empty: false,
             category_name: None,
             category_color: None,
+            display_name: None,
         };
         // 用真实 payload 构造，确保帧里存在 payload_len 字段
         let mut bytes = build_plaintext_frame(&msg, Some(b"x")).unwrap();
@@ -254,7 +256,7 @@ mod tests {
             assert!(matches!(msg, LanMessage::ClipPush { clip_type, empty: false, .. } if clip_type == "text"));
             assert_eq!(payload.as_deref(), Some(&b"secret"[..]));
             conn.write_message(
-                &LanMessage::ClipResponse { clip_type: "text".into(), empty: false, category_name: None, category_color: None },
+                &LanMessage::ClipResponse { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None },
                 Some(b"ack"),
             )
             .await
@@ -264,7 +266,7 @@ mod tests {
         let mut client = SecureConnection::new(TcpStream::connect(addr).await.unwrap(), key);
         client
             .write_message(
-                &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None },
+                &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None, display_name: None },
                 Some(b"secret"),
             )
             .await
@@ -289,7 +291,7 @@ mod tests {
         let mut client = SecureConnection::new(TcpStream::connect(addr).await.unwrap(), [2u8; 32]);
         client
             .write_message(
-                &LanMessage::ClipPush { clip_type: "text".into(), empty: true, category_name: None, category_color: None },
+                &LanMessage::ClipPush { clip_type: "text".into(), empty: true, category_name: None, category_color: None, display_name: None },
                 None,
             )
             .await
