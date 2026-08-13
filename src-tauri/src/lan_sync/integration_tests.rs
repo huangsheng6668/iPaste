@@ -215,3 +215,34 @@ async fn wrong_code_claim_derives_mismatched_keys() {
         derive_session_key(&b_sec, &a_pub, "WRONG001")
     );
 }
+
+/// host 用正确的 key 加密会话帧，但 guest 用错误的 key（不同配对码派生）
+/// → guest 的 SecureConnection 解密失败。这验证了 auth_tag 校验逻辑的密码学基础：
+/// 若 guest 跳过 auth_tag 校验，它会拿到一个无法解密任何帧的错误 key。
+#[tokio::test]
+async fn mismatched_key_prevents_decryption() {
+    use crate::lan_sync::crypto::*;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let host_key = [1u8; 32];
+    let guest_key = [2u8; 32]; // 故意不同
+
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = SecureConnection::new(stream, host_key);
+        // host 用 host_key 加密发送
+        conn.write_message(
+            &LanMessage::ClipPush { clip_type: "text".into(), empty: false, category_name: None, category_color: None },
+            Some(b"secret"),
+        )
+        .await
+        .unwrap();
+    });
+
+    // guest 用不同的 guest_key → 解密必然失败
+    let mut conn = SecureConnection::new(TcpStream::connect(addr).await.unwrap(), guest_key);
+    let result = conn.read_message().await;
+    assert!(result.is_err(), "密钥不匹配时解密必须失败");
+    server.await.unwrap();
+}

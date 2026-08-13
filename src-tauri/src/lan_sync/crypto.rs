@@ -230,11 +230,14 @@ mod tests {
             category_name: None,
             category_color: None,
         };
-        let mut bytes = build_plaintext_frame(&msg, None).unwrap();
-        // 手工把 payload_len 字段改成超限值
-        let payload_len_off = bytes.len() - 4;
-        bytes[payload_len_off..].copy_from_slice(&((LAN_MAX_PAYLOAD as u32) + 1).to_le_bytes());
-        bytes.extend_from_slice(&[0u8; 4]);
+        // 用真实 payload 构造，确保帧里存在 payload_len 字段
+        let mut bytes = build_plaintext_frame(&msg, Some(b"x")).unwrap();
+        // payload_len 字段紧跟 header 之后，偏移 = 4 + header_len
+        let header_len = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+        let payload_len_off = 4 + header_len;
+        // 把 payload_len 改成超限值，使解析命中 payload_len > LAN_MAX_PAYLOAD 分支
+        bytes[payload_len_off..payload_len_off + 4]
+            .copy_from_slice(&((LAN_MAX_PAYLOAD as u32) + 1).to_le_bytes());
         assert!(parse_plaintext_frame(&bytes).is_err());
     }
 
