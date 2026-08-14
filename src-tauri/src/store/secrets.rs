@@ -15,8 +15,6 @@ pub(crate) fn put_api_key(value: &str) -> Result<(), String> {
     entry()?.set_password(value).map_err(|e| format!("写入系统凭据库失败：{e}"))
 }
 
-// 读取路径由 Task 9（cloud_settings_with_conn 改造）接入，暂无生产调用方。
-#[allow(dead_code)]
 pub(crate) fn get_api_key() -> Result<Option<String>, String> {
     match entry()?.get_password() {
         Ok(v) => Ok(Some(v)),
