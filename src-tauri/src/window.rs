@@ -650,7 +650,7 @@ pub(crate) fn show_clip_viewer_window(
         return Err("无效的放大窗口标签".to_string());
     }
 
-    let url = format!("index.html?window=clip-viewer&label={label}");
+    let url = format!("index.html?window=clip-viewer&label={}", percent_encode_component(&label));
     let window = if let Some(window) = app.get_webview_window(&label) {
         window
     } else {
