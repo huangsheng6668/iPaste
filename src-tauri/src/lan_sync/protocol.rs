@@ -3,7 +3,10 @@ use sha2::{Digest, Sha256};
 
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 8 * 1024 * 1024;
-pub(crate) const LAN_PROTOCOL_VERSION: u32 = 3;
+pub(crate) const LAN_PROTOCOL_VERSION: u32 = 4;
+/// guest 等待 host 下发 PairChallenge 的超时（秒）。超时提示「对方版本过旧」
+/// （v3 host 只等不答，永远不发挑战）。测试下缩短，避免集成测试空等。
+pub(crate) const CHALLENGE_WAIT_TIMEOUT_SECS: u64 = if cfg!(test) { 2 } else { 10 };
 /// 单次分组批量传输最多接纳的条目数（用于接收端预排 sort_order 的上界）。
 pub(crate) const LAN_BATCH_MAX_ITEMS: u32 = 10_000;
 /// 配对码字母表：31 字符（A-Z 去掉 I/L/O = 23 字母 + 数字 2-9 = 8），无易混淆字符。
@@ -29,24 +32,33 @@ pub(crate) enum PairRejectReason {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub(crate) enum LanMessage {
-    Handshake {
-        /// 协议版本。老客户端无此字段 → 默认 1，host 校验版本不符直接拒绝。
+    /// v4 服务端先发言的挑战帧：host accept 后立即下发。配对码不派生任何线上可见值
+    /// （v3 的 code_claim 已移除，防离线字典攻击）。
+    PairChallenge {
         #[serde(default = "default_protocol_version")]
         version: u32,
-        /// HMAC 派生码（配对码不以明文上线）。老帧/未知场景为 None。
-        #[serde(default)]
-        code_claim: Option<String>,
-        device_name: String,
+        host_device_name: String,
         /// base64 编码的 X25519 公钥（32 字节）。
         #[serde(default)]
+        host_pubkey: Option<String>,
+    },
+    Handshake {
+        /// 协议版本。v3 老帧缺省 1，host 校验版本不符直接拒绝。
+        #[serde(default = "default_protocol_version")]
+        version: u32,
+        device_name: String,
+        /// base64 编码的 X25519 公钥（32 字节）。v3 老帧缺省为 None。
+        #[serde(default)]
         guest_pubkey: Option<String>,
+        /// MAC16(session_key, "v4-guest" ‖ transcript)：guest 持码证明。
+        /// v3 老帧缺省为 None，host 据此回 PairRejected。
+        #[serde(default)]
+        guest_proof: Option<String>,
     },
     PairAccepted {
         host_device_name: String,
-        /// base64 编码的 host X25519 公钥。老 host 无此字段。
-        #[serde(default)]
-        host_pubkey: Option<String>,
-        /// HMAC(session_key) 认证标签，guest 据此确认双方持有相同配对码。
+        /// MAC16(session_key, "v4-host" ‖ transcript)：转录绑定的 host 认证。
+        /// 畸形帧缺省为 None，guest 据此报握手异常。
         #[serde(default)]
         auth_tag: Option<String>,
     },
@@ -183,61 +195,70 @@ mod tests {
     }
 
     #[test]
-    fn handshake_v2_roundtrips() {
+    fn handshake_v4_roundtrips() {
         let msg = LanMessage::Handshake {
             version: LAN_PROTOCOL_VERSION,
-            code_claim: Some("aabbccdd".into()),
             device_name: "MBP".into(),
             guest_pubkey: Some("QUJD".into()),
+            guest_proof: Some("aabbccdd".into()),
         };
         let bytes = encode_frame(&msg).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), msg);
     }
 
     #[test]
-    fn pair_accepted_v2_roundtrips() {
-        let msg = LanMessage::PairAccepted {
+    fn pair_challenge_roundtrips() {
+        let msg = LanMessage::PairChallenge {
+            version: LAN_PROTOCOL_VERSION,
             host_device_name: "host".into(),
             host_pubkey: Some("REVG".into()),
+        };
+        let bytes = encode_frame(&msg).unwrap();
+        assert_eq!(decode_frame(&bytes).unwrap(), msg);
+    }
+
+    #[test]
+    fn pair_accepted_v4_roundtrips() {
+        let msg = LanMessage::PairAccepted {
+            host_device_name: "host".into(),
             auth_tag: Some("ffeeddcc".into()),
         };
         let bytes = encode_frame(&msg).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), msg);
     }
 
-    /// 老版本（v1）Handshake 帧：只有 code/device_name，缺 version/code_claim/guest_pubkey。
+    /// 老版本（v1）Handshake 帧：只有 code/device_name，缺 version/guest_pubkey/guest_proof。
     /// 新 host 必须能反序列化（字段默认 None / version 默认 1），再按协议拒绝。
     #[test]
     fn legacy_handshake_deserializes_with_defaults() {
         let json = r#"{"kind":"handshake","code":"ROOM","device_name":"old"}"#;
         let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(json.as_bytes());
-        match decode_frame(&bytes).unwrap() {
-            LanMessage::Handshake { version, code_claim, guest_pubkey, device_name } => {
-                assert_eq!(version, 1);
-                assert_eq!(code_claim, None);
-                assert_eq!(guest_pubkey, None);
-                assert_eq!(device_name, "old");
-            }
-            other => panic!("wrong variant: {other:?}"),
+    match decode_frame(&bytes).unwrap() {
+        LanMessage::Handshake { version, guest_pubkey, guest_proof, device_name } => {
+            assert_eq!(version, 1);
+            assert_eq!(guest_pubkey, None);
+            assert_eq!(guest_proof, None, "v3 老帧无 guest_proof，host 据此拒绝");
+            assert_eq!(device_name, "old");
         }
+        other => panic!("wrong variant: {other:?}"),
     }
+}
 
-    /// 老版本 PairAccepted 帧：只有 host_device_name。guest 侧据此提示对方版本过旧。
+    /// 老版本 PairAccepted 帧：只有 host_device_name。缺 auth_tag 时 guest 报握手异常。
     #[test]
     fn legacy_pair_accepted_deserializes_with_defaults() {
         let json = r#"{"kind":"pairAccepted","host_device_name":"old-host"}"#;
         let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(json.as_bytes());
-        match decode_frame(&bytes).unwrap() {
-            LanMessage::PairAccepted { host_device_name, host_pubkey, auth_tag } => {
-                assert_eq!(host_device_name, "old-host");
-                assert_eq!(host_pubkey, None);
-                assert_eq!(auth_tag, None);
-            }
-            other => panic!("wrong variant: {other:?}"),
+    match decode_frame(&bytes).unwrap() {
+        LanMessage::PairAccepted { host_device_name, auth_tag } => {
+            assert_eq!(host_device_name, "old-host");
+            assert_eq!(auth_tag, None);
         }
+        other => panic!("wrong variant: {other:?}"),
     }
+}
 
     #[test]
     fn clip_push_with_empty_roundtrips() {

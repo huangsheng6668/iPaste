@@ -12,10 +12,18 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
         let (stream, _) = listener.accept().await.unwrap();
         let mut conn = Connection::new(stream);
 
-        // 1. 握手
+        // 1. 握手：host 先发言下发挑战，guest 回 Handshake，host 回 PairAccepted
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: LAN_PROTOCOL_VERSION,
+                host_device_name: "host".into(),
+                host_pubkey: Some("QUJD".into()),
+            },
+            None,
+        ).await.unwrap();
         let (msg, _) = conn.read_message().await.unwrap();
         assert!(matches!(msg, LanMessage::Handshake { device_name, .. } if device_name == "guest"));
-        conn.write_message(&LanMessage::PairAccepted { host_device_name: "host".into(), host_pubkey: None, auth_tag: None }, None).await.unwrap();
+        conn.write_message(&LanMessage::PairAccepted { host_device_name: "host".into(), auth_tag: None }, None).await.unwrap();
 
         // 2. 收推送
         let (msg, payload) = conn.read_message().await.unwrap();
@@ -33,12 +41,15 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
     });
 
     let mut client = Connection::new(TcpStream::connect(addr).await.unwrap());
+    // v4：先读 host 挑战，再回 Handshake，最后读 PairAccepted。
+    let (msg, _) = client.read_message().await.unwrap();
+    assert!(matches!(msg, LanMessage::PairChallenge { .. }));
     client.write_message(
         &LanMessage::Handshake {
             version: LAN_PROTOCOL_VERSION,
-            code_claim: None,
             device_name: "guest".into(),
             guest_pubkey: None,
+            guest_proof: None,
         },
         None,
     )
@@ -97,13 +108,16 @@ async fn clip_push_with_category_roundtrips_over_tcp() {
     server.await.unwrap();
 }
 
-/// 完整 v2 流程：明文握手（带 claim/公钥）→ 双方派生密钥 → 加密会话收发。
+/// 完整 v4 流程：host 下发挑战 → 双方派生密钥 + 转录 → 持码证明互换 → 加密会话收发。
 #[tokio::test]
-async fn full_v2_handshake_and_secure_session_roundtrip() {
+async fn full_v4_handshake_and_secure_session_roundtrip() {
     use base64::Engine as _;
     use x25519_dalek::PublicKey;
 
-    use crate::lan_sync::crypto::*;
+    use crate::lan_sync::crypto::{
+        derive_session_key, generate_pair_keys, guest_proof, host_transcript_tag, transcript_hash,
+        SecureConnection,
+    };
 
     let code = "TESTCODE";
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -113,40 +127,44 @@ async fn full_v2_handshake_and_secure_session_roundtrip() {
         let (stream, _) = listener.accept().await.unwrap();
         let mut conn = Connection::new(stream);
 
-        // 1. 读 v2 Handshake，校验 claim
+        // 1. v4 host 先发言：下发挑战（带 host 公钥）
+        let (host_secret, host_public) = generate_pair_keys();
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: LAN_PROTOCOL_VERSION,
+                host_device_name: "host".into(),
+                host_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes())),
+            },
+            None,
+        ).await.unwrap();
+        // 2. 读 guest Handshake，校验持码证明
         let (msg, _) = conn.read_message().await.unwrap();
-        let (claim, guest_pubkey_b64) = match msg {
-            LanMessage::Handshake { version, code_claim, guest_pubkey, .. } => {
+        let (guest_pubkey_b64, proof) = match msg {
+            LanMessage::Handshake { version, guest_pubkey, guest_proof, device_name } => {
                 assert_eq!(version, LAN_PROTOCOL_VERSION);
-                (code_claim.unwrap(), guest_pubkey.unwrap())
+                assert_eq!(device_name, "guest");
+                (guest_pubkey.unwrap(), guest_proof.unwrap())
             }
             other => panic!("wrong variant: {other:?}"),
         };
-        assert_eq!(claim, code_claim(code));
-
-        // 2. 派生会话密钥，回 PairAccepted
-        let (host_secret, host_public) = generate_pair_keys();
         let guest_public = {
             let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
-                .decode(&guest_pubkey_b64)
-                .unwrap()
-                .try_into()
-                .unwrap();
+                .decode(&guest_pubkey_b64).unwrap().try_into().unwrap();
             PublicKey::from(bytes)
         };
         let key = derive_session_key(&host_secret, &guest_public, code);
+        let transcript = transcript_hash(LAN_PROTOCOL_VERSION, "host", &host_public, "guest", &guest_public);
+        assert_eq!(guest_proof(&key, &transcript), proof);
+        // 3. 回 PairAccepted（转录绑定的认证标签）
         conn.write_message(
             &LanMessage::PairAccepted {
                 host_device_name: "host".into(),
-                host_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes())),
-                auth_tag: Some(host_auth_tag(&key)),
+                auth_tag: Some(host_transcript_tag(&key, &transcript)),
             },
             None,
-        )
-        .await
-        .unwrap();
+        ).await.unwrap();
 
-        // 3. 加密会话：收 ClipPush、回 ClipResponse
+        // 4. 加密会话：收 ClipPush、回 ClipResponse
         let mut secure = SecureConnection::new(conn.into_stream(), key);
         let (msg, payload) = secure.read_message().await.unwrap();
         assert!(matches!(msg, LanMessage::ClipPush { clip_type, empty: false, .. } if clip_type == "text"));
@@ -163,32 +181,35 @@ async fn full_v2_handshake_and_secure_session_roundtrip() {
     // guest 侧
     let mut conn = Connection::new(TcpStream::connect(addr).await.unwrap());
     let (guest_secret, guest_public) = generate_pair_keys();
+    let (msg, _) = conn.read_message().await.unwrap();
+    let (host_name, host_public) = match msg {
+        LanMessage::PairChallenge { version, host_device_name, host_pubkey } => {
+            assert_eq!(version, LAN_PROTOCOL_VERSION);
+            let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                .decode(&host_pubkey.unwrap()).unwrap().try_into().unwrap();
+            (host_device_name, PublicKey::from(bytes))
+        }
+        other => panic!("wrong variant: {other:?}"),
+    };
+    let key = derive_session_key(&guest_secret, &host_public, code);
+    let transcript = transcript_hash(LAN_PROTOCOL_VERSION, &host_name, &host_public, "guest", &guest_public);
     conn.write_message(
         &LanMessage::Handshake {
             version: LAN_PROTOCOL_VERSION,
-            code_claim: Some(code_claim(code)),
             device_name: "guest".into(),
             guest_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes())),
+            guest_proof: Some(guest_proof(&key, &transcript)),
         },
         None,
     )
     .await
     .unwrap();
     let (msg, _) = conn.read_message().await.unwrap();
-    let (host_pubkey_b64, tag) = match msg {
-        LanMessage::PairAccepted { host_pubkey, auth_tag, .. } => (host_pubkey.unwrap(), auth_tag.unwrap()),
+    let tag = match msg {
+        LanMessage::PairAccepted { auth_tag, .. } => auth_tag.unwrap(),
         other => panic!("wrong variant: {other:?}"),
     };
-    let host_public = {
-        let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
-            .decode(&host_pubkey_b64)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        PublicKey::from(bytes)
-    };
-    let key = derive_session_key(&guest_secret, &host_public, code);
-    assert_eq!(host_auth_tag(&key), tag);
+    assert_eq!(host_transcript_tag(&key, &transcript), tag);
 
     let mut secure = SecureConnection::new(conn.into_stream(), key);
     secure
@@ -708,8 +729,8 @@ async fn two_direct_session_loops_guest_sends_host_receives() {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), guest_task).await;
 }
 
-/// 回归：host 走**真实全链路**（start_host_on + accept + handle_guest_with_handshake
-/// + 配对确认 + 真实 v2 crypto），对端是裸客户端（手动握手后写一帧）。确保 host 的
+/// 回归：host 走**真实全链路**（start_host_on + accept + handle_guest_with_challenge
+/// + 配对确认 + 真实 v4 crypto），对端是裸客户端（读挑战后手动握手再写一帧）。确保 host 的
 /// 全链路能稳定接收并落库对端推送的帧。
 #[tokio::test(flavor = "multi_thread")]
 async fn host_full_path_with_raw_client_receives_frame() {
@@ -719,7 +740,8 @@ async fn host_full_path_with_raw_client_receives_frame() {
     use x25519_dalek::PublicKey;
 
     use crate::lan_sync::crypto::{
-        code_claim, derive_session_key, generate_pair_keys, host_auth_tag, SecureConnection,
+        derive_session_key, generate_pair_keys, guest_proof, host_transcript_tag, transcript_hash,
+        SecureConnection,
     };
     use crate::lan_sync::server::start_host_on;
     use crate::lan_sync::{LanSessionManager, LanStatus};
@@ -735,43 +757,41 @@ async fn host_full_path_with_raw_client_receives_frame() {
     let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
     let dial_addr = format!("127.0.0.1:{port}");
 
-    // 裸客户端：手动 v2 握手 + 写一帧。
+    // 裸客户端：读挑战 → 按 transcript 算 proof → 发 Handshake → 校验 auth_tag + 写一帧。
     let raw_client = tokio::spawn(async move {
         use crate::lan_sync::session::Connection;
         let mut conn = Connection::new(TcpStream::connect(dial_addr).await.unwrap());
+        let (msg, _) = conn.read_message().await.unwrap();
+        let (host_name, host_public) = match msg {
+            LanMessage::PairChallenge { version, host_device_name, host_pubkey } => {
+                assert_eq!(version, LAN_PROTOCOL_VERSION);
+                let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                    .decode(&host_pubkey.unwrap()).unwrap().try_into().unwrap();
+                (host_device_name, PublicKey::from(bytes))
+            }
+            other => panic!("wrong variant: {other:?}"),
+        };
         let (guest_secret, guest_public) = generate_pair_keys();
+        let key = derive_session_key(&guest_secret, &host_public, code);
+        let transcript = transcript_hash(LAN_PROTOCOL_VERSION, &host_name, &host_public, "raw-guest", &guest_public);
         conn.write_message(
             &LanMessage::Handshake {
                 version: LAN_PROTOCOL_VERSION,
-                code_claim: Some(code_claim(code)),
                 device_name: "raw-guest".into(),
                 guest_pubkey: Some(
                     base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes()),
                 ),
+                guest_proof: Some(guest_proof(&key, &transcript)),
             },
             None,
         )
         .await
         .unwrap();
         let (reply, _) = conn.read_message().await.unwrap();
-        let LanMessage::PairAccepted {
-            host_pubkey: Some(host_pubkey_b64),
-            auth_tag: Some(tag),
-            ..
-        } = reply
-        else {
-            panic!("expected PairAccepted v2: {reply:?}");
+        let LanMessage::PairAccepted { auth_tag: Some(tag), .. } = reply else {
+            panic!("expected PairAccepted v4: {reply:?}");
         };
-        let host_public = {
-            let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
-                .decode(&host_pubkey_b64)
-                .unwrap()
-                .try_into()
-                .unwrap();
-            PublicKey::from(bytes)
-        };
-        let key = derive_session_key(&guest_secret, &host_public, code);
-        assert_eq!(host_auth_tag(&key), tag);
+        assert_eq!(host_transcript_tag(&key, &transcript), tag);
         let mut secure = SecureConnection::new(conn.into_stream(), key);
         secure
             .write_message(

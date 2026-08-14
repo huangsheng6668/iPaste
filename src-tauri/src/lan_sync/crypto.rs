@@ -1,6 +1,6 @@
 //! 加密原语：X25519 密钥协商 + 配对码派生会话密钥 + AES-256-GCM 加密会话帧。
 //!
-//! 线格式（v2 会话）：`[u32 nonce_len=12][nonce 12B][u32 ct_len][ct]`，
+//! 线格式（v4 握手（挑战-响应）+ v2 会话帧）：`[u32 nonce_len=12][nonce 12B][u32 ct_len][ct]`，
 //! ct = AES-256-GCM 加密的明文帧（明文帧格式与 session::Connection 一致：
 //! `[u32 header_len][header json][u32 payload_len][payload]`）。
 
@@ -20,8 +20,6 @@ type HmacSha256 = Hmac<Sha256>;
 /// 外层加密帧密文上限：明文帧最大 ≈ 2 * LAN_MAX_PAYLOAD + 16，加 GCM tag 与余量。
 pub(crate) const LAN_MAX_FRAME: usize = 2 * LAN_MAX_PAYLOAD + 64;
 
-const CODE_CLAIM_INFO: &[u8] = b"ipaste-lan-pair-v2";
-const HOST_AUTH_INFO: &[u8] = b"ipaste-lan-auth-v2-host";
 const SESSION_KEY_INFO: &[u8] = b"ipaste-lan-sync-v2";
 
 pub(crate) struct SecureConnection {
@@ -29,20 +27,6 @@ pub(crate) struct SecureConnection {
     cipher: Aes256Gcm,
     /// 会话密钥原值，供 `into_split` 为读/写两半各重建一份无状态 cipher。
     session_key: [u8; 32],
-}
-
-pub(crate) fn code_claim(code: &str) -> String {
-    // 注：`new_from_slice` 在 `HmacSha256` 上同时由 `hmac::Mac` 与 `aes_gcm::KeyInit`（经
-    // `use aes_gcm::aead::KeyInit` 引入）提供，存在歧义，故显式消歧到 `Mac` trait。
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(code.trim().as_bytes()).expect("hmac accepts any key length");
-    mac.update(CODE_CLAIM_INFO);
-    hex(&mac.finalize().into_bytes()[..16])
-}
-
-pub(crate) fn host_auth_tag(key: &[u8; 32]) -> String {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("hmac accepts any key length");
-    mac.update(HOST_AUTH_INFO);
-    hex(&mac.finalize().into_bytes()[..16])
 }
 
 const GUEST_PROOF_INFO: &[u8] = b"ipaste-lan-v4-guest";
@@ -311,13 +295,6 @@ mod tests {
     use tokio::net::TcpListener;
 
     #[test]
-    fn code_claim_is_stable_and_hex16() {
-        assert_eq!(code_claim("ROOM"), code_claim("ROOM"));
-        assert_ne!(code_claim("ROOM"), code_claim("room"));
-        assert_eq!(code_claim("ROOM").len(), 32);
-    }
-
-    #[test]
     fn both_sides_derive_same_session_key() {
         let (a_sec, a_pub) = generate_pair_keys();
         let (b_sec, b_pub) = generate_pair_keys();
@@ -326,14 +303,6 @@ mod tests {
         assert_eq!(ka, kb);
         // 码不同 → 密钥不同
         assert_ne!(ka, derive_session_key(&a_sec, &b_pub, "ABC124"));
-    }
-
-    #[test]
-    fn host_auth_tag_depends_on_key() {
-        let k1 = [1u8; 32];
-        let k2 = [2u8; 32];
-        assert_ne!(host_auth_tag(&k1), host_auth_tag(&k2));
-        assert_eq!(host_auth_tag(&k1).len(), 32);
     }
 
     #[test]
