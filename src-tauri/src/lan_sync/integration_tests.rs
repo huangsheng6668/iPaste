@@ -854,3 +854,209 @@ async fn host_full_path_with_raw_client_receives_frame() {
 
     let _ = raw_client.await;
 }
+
+/// v3 老客户端（直接发无 proof 的 Handshake）连 v4 host：必须被 PairRejected，
+/// 而不是崩溃、挂起或触发配对弹窗。
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_v3_handshake_is_rejected_by_v4_host() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::session::Connection;
+    use crate::lan_sync::LanSessionManager;
+    use crate::store::test_support::temp_store;
+    use tokio::net::TcpStream;
+
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    let listen_addr = start_host_on(host_manager.clone(), store, "TESTCD".to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+
+    let mut conn = Connection::new(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+    // v3 形态：不等问题、直接发言，无 guest_proof
+    conn.write_message(
+        &LanMessage::Handshake {
+            version: 3,
+            device_name: "old-guest".into(),
+            guest_pubkey: None,
+            guest_proof: None,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    // v4 host accept 即发挑战——先读到它（丢弃），再等拒绝
+    let (msg, _) = conn.read_message().await.unwrap();
+    assert!(matches!(msg, LanMessage::PairChallenge { .. }));
+    let (msg, _) = tokio::time::timeout(std::time::Duration::from_secs(5), conn.read_message())
+        .await
+        .expect("host must reply")
+        .unwrap();
+    assert!(matches!(msg, LanMessage::PairRejected { .. }));
+    assert!(host_manager.take_pair_decision_tx().is_none(), "版本不符不得触发配对弹窗");
+}
+
+/// host accept 后保持沉默（模拟 v3 老版本 host 只等不答）：
+/// guest 应在挑战等待超时后回到 Idle，不挂起。
+#[tokio::test(flavor = "multi_thread")]
+async fn guest_times_out_and_resets_when_host_silent() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let silent = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    });
+
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    // CHALLENGE_WAIT_TIMEOUT_SECS 在 cfg(test) 下为 2s，join 返回即代表超时已处理
+    join_by_address(guest_manager.clone(), store, format!("127.0.0.1:{port}"), "TESTCD".to_string()).await;
+    assert_eq!(guest_manager.snapshot().status, LanStatus::Idle);
+    silent.abort();
+}
+
+/// 码校验：guest 用错误码计算 proof → host 回 WrongCode，且不触发配对弹窗。
+#[tokio::test(flavor = "multi_thread")]
+async fn wrong_code_guest_is_rejected_without_pair_prompt() {
+    use std::sync::Arc;
+
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{derive_session_key, generate_pair_keys, guest_proof, transcript_hash};
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::session::Connection;
+    use crate::lan_sync::LanSessionManager;
+    use crate::store::test_support::temp_store;
+    use tokio::net::TcpStream;
+
+    let code = "REALCODE";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    let listen_addr = start_host_on(host_manager.clone(), store, code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+
+    let mut conn = Connection::new(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+    let (msg, _) = conn.read_message().await.unwrap();
+    let LanMessage::PairChallenge { version, host_device_name, host_pubkey } = msg else {
+        panic!("expected challenge: {msg:?}");
+    };
+    let host_public_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+        .decode(&host_pubkey.unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let host_public = PublicKey::from(host_public_bytes);
+    // 错误码派生密钥与 proof
+    let (guest_secret, guest_public) = generate_pair_keys();
+    let key = derive_session_key(&guest_secret, &host_public, "WRONG001");
+    let transcript = transcript_hash(version, &host_device_name, &host_public, "guest", &guest_public);
+    conn.write_message(
+        &LanMessage::Handshake {
+            version,
+            device_name: "guest".into(),
+            guest_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes())),
+            guest_proof: Some(guest_proof(&key, &transcript)),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let (msg, _) = tokio::time::timeout(std::time::Duration::from_secs(5), conn.read_message())
+        .await
+        .expect("host must reply")
+        .unwrap();
+    assert!(matches!(msg, LanMessage::PairRejected { reason: PairRejectReason::WrongCode }));
+    assert!(host_manager.take_pair_decision_tx().is_none(), "错码不得触发配对弹窗");
+}
+
+/// 转录绑定（帧级双向验证）：challenge 的设备名被中途篡改 →
+/// host 用真实转录校验 guest proof 必不匹配；guest 用篡改转录校验 host tag 必不匹配。
+#[tokio::test]
+async fn tampered_challenge_name_breaks_proof_in_both_directions() {
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{
+        derive_session_key, generate_pair_keys, guest_proof, host_transcript_tag, transcript_hash,
+    };
+
+    let code = "TESTCODE";
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let host = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = Connection::new(stream);
+        let (host_secret, host_public) = generate_pair_keys();
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: 4,
+                host_device_name: "RealHost".into(),
+                host_pubkey: Some(
+                    base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes()),
+                ),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let (msg, _) = conn.read_message().await.unwrap();
+        let LanMessage::Handshake { device_name, guest_pubkey: Some(gp), guest_proof: Some(proof), .. } = msg
+        else {
+            panic!("expected v4 handshake: {msg:?}");
+        };
+        let guest_public_bytes: [u8; 32] =
+            base64::engine::general_purpose::STANDARD.decode(&gp).unwrap().try_into().unwrap();
+        let guest_public = PublicKey::from(guest_public_bytes);
+        let key = derive_session_key(&host_secret, &guest_public, code);
+        // host 按真实设备名 "RealHost" 计算转录 → guest 的 proof（基于 "EvilHost"）必不匹配
+        let authentic = transcript_hash(4, "RealHost", &host_public, &device_name, &guest_public);
+        assert_ne!(guest_proof(&key, &authentic), proof, "篡改名后 host 侧校验必须失败");
+    });
+
+    // guest：真实收到的挑战名是 "RealHost"，但模拟中间人改帧、guest 实际按 "EvilHost" 参与转录
+    let mut conn = TcpStream::connect(addr).await.unwrap();
+    let mut conn = Connection::new(conn);
+    let (msg, _) = conn.read_message().await.unwrap();
+    let LanMessage::PairChallenge { version, host_device_name, host_pubkey } = msg else {
+        panic!("expected challenge: {msg:?}");
+    };
+    assert_eq!(host_device_name, "RealHost");
+    let host_public_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+        .decode(&host_pubkey.unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let host_public = PublicKey::from(host_public_bytes);
+    let (guest_secret, guest_public) = generate_pair_keys();
+    let key = derive_session_key(&guest_secret, &host_public, code);
+    let tampered = transcript_hash(version, "EvilHost", &host_public, "guest", &guest_public);
+    // guest 自检：host 若按真实名签 tag，篡改转录下校验必失败（对称方向）
+    let real_tag = host_transcript_tag(&key, &transcript_hash(version, "RealHost", &host_public, "guest", &guest_public));
+    assert_ne!(host_transcript_tag(&key, &tampered), real_tag, "篡改名后 guest 侧校验必须失败");
+    conn.write_message(
+        &LanMessage::Handshake {
+            version,
+            device_name: "guest".into(),
+            guest_pubkey: Some(
+                base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes()),
+            ),
+            guest_proof: Some(guest_proof(&key, &tampered)),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    host.await.unwrap();
+}
