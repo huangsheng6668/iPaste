@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { CheckCircle2, Cloud, Unplug } from "lucide-vue-next";
 import { t } from "../../i18n";
 import { useIpasteStore } from "../../stores/ipasteStore";
@@ -17,6 +18,10 @@ const {
   saveCloud,
   disableCloud,
 } = useCloudSync();
+
+const isInsecureHttpAddress = computed(() =>
+  cloudApiAddress.value.trim().toLowerCase().startsWith("http://"),
+);
 </script>
 
 <template>
@@ -50,6 +55,13 @@ const {
             spellcheck="false"
           >
         </label>
+
+        <p
+          v-if="isInsecureHttpAddress"
+          class="settings-message settings-message-error"
+        >
+          {{ t("settings.cloud.insecureWarning") }}
+        </p>
 
         <label class="settings-field">
           <span>API Key</span>
