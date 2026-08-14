@@ -285,6 +285,26 @@ fn image_data_url(bytes: &Option<Vec<u8>>) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{}", b64))
 }
 
+/// 接收路径的分组字段上限：与本地 `clean_display_name` 的 80 字符口径对齐，
+/// 防已配对对端灌超长字符串污染本地 DB 与 UI 事件流。
+pub(crate) const MAX_CATEGORY_NAME_LEN: usize = 80;
+pub(crate) const MAX_CATEGORY_COLOR_LEN: usize = 32;
+
+/// 校验对端发来的分组元数据；Err(原因) 表示该帧应拒收（会话不断开）。
+fn validate_category_meta(name: Option<&str>, color: Option<&str>) -> Result<(), String> {
+    if let Some(n) = name {
+        if n.chars().count() > MAX_CATEGORY_NAME_LEN {
+            return Err(format!("分组名不能超过 {MAX_CATEGORY_NAME_LEN} 个字符"));
+        }
+    }
+    if let Some(c) = color {
+        if c.chars().count() > MAX_CATEGORY_COLOR_LEN {
+            return Err(format!("分组颜色不能超过 {MAX_CATEGORY_COLOR_LEN} 个字符"));
+        }
+    }
+    Ok(())
+}
+
 /// 处理一条入站帧。返回 `false` 表示该帧要求结束会话（对端 Disconnect）。
 ///
 /// 由会话的**读任务**逐条调用（读到即原地处理）；`write_half` 是与主循环共享的
@@ -299,6 +319,11 @@ async fn handle_frame(
 ) -> bool {
     match frame {
         (LanMessage::CategoryBatchStart { category_name, category_color, item_count }, _) => {
+            if let Err(reason) = validate_category_meta(Some(&category_name), category_color.as_deref()) {
+                manager.emit_clip_receive_failed(reason);
+                // 丢弃整个批量态；后续逐条帧因无 BatchStart 会走单条路径并被再次校验
+                return true;
+            }
             // 预排 sort_order：新条目整体插到现有条目之上，且按发送顺序排列。
             // item_count 由对端提供，封顶 LAN_BATCH_MAX_ITEMS 防偏移被放大。
             let min_order = store.category_min_sort_order(&category_name).unwrap_or(0);
@@ -319,6 +344,10 @@ async fn handle_frame(
         }
         (LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name }, payload) => {
             if !empty {
+                if let Err(reason) = validate_category_meta(category_name.as_deref(), category_color.as_deref()) {
+                    manager.emit_clip_receive_failed(reason);
+                    return true; // 拒收该帧，会话继续
+                }
                 if let Some(data) = payload {
                     match batch.as_mut() {
                         // 批量中：静默逐条落库（顺序预排），结束时统一 emit。
@@ -373,6 +402,10 @@ async fn handle_frame(
         }
         (LanMessage::ClipResponse { clip_type, empty, category_name, category_color, display_name }, payload) => {
             if !empty {
+                if let Err(reason) = validate_category_meta(category_name.as_deref(), category_color.as_deref()) {
+                    manager.emit_clip_receive_failed(reason);
+                    return true; // 拒收该帧，会话继续
+                }
                 if let Some(data) = payload {
                     apply_received(
                         manager, store, &clip_type, &data,
@@ -638,5 +671,30 @@ mod tests {
             .await
             .unwrap();
         server.await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod category_meta_tests {
+    use super::*;
+
+    #[test]
+    fn validate_category_meta_accepts_within_bounds() {
+        assert!(validate_category_meta(None, None).is_ok());
+        assert!(validate_category_meta(Some("工作"), Some("#0D9488")).is_ok());
+        let name_80: String = "a".repeat(80);
+        let color_32: String = "c".repeat(32);
+        assert!(validate_category_meta(Some(&name_80), Some(&color_32)).is_ok());
+    }
+
+    #[test]
+    fn validate_category_meta_rejects_oversized() {
+        let name_81: String = "a".repeat(81);
+        let color_33: String = "c".repeat(33);
+        assert!(validate_category_meta(Some(&name_81), None).is_err());
+        assert!(validate_category_meta(None, Some(&color_33)).is_err());
+        // 多字节字符按字符数计
+        let wide: String = "中".repeat(81);
+        assert!(validate_category_meta(Some(&wide), None).is_err());
     }
 }

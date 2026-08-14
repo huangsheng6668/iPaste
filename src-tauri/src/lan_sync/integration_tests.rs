@@ -1060,3 +1060,95 @@ async fn tampered_challenge_name_breaks_proof_in_both_directions() {
     .unwrap();
     host.await.unwrap();
 }
+
+/// 接线回归：超长分组名的帧被拒收（分组不落库），且会话存活——
+/// 同一会话里随后发送的合法分组能正常出现。
+#[tokio::test(flavor = "multi_thread")]
+async fn oversized_category_name_frame_is_rejected_and_session_survives() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::crypto::SecureConnection;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let key = [43u8; 32];
+
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let (host_ctx, host_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    let (guest_ctx, guest_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx, 1);
+
+    let host_mgr = host_manager.clone();
+    let host_store = store.clone();
+    let host_task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let host_crx = host_mgr.take_control_rx().expect("host control rx");
+        run_session_loop(SecureConnection::new(stream, key), host_mgr, host_store, "guest".to_string(), host_crx).await;
+    });
+
+    let guest_mgr = guest_manager.clone();
+    let guest_store = store.clone();
+    let guest_task = tokio::spawn(async move {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        run_session_loop(SecureConnection::new(stream, key), guest_mgr, guest_store, "host".to_string(), guest_crx).await;
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 超长分组名（81 字符）→ 拒收
+    guest_ctx
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"oversized".to_vec(),
+            category_name: Some("x".repeat(81)),
+            category_color: None,
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !store.list_categories().unwrap().iter().any(|c| c.name.len() == 81),
+        "超长分组名不得落库"
+    );
+
+    // 同一会话继续发合法分组 → 必须成功（证明会话未被超长帧打断）
+    guest_ctx
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"valid".to_vec(),
+            category_name: Some("valid-cat".into()),
+            category_color: Some("#0D9488".into()),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store.list_categories().unwrap().iter().any(|c| c.name == "valid-cat") {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "合法帧在超长帧之后必须仍被处理");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let _ = host_manager.control_tx().unwrap().send(ControlMsg::Disconnect).await;
+    let _ = guest_ctx.send(ControlMsg::Disconnect).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), host_task).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), guest_task).await;
+}
