@@ -4,6 +4,7 @@
 use crate::store::Store;
 
 pub(crate) fn temp_store() -> Store {
+    super::secrets::use_mock_backend_for_tests(); // 凭据库统一切内存 mock，不触真实系统库
     let dir = std::env::temp_dir().join(format!(
         "ipaste-test-{}-{}",
         std::process::id(),

@@ -8,6 +8,7 @@ mod clips;
 mod categories;
 mod sync;
 mod automations;
+mod secrets;
 
 #[cfg(test)]
 pub(crate) mod test_support;

@@ -19,6 +19,9 @@ impl Store {
         test_cloud_connection(&api_address, &api_key)?;
 
         let conn = self.connect()?;
+        // v0.3.29+：API Key 不再明文入库——写系统凭据库，settings 列存空串占位。
+        // 凭据库写入失败直接报错，不做明文静默回退（安全优先于可用性）。
+        super::secrets::put_api_key(&api_key)?;
         conn.execute(
             "INSERT INTO settings (key, value) VALUES ('cloud_api_address', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -26,9 +29,9 @@ impl Store {
         )
         .map_err(|error| error.to_string())?;
         conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('cloud_api_key', ?1)
+            "INSERT INTO settings (key, value) VALUES ('cloud_api_key', '')
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![api_key],
+            [],
         )
         .map_err(|error| error.to_string())?;
         conn.execute(
@@ -41,6 +44,8 @@ impl Store {
     }
 
     pub(crate) fn disable_cloud_sync(&self) -> Result<AppSettings, String> {
+        // 先删凭据库条目（幂等），再清 settings，保证停用后密钥彻底移除。
+        super::secrets::delete_api_key()?;
         let conn = self.connect()?;
         conn.execute(
             "DELETE FROM settings WHERE key IN ('cloud_api_address', 'cloud_api_key', 'cloud_last_connected_at')",
