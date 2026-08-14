@@ -173,9 +173,34 @@ impl Store {
         let api_address = self
             .setting_value_with_conn(conn, "cloud_api_address")?
             .unwrap_or_default();
-        let api_key = self
-            .setting_value_with_conn(conn, "cloud_api_key")?
-            .unwrap_or_default();
+        let api_key = {
+            let stored = self
+                .setting_value_with_conn(conn, "cloud_api_key")?
+                .unwrap_or_default();
+            if stored.is_empty() {
+                // v0.3.29+：Key 存系统凭据库，settings 列只留空串占位。
+                // 凭据库读失败按「未配置」处理（可用性优先，不阻断整个设置读取），
+                // 原因落 stderr 供排查。
+                match super::secrets::get_api_key() {
+                    Ok(v) => v.unwrap_or_default(),
+                    Err(reason) => {
+                        eprintln!("[cloud] 读取系统凭据库失败：{reason}");
+                        String::new()
+                    }
+                }
+            } else {
+                // 老版本明文遗留：一次性迁移进系统凭据库并清空该列。
+                // 迁移失败（凭据库不可用）向上报错——用户重试即可，不做明文回退。
+                super::secrets::put_api_key(&stored)
+                    .map_err(|reason| format!("迁移 API Key 到系统凭据库失败：{reason}"))?;
+                conn.execute(
+                    "UPDATE settings SET value = '' WHERE key = 'cloud_api_key'",
+                    [],
+                )
+                .map_err(|error| error.to_string())?;
+                stored
+            }
+        };
         let last_connected_at = self.setting_value_with_conn(conn, "cloud_last_connected_at")?;
         let enabled = !api_address.is_empty() && !api_key.is_empty();
 
@@ -227,5 +252,81 @@ mod tests {
         assert_eq!(s.ocr_mode, "best");
         assert_eq!(s.panel_open_behavior, "last_selected");
         assert_eq!(s.language, "zh-CN");
+    }
+}
+
+#[cfg(test)]
+mod cloud_keyring_tests {
+    use crate::store::secrets;
+    use crate::store::test_support::temp_store;
+
+    /// mock keyring 是进程级共享的内存后端，相关测试必须串行。
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn legacy_plaintext_key_migrates_into_secret_store() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_api_key();
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('cloud_api_key', 'legacy-plain-key')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+        }
+        let conn = store.connect().unwrap();
+        let cloud = store.cloud_settings_with_conn(&conn).unwrap();
+        assert_eq!(cloud.api_key, "legacy-plain-key");
+        assert_eq!(secrets::get_api_key().unwrap().as_deref(), Some("legacy-plain-key"));
+        let leftover: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'cloud_api_key'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftover, "", "明文列迁移后必须被清空");
+        let _ = secrets::delete_api_key();
+    }
+
+    #[test]
+    fn keyring_value_is_returned_when_column_is_placeholder() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_api_key();
+        secrets::put_api_key("from-keyring").unwrap();
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cloud = store.cloud_settings_with_conn(&conn).unwrap();
+        assert_eq!(cloud.api_key, "from-keyring");
+        assert!(cloud.enabled || cloud.api_address.is_empty(), "enabled 判定沿用地址+键非空");
+        let _ = secrets::delete_api_key();
+    }
+
+    #[test]
+    fn disable_cloud_sync_clears_secret_store() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_api_key();
+        secrets::put_api_key("to-be-removed").unwrap();
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('cloud_api_address', 'https://x.example')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('cloud_api_key', '')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+        }
+        store.disable_cloud_sync().unwrap();
+        assert_eq!(secrets::get_api_key().unwrap(), None);
     }
 }

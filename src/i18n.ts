@@ -26,7 +26,7 @@ const localeByLanguage: Record<Language, string> = {
 
 const supportedLanguages = new Set<Language>(languageOptions.map((option) => option.value));
 
-const messages = {
+export const messages = {
   en: {
     "automation.entry": "Actions",
     "automation.newAction": "New Action",
@@ -233,6 +233,7 @@ const messages = {
     "settings.cloud.disabled": "Sync disabled",
     "settings.cloud.description": "Configure your custom API for multi-device data sync.",
     "settings.cloud.apiAddress": "API address",
+    "settings.cloud.insecureWarning": "This address uses unencrypted HTTP. Your clipboard data and API key will travel in cleartext.",
     "settings.cloud.connected": "Connected",
     "settings.cloud.saved": "Cloud settings saved and synced",
     "settings.cloud.disabledMessage": "Cloud sync disabled",
@@ -558,6 +559,7 @@ const messages = {
     "settings.cloud.disabled": "同步未开启",
     "settings.cloud.description": "配置您的自定义 API 以实现多设备数据同步。",
     "settings.cloud.apiAddress": "API 地址",
+    "settings.cloud.insecureWarning": "该地址使用未加密的 HTTP，剪贴板数据与 API Key 将以明文传输。",
     "settings.cloud.connected": "连接成功",
     "settings.cloud.saved": "云端配置已保存并同步",
     "settings.cloud.disabledMessage": "云端同步已关闭",
@@ -874,6 +876,7 @@ const messages = {
     "settings.cloud.disabled": "同期無効",
     "settings.cloud.description": "マルチデバイスデータ同期用にカスタムAPIを設定します。",
     "settings.cloud.apiAddress": "API アドレス",
+    "settings.cloud.insecureWarning": "このアドレスは暗号化されていない HTTP を使用しています。クリップボードデータと API キーが平文で送信されます。",
     "settings.cloud.connected": "接続済み",
     "settings.cloud.saved": "クラウド設定が保存され、同期されました",
     "settings.cloud.disabledMessage": "クラウド同期は無効です",
@@ -1188,6 +1191,7 @@ const messages = {
     "settings.cloud.disabled": "동기화 꺼짐",
     "settings.cloud.description": "다중 장치 데이터 동기화를 위해 사용자 지정 API를 구성합니다.",
     "settings.cloud.apiAddress": "API 주소",
+    "settings.cloud.insecureWarning": "이 주소는 암호화되지 않은 HTTP를 사용합니다. 클립보드 데이터와 API 키가 평문으로 전송됩니다.",
     "settings.cloud.connected": "연결됨",
     "settings.cloud.saved": "클라우드 설정이 저장 및 동기화됨",
     "settings.cloud.disabledMessage": "클라우드 동기화 비활성화됨",
@@ -1502,6 +1506,7 @@ const messages = {
     "settings.cloud.disabled": "Sincronización desactivada",
     "settings.cloud.description": "Configura tu API personalizada para sincronizar datos entre dispositivos.",
     "settings.cloud.apiAddress": "Dirección de API",
+    "settings.cloud.insecureWarning": "Esta dirección usa HTTP sin cifrar: los datos del portapapeles y la clave de API viajarán en texto claro.",
     "settings.cloud.connected": "Conectado",
     "settings.cloud.saved": "Ajustes de nube guardados y sincronizados",
     "settings.cloud.disabledMessage": "Sincronización en la nube desactivada",
@@ -1816,6 +1821,7 @@ const messages = {
     "settings.cloud.disabled": "Sync désactivée",
     "settings.cloud.description": "Configurez votre API personnalisée pour synchroniser les données entre appareils.",
     "settings.cloud.apiAddress": "Adresse de l'API",
+    "settings.cloud.insecureWarning": "Cette adresse utilise HTTP non chiffré : les données du presse-papiers et la clé API transiteront en clair.",
     "settings.cloud.connected": "Connecté",
     "settings.cloud.saved": "Réglages cloud enregistrés et synchronisés",
     "settings.cloud.disabledMessage": "Synchronisation cloud désactivée",
@@ -2130,6 +2136,7 @@ const messages = {
     "settings.cloud.disabled": "Sync deaktiviert",
     "settings.cloud.description": "Konfiguriere deine eigene API für die Datensynchronisierung über mehrere Geräte.",
     "settings.cloud.apiAddress": "API-Adresse",
+    "settings.cloud.insecureWarning": "Diese Adresse verwendet unverschlüsseltes HTTP: Zwischenablage-Daten und API-Schlüssel werden im Klartext übertragen.",
     "settings.cloud.connected": "Verbunden",
     "settings.cloud.saved": "Cloud-Einstellungen gespeichert und synchronisiert",
     "settings.cloud.disabledMessage": "Cloud-Sync deaktiviert",

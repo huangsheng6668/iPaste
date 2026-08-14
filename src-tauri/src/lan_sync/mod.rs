@@ -374,7 +374,7 @@ impl LanSessionManager {
             inner.control_tx = None;
             inner.control_rx = None;
             // Abort accept task. Safe: the session loop runs on an
-            // independently-spawned task (handle_guest_with_handshake), not a
+            // independently-spawned task (handle_guest_with_challenge), not a
             // structured child of the accept loop, so aborting the accept task
             // does not panic or unwind the caller. JoinHandle::abort schedules
             // cancellation at the next .await.

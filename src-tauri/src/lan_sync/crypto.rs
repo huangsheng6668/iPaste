@@ -1,6 +1,6 @@
 //! 加密原语：X25519 密钥协商 + 配对码派生会话密钥 + AES-256-GCM 加密会话帧。
 //!
-//! 线格式（v2 会话）：`[u32 nonce_len=12][nonce 12B][u32 ct_len][ct]`，
+//! 线格式（v4 握手（挑战-响应）+ v2 会话帧）：`[u32 nonce_len=12][nonce 12B][u32 ct_len][ct]`，
 //! ct = AES-256-GCM 加密的明文帧（明文帧格式与 session::Connection 一致：
 //! `[u32 header_len][header json][u32 payload_len][payload]`）。
 
@@ -8,7 +8,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -20,8 +20,6 @@ type HmacSha256 = Hmac<Sha256>;
 /// 外层加密帧密文上限：明文帧最大 ≈ 2 * LAN_MAX_PAYLOAD + 16，加 GCM tag 与余量。
 pub(crate) const LAN_MAX_FRAME: usize = 2 * LAN_MAX_PAYLOAD + 64;
 
-const CODE_CLAIM_INFO: &[u8] = b"ipaste-lan-pair-v2";
-const HOST_AUTH_INFO: &[u8] = b"ipaste-lan-auth-v2-host";
 const SESSION_KEY_INFO: &[u8] = b"ipaste-lan-sync-v2";
 
 pub(crate) struct SecureConnection {
@@ -31,17 +29,52 @@ pub(crate) struct SecureConnection {
     session_key: [u8; 32],
 }
 
-pub(crate) fn code_claim(code: &str) -> String {
-    // 注：`new_from_slice` 在 `HmacSha256` 上同时由 `hmac::Mac` 与 `aes_gcm::KeyInit`（经
-    // `use aes_gcm::aead::KeyInit` 引入）提供，存在歧义，故显式消歧到 `Mac` trait。
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(code.trim().as_bytes()).expect("hmac accepts any key length");
-    mac.update(CODE_CLAIM_INFO);
-    hex(&mac.finalize().into_bytes()[..16])
+const GUEST_PROOF_INFO: &[u8] = b"ipaste-lan-v4-guest";
+const HOST_TAG_INFO: &[u8] = b"ipaste-lan-v4-host";
+const TRANSCRIPT_DOMAIN: &[u8] = b"ipaste-lan-v4-transcript";
+
+/// 转录字段：u32 小端长度前缀 + 字节内容（消除拼接歧义）。
+fn extend_field(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update(&(bytes.len() as u32).to_le_bytes());
+    hasher.update(bytes);
 }
 
-pub(crate) fn host_auth_tag(key: &[u8; 32]) -> String {
+/// 握手转录哈希：对（协议版本、host 设备名、host 公钥、guest 设备名、guest 公钥）
+/// 逐字段「u32 小端长度前缀 + 字节」串联后 SHA256。v4 的所有握手认证标签都以它为
+/// 输入——设备名与公钥因此被绑定进认证范围，无法被中途替换。
+pub(crate) fn transcript_hash(
+    version: u32,
+    host_name: &str,
+    host_public: &PublicKey,
+    guest_name: &str,
+    guest_public: &PublicKey,
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(TRANSCRIPT_DOMAIN);
+    extend_field(&mut hasher, &version.to_le_bytes());
+    extend_field(&mut hasher, host_name.as_bytes());
+    extend_field(&mut hasher, host_public.as_bytes());
+    extend_field(&mut hasher, guest_name.as_bytes());
+    extend_field(&mut hasher, guest_public.as_bytes());
+    hasher.finalize().into()
+}
+
+/// guest 持码证明：MAC(session_key, "v4-guest" ‖ transcript) 截 16 字节 hex。
+/// 它是「DH 共享密钥 + 配对码」的函数，被动窃听者没有私钥即无法离线验证码猜测。
+pub(crate) fn guest_proof(key: &[u8; 32], transcript: &[u8; 32]) -> String {
+    tagged_mac16(key, GUEST_PROOF_INFO, transcript)
+}
+
+/// host 认证标签：MAC(session_key, "v4-host" ‖ transcript) 截 16 字节 hex。
+/// guest 校验它 = 同时确认对方持码与握手指纹（设备名/公钥未被替换）。
+pub(crate) fn host_transcript_tag(key: &[u8; 32], transcript: &[u8; 32]) -> String {
+    tagged_mac16(key, HOST_TAG_INFO, transcript)
+}
+
+fn tagged_mac16(key: &[u8; 32], domain: &[u8], transcript: &[u8; 32]) -> String {
     let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("hmac accepts any key length");
-    mac.update(HOST_AUTH_INFO);
+    mac.update(domain);
+    mac.update(transcript);
     hex(&mac.finalize().into_bytes()[..16])
 }
 
@@ -258,15 +291,7 @@ impl SecureWriteHalf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::Engine as _;
     use tokio::net::TcpListener;
-
-    #[test]
-    fn code_claim_is_stable_and_hex16() {
-        assert_eq!(code_claim("ROOM"), code_claim("ROOM"));
-        assert_ne!(code_claim("ROOM"), code_claim("room"));
-        assert_eq!(code_claim("ROOM").len(), 32);
-    }
 
     #[test]
     fn both_sides_derive_same_session_key() {
@@ -277,14 +302,6 @@ mod tests {
         assert_eq!(ka, kb);
         // 码不同 → 密钥不同
         assert_ne!(ka, derive_session_key(&a_sec, &b_pub, "ABC124"));
-    }
-
-    #[test]
-    fn host_auth_tag_depends_on_key() {
-        let k1 = [1u8; 32];
-        let k2 = [2u8; 32];
-        assert_ne!(host_auth_tag(&k1), host_auth_tag(&k2));
-        assert_eq!(host_auth_tag(&k1).len(), 32);
     }
 
     #[test]
@@ -376,5 +393,49 @@ mod tests {
             .await
             .unwrap();
         server.await.unwrap();
+    }
+
+    #[test]
+    fn transcript_hash_changes_when_any_field_changes() {
+        let (_, host_pub) = generate_pair_keys();
+        let (_, guest_pub) = generate_pair_keys();
+        let base = transcript_hash(4, "host", &host_pub, "guest", &guest_pub);
+        assert_ne!(base, transcript_hash(3, "host", &host_pub, "guest", &guest_pub), "版本参与转录");
+        assert_ne!(base, transcript_hash(4, "evil", &host_pub, "guest", &guest_pub), "host 名参与转录");
+        assert_ne!(base, transcript_hash(4, "host", &host_pub, "evil", &guest_pub), "guest 名参与转录");
+        let (_, other_pub) = generate_pair_keys();
+        assert_ne!(base, transcript_hash(4, "host", &other_pub, "guest", &guest_pub), "host 公钥参与转录");
+        assert_ne!(base, transcript_hash(4, "host", &host_pub, "guest", &other_pub), "guest 公钥参与转录");
+    }
+
+    #[test]
+    fn transcript_hash_is_deterministic() {
+        let (_, host_pub) = generate_pair_keys();
+        let (_, guest_pub) = generate_pair_keys();
+        assert_eq!(
+            transcript_hash(4, "host", &host_pub, "guest", &guest_pub),
+            transcript_hash(4, "host", &host_pub, "guest", &guest_pub)
+        );
+    }
+
+    #[test]
+    fn guest_proof_and_host_tag_are_domain_separated() {
+        let key = [5u8; 32];
+        let (_, host_pub) = generate_pair_keys();
+        let (_, guest_pub) = generate_pair_keys();
+        let transcript = transcript_hash(4, "h", &host_pub, "g", &guest_pub);
+        assert_ne!(guest_proof(&key, &transcript), host_transcript_tag(&key, &transcript));
+        assert_eq!(guest_proof(&key, &transcript).len(), 32, "HMAC 截 16 字节 hex = 32 字符");
+    }
+
+    #[test]
+    fn transcript_tags_depend_on_transcript() {
+        let key = [5u8; 32];
+        let (_, host_pub) = generate_pair_keys();
+        let (_, guest_pub) = generate_pair_keys();
+        let t1 = transcript_hash(4, "h", &host_pub, "g", &guest_pub);
+        let t2 = transcript_hash(4, "h", &host_pub, "g2", &guest_pub);
+        assert_ne!(guest_proof(&key, &t1), guest_proof(&key, &t2));
+        assert_ne!(host_transcript_tag(&key, &t1), host_transcript_tag(&key, &t2));
     }
 }

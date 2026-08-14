@@ -45,6 +45,22 @@ pub(crate) fn preview(text: &str) -> String {
     collapsed.chars().take(180).collect()
 }
 
+/// URL query 组件编码：保留 unreserved 字符（A-Za-z0-9-_.~），其余按 UTF-8 字节
+/// 百分号编码（大写 hex）。用于把窗口 label 安全拼进 `index.html?...&label=`，
+/// 消除 query 注入面。
+pub(crate) fn percent_encode_component(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -273,4 +289,18 @@ pub(crate) fn file_sha256(path: &PathBuf) -> Result<String, String> {
 
 pub(crate) fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_encode_keeps_unreserved_and_encodes_rest() {
+        assert_eq!(percent_encode_component("clip-viewer-abc123_-.~"), "clip-viewer-abc123_-.~");
+        assert_eq!(percent_encode_component("a b&c=d"), "a%20b%26c%3Dd");
+        assert_eq!(percent_encode_component("中"), "%E4%B8%AD");
+        assert_eq!(percent_encode_component(""), "");
+        assert_eq!(percent_encode_component("a?b#c"), "a%3Fb%23c");
+    }
 }

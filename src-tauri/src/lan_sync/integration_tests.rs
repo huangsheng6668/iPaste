@@ -1,7 +1,7 @@
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::lan_sync::protocol::*;
-use crate::lan_sync::session::Connection;
+use crate::lan_sync::session::{run_session_loop, Connection};
 
 #[tokio::test]
 async fn full_handshake_push_request_disconnect_roundtrip() {
@@ -12,10 +12,18 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
         let (stream, _) = listener.accept().await.unwrap();
         let mut conn = Connection::new(stream);
 
-        // 1. 握手
+        // 1. 握手：host 先发言下发挑战，guest 回 Handshake，host 回 PairAccepted
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: LAN_PROTOCOL_VERSION,
+                host_device_name: "host".into(),
+                host_pubkey: Some("QUJD".into()),
+            },
+            None,
+        ).await.unwrap();
         let (msg, _) = conn.read_message().await.unwrap();
         assert!(matches!(msg, LanMessage::Handshake { device_name, .. } if device_name == "guest"));
-        conn.write_message(&LanMessage::PairAccepted { host_device_name: "host".into(), host_pubkey: None, auth_tag: None }, None).await.unwrap();
+        conn.write_message(&LanMessage::PairAccepted { host_device_name: "host".into(), auth_tag: None }, None).await.unwrap();
 
         // 2. 收推送
         let (msg, payload) = conn.read_message().await.unwrap();
@@ -33,12 +41,15 @@ async fn full_handshake_push_request_disconnect_roundtrip() {
     });
 
     let mut client = Connection::new(TcpStream::connect(addr).await.unwrap());
+    // v4：先读 host 挑战，再回 Handshake，最后读 PairAccepted。
+    let (msg, _) = client.read_message().await.unwrap();
+    assert!(matches!(msg, LanMessage::PairChallenge { .. }));
     client.write_message(
         &LanMessage::Handshake {
             version: LAN_PROTOCOL_VERSION,
-            code_claim: None,
             device_name: "guest".into(),
             guest_pubkey: None,
+            guest_proof: None,
         },
         None,
     )
@@ -97,13 +108,16 @@ async fn clip_push_with_category_roundtrips_over_tcp() {
     server.await.unwrap();
 }
 
-/// 完整 v2 流程：明文握手（带 claim/公钥）→ 双方派生密钥 → 加密会话收发。
+/// 完整 v4 流程：host 下发挑战 → 双方派生密钥 + 转录 → 持码证明互换 → 加密会话收发。
 #[tokio::test]
-async fn full_v2_handshake_and_secure_session_roundtrip() {
+async fn full_v4_handshake_and_secure_session_roundtrip() {
     use base64::Engine as _;
     use x25519_dalek::PublicKey;
 
-    use crate::lan_sync::crypto::*;
+    use crate::lan_sync::crypto::{
+        derive_session_key, generate_pair_keys, guest_proof, host_transcript_tag, transcript_hash,
+        SecureConnection,
+    };
 
     let code = "TESTCODE";
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -113,40 +127,44 @@ async fn full_v2_handshake_and_secure_session_roundtrip() {
         let (stream, _) = listener.accept().await.unwrap();
         let mut conn = Connection::new(stream);
 
-        // 1. 读 v2 Handshake，校验 claim
+        // 1. v4 host 先发言：下发挑战（带 host 公钥）
+        let (host_secret, host_public) = generate_pair_keys();
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: LAN_PROTOCOL_VERSION,
+                host_device_name: "host".into(),
+                host_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes())),
+            },
+            None,
+        ).await.unwrap();
+        // 2. 读 guest Handshake，校验持码证明
         let (msg, _) = conn.read_message().await.unwrap();
-        let (claim, guest_pubkey_b64) = match msg {
-            LanMessage::Handshake { version, code_claim, guest_pubkey, .. } => {
+        let (guest_pubkey_b64, proof) = match msg {
+            LanMessage::Handshake { version, guest_pubkey, guest_proof, device_name } => {
                 assert_eq!(version, LAN_PROTOCOL_VERSION);
-                (code_claim.unwrap(), guest_pubkey.unwrap())
+                assert_eq!(device_name, "guest");
+                (guest_pubkey.unwrap(), guest_proof.unwrap())
             }
             other => panic!("wrong variant: {other:?}"),
         };
-        assert_eq!(claim, code_claim(code));
-
-        // 2. 派生会话密钥，回 PairAccepted
-        let (host_secret, host_public) = generate_pair_keys();
         let guest_public = {
             let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
-                .decode(&guest_pubkey_b64)
-                .unwrap()
-                .try_into()
-                .unwrap();
+                .decode(&guest_pubkey_b64).unwrap().try_into().unwrap();
             PublicKey::from(bytes)
         };
         let key = derive_session_key(&host_secret, &guest_public, code);
+        let transcript = transcript_hash(LAN_PROTOCOL_VERSION, "host", &host_public, "guest", &guest_public);
+        assert_eq!(guest_proof(&key, &transcript), proof);
+        // 3. 回 PairAccepted（转录绑定的认证标签）
         conn.write_message(
             &LanMessage::PairAccepted {
                 host_device_name: "host".into(),
-                host_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes())),
-                auth_tag: Some(host_auth_tag(&key)),
+                auth_tag: Some(host_transcript_tag(&key, &transcript)),
             },
             None,
-        )
-        .await
-        .unwrap();
+        ).await.unwrap();
 
-        // 3. 加密会话：收 ClipPush、回 ClipResponse
+        // 4. 加密会话：收 ClipPush、回 ClipResponse
         let mut secure = SecureConnection::new(conn.into_stream(), key);
         let (msg, payload) = secure.read_message().await.unwrap();
         assert!(matches!(msg, LanMessage::ClipPush { clip_type, empty: false, .. } if clip_type == "text"));
@@ -163,32 +181,35 @@ async fn full_v2_handshake_and_secure_session_roundtrip() {
     // guest 侧
     let mut conn = Connection::new(TcpStream::connect(addr).await.unwrap());
     let (guest_secret, guest_public) = generate_pair_keys();
+    let (msg, _) = conn.read_message().await.unwrap();
+    let (host_name, host_public) = match msg {
+        LanMessage::PairChallenge { version, host_device_name, host_pubkey } => {
+            assert_eq!(version, LAN_PROTOCOL_VERSION);
+            let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                .decode(&host_pubkey.unwrap()).unwrap().try_into().unwrap();
+            (host_device_name, PublicKey::from(bytes))
+        }
+        other => panic!("wrong variant: {other:?}"),
+    };
+    let key = derive_session_key(&guest_secret, &host_public, code);
+    let transcript = transcript_hash(LAN_PROTOCOL_VERSION, &host_name, &host_public, "guest", &guest_public);
     conn.write_message(
         &LanMessage::Handshake {
             version: LAN_PROTOCOL_VERSION,
-            code_claim: Some(code_claim(code)),
             device_name: "guest".into(),
             guest_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes())),
+            guest_proof: Some(guest_proof(&key, &transcript)),
         },
         None,
     )
     .await
     .unwrap();
     let (msg, _) = conn.read_message().await.unwrap();
-    let (host_pubkey_b64, tag) = match msg {
-        LanMessage::PairAccepted { host_pubkey, auth_tag, .. } => (host_pubkey.unwrap(), auth_tag.unwrap()),
+    let tag = match msg {
+        LanMessage::PairAccepted { auth_tag, .. } => auth_tag.unwrap(),
         other => panic!("wrong variant: {other:?}"),
     };
-    let host_public = {
-        let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
-            .decode(&host_pubkey_b64)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        PublicKey::from(bytes)
-    };
-    let key = derive_session_key(&guest_secret, &host_public, code);
-    assert_eq!(host_auth_tag(&key), tag);
+    assert_eq!(host_transcript_tag(&key, &transcript), tag);
 
     let mut secure = SecureConnection::new(conn.into_stream(), key);
     secure
@@ -476,3 +497,725 @@ async fn host_initiated_disconnect_resets_both_sides() {
     }
 }
 
+/// 回归（用户报告的核心 bug）：A 端（guest）连上 B 端（host）后，B 端在**收过数据帧
+/// 之后**仍能主动断开。
+///
+/// 旧架构里读任务把帧经 mpsc 转发给主循环、主循环在「control_rx + frame_rx」之间
+/// select。全链路下 host 主循环一旦 park（尤其在收过数据后）就再也唤不醒——既收不到
+/// 后续帧、也响应不了 Disconnect，表现为「B 端点断开无反应、双方一直 Connected」。
+/// 改为读任务原地处理帧、主循环只 select「control + 读任务结束信号」后，本测试通过。
+///
+/// 流程：host 真实 start_host_on → guest 真实 join → 双方 Connected →
+/// guest 经 control 发一条带分组的 SendClip（走 DB 落库、不碰系统剪贴板）→
+/// 断言 host 收到落库（修复前这里超时）→ host 发 Disconnect → 断言双方都回 Idle。
+#[tokio::test(flavor = "multi_thread")]
+async fn host_initiated_disconnect_after_receiving_data() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let code = "TESTCD";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let listen_addr = start_host_on(host_manager.clone(), store.clone(), code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+    let dial_addr = format!("127.0.0.1:{port}");
+
+    let join_task = {
+        let manager = guest_manager.clone();
+        let store = store.clone();
+        let code = code.to_string();
+        tokio::spawn(async move { join_by_address(manager, store, dial_addr, code).await })
+    };
+
+    // host 同意配对
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(tx) = host_manager.take_pair_decision_tx() {
+            let _ = tx.send(true);
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pair request never arrived"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 等双方 Connected
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "session never connected"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // guest → host：发一条带分组的文本（走 DB 落库，不写系统剪贴板）
+    guest_manager
+        .control_tx()
+        .expect("guest control tx")
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"hello-after-data".to_vec(),
+            category_name: Some("leftover-cat".into()),
+            category_color: Some("#0D9488".into()),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    // 等 host 真实收到并落库（收过数据帧是复现「已知遗留」的关键前提）：
+    // apply_received 会按名称新建分组「leftover-cat」，分组出现即证明数据帧已被处理。
+    // 修复前：host 主循环 park 后再也唤不醒，分组永不出现，本断言超时失败。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store
+            .list_categories()
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "leftover-cat")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "host never received data frame after guest SendClip (regression: host session loop stuck)"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // host 点「断开」（等价于 lan_disconnect 的 Connected 分支）
+    host_manager
+        .control_tx()
+        .expect("host control tx")
+        .send(ControlMsg::Disconnect)
+        .await
+        .unwrap();
+
+    // 双方都应回到 Idle（卡住即复现「收过数据后 host 无法主动断开」）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Idle
+            && guest_manager.snapshot().status == LanStatus::Idle
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "host disconnect after data did not reset sessions (leftover reproduced)"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), join_task)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+/// 回归：两侧并发跑 `run_session_loop`，guest 经 control 发一条带分组的文本，
+/// host 必须收到并落库。覆盖「读任务原地处理入站帧」的新架构——确保 frame 不再
+/// 经 mpsc 转发给主循环时，host 仍能稳定接收 guest 推送的内容。
+#[tokio::test(flavor = "multi_thread")]
+async fn two_direct_session_loops_guest_sends_host_receives() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::crypto::SecureConnection;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let key = [42u8; 32];
+
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let (host_ctx, host_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    let (guest_ctx, guest_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    // 模拟全链路：host 的 control channel 经 manager 存取（set_hosting → take_control_rx）
+    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx, 1);
+
+    let host_mgr = host_manager.clone();
+    let host_store = store.clone();
+    let host_task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let host_crx = host_mgr.take_control_rx().expect("host control rx");
+        run_session_loop(
+            SecureConnection::new(stream, key),
+            host_mgr,
+            host_store,
+            "guest".to_string(),
+            host_crx,
+        )
+        .await;
+    });
+
+    let guest_mgr = guest_manager.clone();
+    let guest_store = store.clone();
+    let guest_task = tokio::spawn(async move {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        run_session_loop(
+            SecureConnection::new(stream, key),
+            guest_mgr,
+            guest_store,
+            "host".to_string(),
+            guest_crx,
+        )
+        .await;
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    guest_ctx
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"two-loops-payload".to_vec(),
+            category_name: Some("twoloops-cat".into()),
+            category_color: Some("#0D9488".into()),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store
+            .list_categories()
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "twoloops-cat")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "two concurrent session loops: host did not receive guest's frame"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let _ = host_manager
+        .control_tx()
+        .unwrap()
+        .send(ControlMsg::Disconnect)
+        .await;
+    let _ = guest_ctx.send(ControlMsg::Disconnect).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), host_task).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), guest_task).await;
+}
+
+/// 回归：host 走**真实全链路**（start_host_on + accept + handle_guest_with_challenge
+/// + 配对确认 + 真实 v4 crypto），对端是裸客户端（读挑战后手动握手再写一帧）。确保 host 的
+/// 全链路能稳定接收并落库对端推送的帧。
+#[tokio::test(flavor = "multi_thread")]
+async fn host_full_path_with_raw_client_receives_frame() {
+    use std::sync::Arc;
+
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{
+        derive_session_key, generate_pair_keys, guest_proof, host_transcript_tag, transcript_hash,
+        SecureConnection,
+    };
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let code = "RAWCODE";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let listen_addr = start_host_on(host_manager.clone(), store.clone(), code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+    let dial_addr = format!("127.0.0.1:{port}");
+
+    // 裸客户端：读挑战 → 按 transcript 算 proof → 发 Handshake → 校验 auth_tag + 写一帧。
+    let raw_client = tokio::spawn(async move {
+        use crate::lan_sync::session::Connection;
+        let mut conn = Connection::new(TcpStream::connect(dial_addr).await.unwrap());
+        let (msg, _) = conn.read_message().await.unwrap();
+        let (host_name, host_public) = match msg {
+            LanMessage::PairChallenge { version, host_device_name, host_pubkey } => {
+                assert_eq!(version, LAN_PROTOCOL_VERSION);
+                let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                    .decode(&host_pubkey.unwrap()).unwrap().try_into().unwrap();
+                (host_device_name, PublicKey::from(bytes))
+            }
+            other => panic!("wrong variant: {other:?}"),
+        };
+        let (guest_secret, guest_public) = generate_pair_keys();
+        let key = derive_session_key(&guest_secret, &host_public, code);
+        let transcript = transcript_hash(LAN_PROTOCOL_VERSION, &host_name, &host_public, "raw-guest", &guest_public);
+        conn.write_message(
+            &LanMessage::Handshake {
+                version: LAN_PROTOCOL_VERSION,
+                device_name: "raw-guest".into(),
+                guest_pubkey: Some(
+                    base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes()),
+                ),
+                guest_proof: Some(guest_proof(&key, &transcript)),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let (reply, _) = conn.read_message().await.unwrap();
+        let LanMessage::PairAccepted { auth_tag: Some(tag), .. } = reply else {
+            panic!("expected PairAccepted v4: {reply:?}");
+        };
+        assert_eq!(host_transcript_tag(&key, &transcript), tag);
+        let mut secure = SecureConnection::new(conn.into_stream(), key);
+        secure
+            .write_message(
+                &LanMessage::ClipPush {
+                    clip_type: "text".into(),
+                    empty: false,
+                    category_name: Some("rawclient-cat".into()),
+                    category_color: Some("#0D9488".into()),
+                    display_name: None,
+                },
+                Some(b"rawclient-payload"),
+            )
+            .await
+            .unwrap();
+        // 保持连接一小段，让 host 有时间读帧。
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    });
+
+    // host 同意配对
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(tx) = host_manager.take_pair_decision_tx() {
+            let _ = tx.send(true);
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pair request never arrived"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 等 Connected
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // host 是否收到并落库
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store
+            .list_categories()
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "rawclient-cat")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "host full path did not receive raw client's frame"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let _ = raw_client.await;
+}
+
+/// v3 老客户端（直接发无 proof 的 Handshake）连 v4 host：必须被 PairRejected，
+/// 而不是崩溃、挂起或触发配对弹窗。
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_v3_handshake_is_rejected_by_v4_host() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::session::Connection;
+    use crate::lan_sync::LanSessionManager;
+    use crate::store::test_support::temp_store;
+    use tokio::net::TcpStream;
+
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    let listen_addr = start_host_on(host_manager.clone(), store, "TESTCD".to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+
+    let mut conn = Connection::new(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+    // v3 形态：不等问题、直接发言，无 guest_proof
+    conn.write_message(
+        &LanMessage::Handshake {
+            version: 3,
+            device_name: "old-guest".into(),
+            guest_pubkey: None,
+            guest_proof: None,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    // v4 host accept 即发挑战——先读到它（丢弃），再等拒绝
+    let (msg, _) = conn.read_message().await.unwrap();
+    assert!(matches!(msg, LanMessage::PairChallenge { .. }));
+    let (msg, _) = tokio::time::timeout(std::time::Duration::from_secs(5), conn.read_message())
+        .await
+        .expect("host must reply")
+        .unwrap();
+    assert!(matches!(msg, LanMessage::PairRejected { .. }));
+    assert!(host_manager.take_pair_decision_tx().is_none(), "版本不符不得触发配对弹窗");
+}
+
+/// host accept 后保持沉默（模拟 v3 老版本 host 只等不答）：
+/// guest 应在挑战等待超时后回到 Idle，不挂起。
+#[tokio::test(flavor = "multi_thread")]
+async fn guest_times_out_and_resets_when_host_silent() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let silent = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    });
+
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    // CHALLENGE_WAIT_TIMEOUT_SECS 在 cfg(test) 下为 2s，join 返回即代表超时已处理
+    join_by_address(guest_manager.clone(), store, format!("127.0.0.1:{port}"), "TESTCD".to_string()).await;
+    assert_eq!(guest_manager.snapshot().status, LanStatus::Idle);
+    silent.abort();
+}
+
+/// 码校验：guest 用错误码计算 proof → host 回 WrongCode，且不触发配对弹窗。
+#[tokio::test(flavor = "multi_thread")]
+async fn wrong_code_guest_is_rejected_without_pair_prompt() {
+    use std::sync::Arc;
+
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{derive_session_key, generate_pair_keys, guest_proof, transcript_hash};
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::session::Connection;
+    use crate::lan_sync::LanSessionManager;
+    use crate::store::test_support::temp_store;
+    use tokio::net::TcpStream;
+
+    let code = "REALCODE";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    let listen_addr = start_host_on(host_manager.clone(), store, code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+
+    let mut conn = Connection::new(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+    let (msg, _) = conn.read_message().await.unwrap();
+    let LanMessage::PairChallenge { version, host_device_name, host_pubkey } = msg else {
+        panic!("expected challenge: {msg:?}");
+    };
+    let host_public_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+        .decode(&host_pubkey.unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let host_public = PublicKey::from(host_public_bytes);
+    // 错误码派生密钥与 proof
+    let (guest_secret, guest_public) = generate_pair_keys();
+    let key = derive_session_key(&guest_secret, &host_public, "WRONG001");
+    let transcript = transcript_hash(version, &host_device_name, &host_public, "guest", &guest_public);
+    conn.write_message(
+        &LanMessage::Handshake {
+            version,
+            device_name: "guest".into(),
+            guest_pubkey: Some(base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes())),
+            guest_proof: Some(guest_proof(&key, &transcript)),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let (msg, _) = tokio::time::timeout(std::time::Duration::from_secs(5), conn.read_message())
+        .await
+        .expect("host must reply")
+        .unwrap();
+    assert!(matches!(msg, LanMessage::PairRejected { reason: PairRejectReason::WrongCode }));
+    assert!(host_manager.take_pair_decision_tx().is_none(), "错码不得触发配对弹窗");
+}
+
+/// 转录绑定（帧级双向验证）：challenge 的设备名被中途篡改 →
+/// host 用真实转录校验 guest proof 必不匹配；guest 用篡改转录校验 host tag 必不匹配。
+#[tokio::test]
+async fn tampered_challenge_name_breaks_proof_in_both_directions() {
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{
+        derive_session_key, generate_pair_keys, guest_proof, host_transcript_tag, transcript_hash,
+    };
+
+    let code = "TESTCODE";
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let host = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = Connection::new(stream);
+        let (host_secret, host_public) = generate_pair_keys();
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: 4,
+                host_device_name: "RealHost".into(),
+                host_pubkey: Some(
+                    base64::engine::general_purpose::STANDARD.encode(host_public.as_bytes()),
+                ),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let (msg, _) = conn.read_message().await.unwrap();
+        let LanMessage::Handshake { device_name, guest_pubkey: Some(gp), guest_proof: Some(proof), .. } = msg
+        else {
+            panic!("expected v4 handshake: {msg:?}");
+        };
+        let guest_public_bytes: [u8; 32] =
+            base64::engine::general_purpose::STANDARD.decode(&gp).unwrap().try_into().unwrap();
+        let guest_public = PublicKey::from(guest_public_bytes);
+        let key = derive_session_key(&host_secret, &guest_public, code);
+        // host 按真实设备名 "RealHost" 计算转录 → guest 的 proof（基于 "EvilHost"）必不匹配
+        let authentic = transcript_hash(4, "RealHost", &host_public, &device_name, &guest_public);
+        assert_ne!(guest_proof(&key, &authentic), proof, "篡改名后 host 侧校验必须失败");
+    });
+
+    // guest：真实收到的挑战名是 "RealHost"，但模拟中间人改帧、guest 实际按 "EvilHost" 参与转录
+    let mut conn = TcpStream::connect(addr).await.unwrap();
+    let mut conn = Connection::new(conn);
+    let (msg, _) = conn.read_message().await.unwrap();
+    let LanMessage::PairChallenge { version, host_device_name, host_pubkey } = msg else {
+        panic!("expected challenge: {msg:?}");
+    };
+    assert_eq!(host_device_name, "RealHost");
+    let host_public_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+        .decode(&host_pubkey.unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let host_public = PublicKey::from(host_public_bytes);
+    let (guest_secret, guest_public) = generate_pair_keys();
+    let key = derive_session_key(&guest_secret, &host_public, code);
+    let tampered = transcript_hash(version, "EvilHost", &host_public, "guest", &guest_public);
+    // guest 自检：host 若按真实名签 tag，篡改转录下校验必失败（对称方向）
+    let real_tag = host_transcript_tag(&key, &transcript_hash(version, "RealHost", &host_public, "guest", &guest_public));
+    assert_ne!(host_transcript_tag(&key, &tampered), real_tag, "篡改名后 guest 侧校验必须失败");
+    conn.write_message(
+        &LanMessage::Handshake {
+            version,
+            device_name: "guest".into(),
+            guest_pubkey: Some(
+                base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes()),
+            ),
+            guest_proof: Some(guest_proof(&key, &tampered)),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    host.await.unwrap();
+}
+
+/// 接线回归：超长分组名的帧被拒收（分组不落库），且会话存活——
+/// 同一会话里随后发送的合法分组能正常出现。
+#[tokio::test(flavor = "multi_thread")]
+async fn oversized_category_name_frame_is_rejected_and_session_survives() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::crypto::SecureConnection;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let key = [43u8; 32];
+
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let (host_ctx, host_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    let (guest_ctx, guest_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx, 1);
+
+    let host_mgr = host_manager.clone();
+    let host_store = store.clone();
+    let host_task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let host_crx = host_mgr.take_control_rx().expect("host control rx");
+        run_session_loop(SecureConnection::new(stream, key), host_mgr, host_store, "guest".to_string(), host_crx).await;
+    });
+
+    let guest_mgr = guest_manager.clone();
+    let guest_store = store.clone();
+    let guest_task = tokio::spawn(async move {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        run_session_loop(SecureConnection::new(stream, key), guest_mgr, guest_store, "host".to_string(), guest_crx).await;
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 超长分组名（81 字符）→ 拒收
+    guest_ctx
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"oversized".to_vec(),
+            category_name: Some("x".repeat(81)),
+            category_color: None,
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        !store.list_categories().unwrap().iter().any(|c| c.name.len() == 81),
+        "超长分组名不得落库"
+    );
+
+    // 同一会话继续发合法分组 → 必须成功（证明会话未被超长帧打断）
+    guest_ctx
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"valid".to_vec(),
+            category_name: Some("valid-cat".into()),
+            category_color: Some("#0D9488".into()),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store.list_categories().unwrap().iter().any(|c| c.name == "valid-cat") {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "合法帧在超长帧之后必须仍被处理");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let _ = host_manager.control_tx().unwrap().send(ControlMsg::Disconnect).await;
+    let _ = guest_ctx.send(ControlMsg::Disconnect).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), host_task).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), guest_task).await;
+}
+
+/// 回归（最终审查 Critical #1）：预认证阶段收到坏 base64 公钥的 Handshake，
+/// host 不得 reset 整个监听——仅断开该连接，host 状态保持 Hosting。
+///
+/// 注：测试模式下 accept 循环单次 accept 后退出（见 start_host_on 的 cfg!(test)
+/// 断点，规避测试环境里持续 accept 的运行时冻结），故本测试用「状态不被重置 +
+/// 恶意连接被断开」钉住缺陷：修复前该分支调用 reset_to_idle，状态翻成 Idle、
+/// host 任务被 abort，Hosting 断言即失败。
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_pubkey_frame_does_not_stop_hosting() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::session::Connection;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+    use tokio::net::TcpStream;
+
+    let code = "REALCODE";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    let listen_addr = start_host_on(host_manager.clone(), store, code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+
+    // 恶意对端：读到挑战后回一个坏公钥的 Handshake
+    let attacker = tokio::spawn(async move {
+        let mut conn = Connection::new(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+        let (msg, _) = conn.read_message().await.unwrap();
+        assert!(matches!(msg, LanMessage::PairChallenge { .. }));
+        conn.write_message(
+            &LanMessage::Handshake {
+                version: LAN_PROTOCOL_VERSION,
+                device_name: "attacker".into(),
+                guest_pubkey: Some("!!!not-base64!!!".into()),
+                guest_proof: Some("deadbeef".into()),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        // host 应直接断开本连接（读到 EOF/错误）且不回任何帧；无论读到什么到这里都是异常
+        let reply = conn.read_message().await;
+        panic!("malformed pubkey peer must be dropped without any reply, got: {reply:?}");
+    });
+
+    // host 状态必须保持 Hosting（修复前坏公钥分支 reset_to_idle → Idle，本断言失败即回归）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        assert_eq!(
+            host_manager.snapshot().status,
+            LanStatus::Hosting,
+            "host must keep Hosting after malformed pubkey frame"
+        );
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // 恶意连接应被 host 快速断开（任务以 panic 收场即代表连接被断、无回复帧）
+    let attacked = tokio::time::timeout(std::time::Duration::from_secs(5), attacker)
+        .await
+        .expect("host must drop the malformed-pubkey peer promptly");
+    assert!(attacked.is_err(), "attacker must be dropped, not left hanging or replied to");
+}
