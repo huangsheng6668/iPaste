@@ -257,7 +257,6 @@ mod tests {
 
 #[cfg(test)]
 mod cloud_keyring_tests {
-    use super::*;
     use crate::store::secrets;
     use crate::store::test_support::temp_store;
 
