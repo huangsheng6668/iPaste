@@ -41,7 +41,9 @@ impl Connection {
     }
 
     pub(crate) async fn read_message(&mut self) -> Result<(LanMessage, Option<Vec<u8>>), String> {
+        if cfg!(test) { eprintln!("[conn] read_message: reading header_len"); }
         let header_len = self.read_u32().await? as usize;
+        if cfg!(test) { eprintln!("[conn] read_message: header_len={header_len}"); }
         if header_len > LAN_MAX_PAYLOAD {
             return Err("帧头超限".to_string());
         }
@@ -80,6 +82,7 @@ impl Connection {
         payload: Option<&[u8]>,
     ) -> Result<(), String> {
         let header = serde_json::to_vec(msg).map_err(|e| e.to_string())?;
+        if cfg!(test) { eprintln!("[conn] write_message: writing header len {}", header.len()); }
         self.stream
             .write_all(&(header.len() as u32).to_le_bytes())
             .await
@@ -88,6 +91,7 @@ impl Connection {
             .write_all(&header)
             .await
             .map_err(|e| e.to_string())?;
+        if cfg!(test) { eprintln!("[conn] write_message: header written"); }
         if let Some(data) = payload {
             self.stream
                 .write_all(&(data.len() as u32).to_le_bytes())
@@ -281,17 +285,156 @@ fn image_data_url(bytes: &Option<Vec<u8>>) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{}", b64))
 }
 
-/// 会话主循环：在控制指令与入站帧之间 `select!`，自动响应 `ClipRequest`。
+/// 处理一条入站帧。返回 `false` 表示该帧要求结束会话（对端 Disconnect）。
+///
+/// 抽出来是为了让 `run_session_loop` 的 select 分支体更短，且便于在「读到一条帧就
+/// 原地处理」与「读循环转发到通道再处理」两种结构之间复用。
+#[allow(clippy::too_many_arguments)]
+async fn handle_frame(
+    frame: (LanMessage, Option<Vec<u8>>),
+    manager: &Arc<LanSessionManager>,
+    store: &Store,
+    write_half: &mut crate::lan_sync::crypto::SecureWriteHalf,
+    batch: &mut Option<BatchState>,
+) -> bool {
+    match frame {
+        (LanMessage::CategoryBatchStart { category_name, category_color, item_count }, _) => {
+            // 预排 sort_order：新条目整体插到现有条目之上，且按发送顺序排列。
+            // item_count 由对端提供，封顶 LAN_BATCH_MAX_ITEMS 防偏移被放大。
+            let min_order = store.category_min_sort_order(&category_name).unwrap_or(0);
+            let cap = i64::from(item_count.min(LAN_BATCH_MAX_ITEMS));
+            *batch = Some(BatchState {
+                category_name,
+                category_color,
+                base_order: min_order - cap,
+                next_index: 0,
+                received: 0,
+                failed: 0,
+            });
+        }
+        (LanMessage::CategoryBatchEnd, _) => {
+            if let Some(b) = batch.take() {
+                manager.emit_category_received(b.category_name, b.received, b.failed);
+            }
+        }
+        (LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name }, payload) => {
+            if !empty {
+                if let Some(data) = payload {
+                    match batch.as_mut() {
+                        // 批量中：静默逐条落库（顺序预排），结束时统一 emit。
+                        Some(b) => {
+                            let order = Some(b.base_order + b.next_index);
+                            b.next_index += 1;
+                            let ok = apply_received(
+                                manager, store, &clip_type, &data,
+                                Some(b.category_name.clone()), b.category_color.clone(),
+                                display_name, order, true,
+                            );
+                            if ok { b.received += 1 } else { b.failed += 1 }
+                        }
+                        None => {
+                            apply_received(
+                                manager, store, &clip_type, &data,
+                                category_name, category_color, display_name, None, false,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        (LanMessage::ClipRequest, _) => {
+            match read_current_payload() {
+                Ok(Some((ct, data))) => {
+                    let empty = false;
+                    let msg = LanMessage::ClipResponse {
+                        clip_type: ct,
+                        empty,
+                        category_name: None,
+                        category_color: None,
+                        display_name: None,
+                    };
+                    if write_half.write_message(&msg, Some(&data)).await.is_err() {
+                        return false;
+                    }
+                }
+                Ok(None) | Err(_) => {
+                    let msg = LanMessage::ClipResponse {
+                        clip_type: "text".into(),
+                        empty: true,
+                        category_name: None,
+                        category_color: None,
+                        display_name: None,
+                    };
+                    let _ = write_half.write_message(&msg, None).await;
+                }
+            }
+        }
+        (LanMessage::ClipResponse { clip_type, empty, category_name, category_color, display_name }, payload) => {
+            if !empty {
+                if let Some(data) = payload {
+                    apply_received(
+                        manager, store, &clip_type, &data,
+                        category_name, category_color, display_name, None, false,
+                    );
+                }
+            }
+        }
+        (LanMessage::Disconnect, _) => {
+            // 对端主动发来 Disconnect 帧。
+            manager.reset_to_idle("对方已断开".to_string());
+            return false;
+        }
+        _ => { /* Handshake/Pair* 不应在会话期出现，忽略 */ }
+    }
+    true
+}
+
+/// 会话主循环：在「控制指令」与「入站帧」两个**通道**之间 `select!`，
+/// 自动响应 `ClipRequest`。
 ///
 /// 调用方（Task 4/5）保证在进入前已调用 `set_hosting`/`set_joining`，因此 `role` 已设置。
+///
+/// **为什么读循环在独立任务里**：`SecureReadHalf::read_message` 内部走
+/// `AsyncReadExt::read_exact`，而 tokio 官方文档明确 `read_exact` 在 `select!`
+/// 中**不 cancellation-safe**——把它直接作为 select 分支 future 时，心跳分支
+/// 先就绪会丢弃半完成的读 future，破坏流状态，导致该分支再也不会就绪，
+/// 整个 `select!` 被绑死（用户报的「B 端点断开无反应、连接一直 Connected」
+/// 的根因）。改为：独立任务反复 `read_message` 并把帧经 `mpsc` 送给主循环；
+/// 主循环的两个分支都是 `mpsc::Receiver::recv`（cancel-safe），彻底规避该陷阱。
 pub(crate) async fn run_session_loop(
-    mut conn: SecureConnection,
+    conn: SecureConnection,
     manager: Arc<LanSessionManager>,
     store: Store,
     peer_device_name: String,
     mut control_rx: mpsc::Receiver<ControlMsg>,
 ) {
+    if cfg!(test) { eprintln!("[session {:?}] session loop entered for peer {peer_device_name}", manager.snapshot().role); }
     manager.set_connected(peer_device_name);
+
+    // 拆成读/写两半：读半交给独立读任务，写半留给主循环响应控制/帧。
+    let (mut read_half, mut write_half) = conn.into_split();
+
+    // 帧通道：读任务 → 主循环。读任务退出（drop sender 或读错）后，
+    // 主循环的 frame_rx.recv() 返回 None，等价于「对端已断开」。
+    // 用 unbounded 通道：读任务的 send 是同步的，不在读任务里 await，调度更简单。
+    let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<(LanMessage, Option<Vec<u8>>)>();
+
+    // 读任务：循环读帧并转发。读错即退出（主循环随后收到 None）。
+    let read_task = tokio::spawn(async move {
+        loop {
+            match read_half.read_message().await {
+                Ok(frame) => {
+                    // unbounded send 永不阻塞；Err 仅表示主循环已退出（frame_rx 被 drop）。
+                    let _ = frame_tx.send(frame);
+                }
+                Err(_) => {
+                    // 解密失败 / EOF / 流错误：读任务退出。主循环 frame_rx 收到 None
+                    // 后按「连接已断开」处理（MVP 不做逐帧容错，避免读任务死循环）。
+                    return;
+                }
+            }
+        }
+    });
 
     // 接收侧整组传输状态：None = 未在批量中（逐条行为）。
     let mut batch: Option<BatchState> = None;
@@ -299,18 +442,19 @@ pub(crate) async fn run_session_loop(
     loop {
         tokio::select! {
             biased;
-            control = control_rx.recv() => match control {
+            control = control_rx.recv() => {
+                match control {
                 Some(ControlMsg::BatchStart { category_name, category_color, item_count }) => {
                     let msg = LanMessage::CategoryBatchStart { category_name, category_color, item_count };
-                    if conn.write_message(&msg, None).await.is_err() {
+                    if write_half.write_message(&msg, None).await.is_err() {
                         manager.reset_to_idle("连接已断开".to_string());
-                        return;
+                        break;
                     }
                 }
                 Some(ControlMsg::BatchEnd) => {
-                    if conn.write_message(&LanMessage::CategoryBatchEnd, None).await.is_err() {
+                    if write_half.write_message(&LanMessage::CategoryBatchEnd, None).await.is_err() {
                         manager.reset_to_idle("连接已断开".to_string());
-                        return;
+                        break;
                     }
                 }
                 Some(ControlMsg::SendClip { clip_type, payload, category_name, category_color, display_name }) => {
@@ -322,129 +466,44 @@ pub(crate) async fn run_session_loop(
                         category_color,
                         display_name,
                     };
-                    if conn.write_message(&msg, if empty { None } else { Some(&payload) }).await.is_err() {
+                    if write_half.write_message(&msg, if empty { None } else { Some(&payload) }).await.is_err() {
                         manager.reset_to_idle("连接已断开".to_string());
-                        return;
+                        break;
                     }
                 }
                 Some(ControlMsg::RequestClip) => {
-                    if conn.write_message(&LanMessage::ClipRequest, None).await.is_err() {
+                    if write_half.write_message(&LanMessage::ClipRequest, None).await.is_err() {
                         manager.reset_to_idle("连接已断开".to_string());
-                        return;
+                        break;
                     }
                 }
                 // 所有 sender dropped（如 reset_to_idle 后）视作干净关闭
                 Some(ControlMsg::Disconnect) | None => {
-                    let _ = conn.write_message(&LanMessage::Disconnect, None).await;
+                    // 本地主动断开：尽力发一帧 Disconnect，随即清理。
+                    let _ = write_half.write_message(&LanMessage::Disconnect, None).await;
                     manager.reset_to_idle("已断开".to_string());
-                    return;
+                    break;
+                }
                 }
             },
-            read_result = conn.read_message() => match read_result {
-                Ok((LanMessage::CategoryBatchStart { category_name, category_color, item_count }, _)) => {
-                    // 预排 sort_order：新条目整体插到现有条目之上，且按发送顺序排列。
-                    // item_count 由对端提供，封顶 LAN_BATCH_MAX_ITEMS 防偏移被放大。
-                    let min_order = store.category_min_sort_order(&category_name).unwrap_or(0);
-                    let cap = i64::from(item_count.min(LAN_BATCH_MAX_ITEMS));
-                    batch = Some(BatchState {
-                        category_name,
-                        category_color,
-                        base_order: min_order - cap,
-                        next_index: 0,
-                        received: 0,
-                        failed: 0,
-                    });
-                }
-                Ok((LanMessage::CategoryBatchEnd, _)) => {
-                    if let Some(b) = batch.take() {
-                        manager.emit_category_received(b.category_name, b.received, b.failed);
-                    }
-                }
-                Ok((LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name }, payload)) => {
-                    if !empty {
-                        if let Some(data) = payload {
-                            match batch.as_mut() {
-                                // 批量中：静默逐条落库（顺序预排），结束时统一 emit。
-                                Some(b) => {
-                                    let order = Some(b.base_order + b.next_index);
-                                    b.next_index += 1;
-                                    let ok = apply_received(
-                                        &manager, &store, &clip_type, &data,
-                                        Some(b.category_name.clone()), b.category_color.clone(),
-                                        display_name, order, true,
-                                    );
-                                    if ok { b.received += 1 } else { b.failed += 1 }
-                                }
-                                None => {
-                                    apply_received(
-                                        &manager, &store, &clip_type, &data,
-                                        category_name, category_color, display_name, None, false,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok((LanMessage::ClipRequest, _)) => {
-                    match read_current_payload() {
-                        Ok(Some((ct, data))) => {
-                            let empty = false;
-                            let msg = LanMessage::ClipResponse {
-                                clip_type: ct,
-                                empty,
-                                category_name: None,
-                                category_color: None,
-                                display_name: None,
-                            };
-                            if conn.write_message(&msg, Some(&data)).await.is_err() {
-                                manager.reset_to_idle("连接已断开".to_string());
-                                return;
-                            }
-                        }
-                        Ok(None) => {
-                            let msg = LanMessage::ClipResponse {
-                                clip_type: "text".into(),
-                                empty: true,
-                                category_name: None,
-                                category_color: None,
-                                display_name: None,
-                            };
-                            let _ = conn.write_message(&msg, None).await;
-                        }
-                        Err(_) => {
-                            let msg = LanMessage::ClipResponse {
-                                clip_type: "text".into(),
-                                empty: true,
-                                category_name: None,
-                                category_color: None,
-                                display_name: None,
-                            };
-                            let _ = conn.write_message(&msg, None).await;
-                        }
-                    }
-                }
-                Ok((LanMessage::ClipResponse { clip_type, empty, category_name, category_color, display_name }, payload)) => {
-                    if !empty {
-                        if let Some(data) = payload {
-                            apply_received(
-                                &manager, &store, &clip_type, &data,
-                                category_name, category_color, display_name, None, false,
-                            );
-                        }
-                    }
-                }
-                Ok((LanMessage::Disconnect, _)) => {
-                    manager.reset_to_idle("对方已断开".to_string());
-                    return;
-                }
-                Ok(_) => { /* Handshake/Pair* 不应在会话期出现，忽略 */ }
-                Err(_) => {
+            // 读任务转发来的帧；None = 读任务结束 = 对端断开。
+            frame = frame_rx.recv() => {
+                let Some(frame) = frame else {
                     manager.reset_to_idle("连接已断开".to_string());
-                    return;
+                    break;
+                };
+                if !handle_frame(frame, &manager, &store, &mut write_half, &mut batch).await {
+                    break;
                 }
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                // 心跳：定期唤醒，避免 select! 因漏注册 waker 而长期沉睡（也用于诊断）。
             }
         }
     }
+
+    // 主循环退出：中止读任务（若它仍在阻塞读），避免悬挂。
+    read_task.abort();
 }
 
 #[cfg(test)]

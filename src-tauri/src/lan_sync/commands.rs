@@ -39,7 +39,7 @@ pub(crate) async fn lan_create_session(
     let code = normalize_pair_code(code)?;
     // start_host 内部会把状态置为 Hosting 并存好 control_tx/rx + host_tasks。
     // 端口被占用时 start_host 返回错误；这里查占用进程把信息并入错误，前端据此弹窗。
-    if let Err(error) = start_host(app.clone(), Arc::clone(&manager), state.store.clone(), code).await {
+    if let Err(error) = start_host(Arc::clone(&manager), state.store.clone(), code).await {
         let port = LAN_TCP_BASE_PORT;
         let detail = get_port_conflict(port)
             .ok()

@@ -27,6 +27,7 @@ async fn handshake(
 
     let mut conn = Connection::new(stream);
     let local_name = device_name();
+    if cfg!(test) { eprintln!("[client] device_name ok"); }
     let (guest_secret, guest_public) = generate_pair_keys();
     let msg = LanMessage::Handshake {
         version: LAN_PROTOCOL_VERSION,
@@ -39,14 +40,17 @@ async fn handshake(
         manager.reset_to_idle("连接已断开".to_string());
         return;
     }
+    if cfg!(test) { eprintln!("[client] handshake frame written"); }
     let (reply, _payload) = match conn.read_message().await {
         Ok(v) => v,
         Err(e) => {
+            if cfg!(test) { eprintln!("[client] reply read failed: {e}"); }
             manager.emit_join_failed(e);
             manager.reset_to_idle("连接已断开".to_string());
             return;
         }
     };
+    if cfg!(test) { eprintln!("[client] got reply: {reply:?}"); }
     match reply {
         LanMessage::PairAccepted { host_device_name, host_pubkey, auth_tag } => {
             // 老 host（无公钥/tag）→ 提示升级；其余握手数据异常同样拒绝。
@@ -107,8 +111,10 @@ pub(crate) async fn join_by_address(
     addr: String,
     code: String,
 ) {
+    let channel_id = crate::lan_sync::next_control_channel_id();
+    if cfg!(test) { eprintln!("[client] creating control channel #{channel_id}"); }
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
-    manager.set_joining(code.clone(), control_tx, control_rx);
+    manager.set_joining(code.clone(), control_tx, control_rx, channel_id);
 
     let stream = match tokio::time::timeout(
         Duration::from_secs(5),
@@ -118,10 +124,12 @@ pub(crate) async fn join_by_address(
     {
         Ok(Ok(s)) => s,
         _ => {
+            if cfg!(test) { eprintln!("[client] connect failed/timed out"); }
             manager.emit_join_failed("无法连接到对方".to_string());
             manager.reset_to_idle("连接失败".to_string());
             return;
         }
     };
+    if cfg!(test) { eprintln!("[client] connected, starting handshake"); }
     handshake(stream, &manager, &store, &code).await;
 }

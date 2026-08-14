@@ -9,13 +9,38 @@ pub(crate) mod crypto;   // Task 3: 加密原语与加密会话帧
 
 pub(crate) use port::PortConflict;
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::lan_sync::pair_guard::PairGuard;
+
+/// 事件出口抽象：生产环境转发到 Tauri 前端；测试用 Noop（不构造任何
+/// 窗口运行时，避免把 tao/wry 的 GUI 原生代码链接进测试二进制）。
+trait LanEventSink: Send + Sync + 'static {
+    fn emit(&self, event: &str, payload: &serde_json::Value);
+}
+
+/// 生产事件出口：经真实 AppHandle emit 到前端。
+struct TauriEventSink {
+    app: AppHandle,
+}
+
+impl LanEventSink for TauriEventSink {
+    fn emit(&self, event: &str, payload: &serde_json::Value) {
+        let _ = self.app.emit(event, payload);
+    }
+}
+
+/// 测试事件出口：空操作。
+struct NoopEventSink;
+
+impl LanEventSink for NoopEventSink {
+    fn emit(&self, _event: &str, _payload: &serde_json::Value) {}
+}
 use crate::lan_sync::protocol::*;
 use crate::models::*;
 
@@ -148,15 +173,26 @@ struct LanInner {
     pair_decision_tx: Option<oneshot::Sender<bool>>,
     control_tx: Option<mpsc::Sender<ControlMsg>>,
     control_rx: Option<mpsc::Receiver<ControlMsg>>,
+    /// 诊断用：当前 control channel 的编号（临时调试）。
+    control_channel_id: Option<u64>,
     /// Host 的 accept 任务句柄；Task 6 的 disconnect 命令负责 abort 它以释放端口。
     /// `Option` 让 `#[derive(Default)]` 继续成立。
     host_tasks: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// 诊断用：为每个新建的控制通道分配递增编号（临时调试）。
+static CONTROL_CHANNEL_COUNTER: AtomicU64 = AtomicU64::new(0);
+pub(crate) fn next_control_channel_id() -> u64 {
+    CONTROL_CHANNEL_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
+}
+
 impl Default for LanStatus { fn default() -> Self { LanStatus::Idle } }
 
+/// 会话状态机。事件经 `sink` 转发到前端：生产环境为真实 AppHandle，
+/// 测试（`new_for_test`）为空操作——不引用任何窗口运行时，测试二进制
+/// 不会链接 tao/wry 的 GUI 原生代码。
 pub struct LanSessionManager {
-    app: AppHandle,
+    sink: Arc<dyn LanEventSink>,
     inner: Mutex<LanInner>,
     pair_guard: PairGuard,
 }
@@ -164,10 +200,26 @@ pub struct LanSessionManager {
 impl LanSessionManager {
     pub(crate) fn new(app: AppHandle) -> Self {
         Self {
-            app,
+            sink: Arc::new(TauriEventSink { app }),
             inner: Mutex::new(LanInner::default()),
             pair_guard: PairGuard::new(),
         }
+    }
+
+    /// 测试专用构造：不绑定 AppHandle（纯测试无法构造真实窗口运行时），
+    /// emit 均为空操作。
+    pub(crate) fn new_for_test() -> Self {
+        Self {
+            sink: Arc::new(NoopEventSink),
+            inner: Mutex::new(LanInner::default()),
+            pair_guard: PairGuard::new(),
+        }
+    }
+
+    /// 统一的事件出口（测试时为空操作）。
+    fn emit<E: Serialize>(&self, event: &str, payload: E) {
+        let value = serde_json::to_value(payload).unwrap_or(serde_json::Value::Null);
+        self.sink.emit(event, &value);
     }
 
     pub(crate) fn pair_guard(&self) -> &PairGuard {
@@ -191,7 +243,9 @@ impl LanSessionManager {
         listen_addr: String,
         control_tx: mpsc::Sender<ControlMsg>,
         control_rx: mpsc::Receiver<ControlMsg>,
+        channel_id: u64,
     ) {
+        if cfg!(test) { eprintln!("[mgr] set_hosting storing control channel #{channel_id}"); }
         let mut inner = self.inner.lock().expect("lan inner poisoned");
         inner.role = Some(LanRole::Host);
         inner.status = LanStatus::Hosting;
@@ -200,6 +254,7 @@ impl LanSessionManager {
         inner.peer_device_name = None;
         inner.control_tx = Some(control_tx);
         inner.control_rx = Some(control_rx);
+        inner.control_channel_id = Some(channel_id);
         inner.pair_decision_tx = None;
     }
 
@@ -223,13 +278,16 @@ impl LanSessionManager {
         code: String,
         control_tx: mpsc::Sender<ControlMsg>,
         control_rx: mpsc::Receiver<ControlMsg>,
+        channel_id: u64,
     ) {
+        if cfg!(test) { eprintln!("[mgr] set_joining storing control channel #{channel_id}"); }
         let mut inner = self.inner.lock().expect("lan inner poisoned");
         inner.role = Some(LanRole::Guest);
         inner.status = LanStatus::WaitingPair;
         inner.code = Some(code);
         inner.control_tx = Some(control_tx);
         inner.control_rx = Some(control_rx);
+        inner.control_channel_id = Some(channel_id);
         inner.pair_decision_tx = None;
     }
 
@@ -240,7 +298,7 @@ impl LanSessionManager {
             inner.peer_device_name = Some(peer_device_name.clone());
             inner.role.unwrap_or(LanRole::Guest)
         };
-        let _ = self.app.emit("ipaste://lan-session-ready", LanSessionReady {
+        self.emit("ipaste://lan-session-ready", LanSessionReady {
             peer_device_name,
             role,
         });
@@ -251,12 +309,18 @@ impl LanSessionManager {
     }
 
     pub(crate) fn control_tx(&self) -> Option<mpsc::Sender<ControlMsg>> {
-        self.inner.lock().expect("lan inner poisoned").control_tx.clone()
+        let inner = self.inner.lock().expect("lan inner poisoned");
+        let tx = inner.control_tx.clone();
+        if cfg!(test) { eprintln!("[mgr] control_tx cloned, present={}, channel_id={:?}", tx.is_some(), inner.control_channel_id); }
+        tx
     }
 
     /// 取出 control_rx，交给首个建立的会话循环。
     pub(crate) fn take_control_rx(&self) -> Option<mpsc::Receiver<ControlMsg>> {
-        self.inner.lock().expect("lan inner poisoned").control_rx.take()
+        let mut inner = self.inner.lock().expect("lan inner poisoned");
+        let rx = inner.control_rx.take();
+        if cfg!(test) { eprintln!("[mgr] take_control_rx called, present={}, channel_id={:?}", rx.is_some(), inner.control_channel_id); }
+        rx
     }
 
     /// 记录 host 的 accept 任务句柄，供 Task 6 的 disconnect 命令 abort 以释放端口。
@@ -321,24 +385,40 @@ impl LanSessionManager {
                 accept.abort();
             }
         }
-        let _ = self.app.emit("ipaste://lan-disconnected", LanDisconnected { reason });
+        self.emit("ipaste://lan-disconnected", LanDisconnected { reason });
+    }
+
+    /// host 收到 guest 的配对请求：通知前端弹确认框。
+    pub(crate) fn emit_pair_request(&self, guest_id: String, device_name: String) {
+        self.emit(
+            "ipaste://lan-pair-request",
+            LanPairRequest { guest_id, device_name },
+        );
+    }
+
+    /// host 因非 Hosting 态拒绝 guest：通知前端展示诊断提示。
+    pub(crate) fn emit_guest_rejected(&self, guest_device_name: String, host_status: LanStatus) {
+        self.emit(
+            "ipaste://lan-guest-rejected",
+            LanGuestRejected { guest_device_name, host_status },
+        );
     }
 
     pub(crate) fn emit_clip_received(&self, clip_type: String, category_name: Option<String>) {
-        let _ = self.app.emit(
+        self.emit(
             "ipaste://lan-clip-received",
             LanClipReceived { clip_type, category_name },
         );
     }
 
     pub(crate) fn emit_join_failed(&self, reason: String) {
-        let _ = self.app.emit("ipaste://lan-join-failed", LanJoinFailed { reason });
+        self.emit("ipaste://lan-join-failed", LanJoinFailed { reason });
     }
 
     /// 接收侧解析/落库失败时调用：emit 诊断事件 + 打印日志，避免静默丢弃。
     pub(crate) fn emit_clip_receive_failed(&self, reason: String) {
         eprintln!("[lan-sync] 接收条目失败：{reason}");
-        let _ = self.app.emit(
+        self.emit(
             "ipaste://lan-clip-receive-failed",
             LanClipReceiveFailed { reason },
         );
@@ -346,7 +426,7 @@ impl LanSessionManager {
 
     /// 发送端整组发送完成：emit 汇总事件（前端用于提示）。
     pub(crate) fn emit_category_sent(&self, category_name: String, sent: u32, failed: u32) {
-        let _ = self.app.emit(
+        self.emit(
             "ipaste://lan-category-sent",
             LanCategorySent { category_name, sent, failed },
         );
@@ -354,7 +434,7 @@ impl LanSessionManager {
 
     /// 接收端整组接收完成：emit 汇总事件（前端据此刷新一次列表并提示）。
     pub(crate) fn emit_category_received(&self, category_name: String, count: u32, failed: u32) {
-        let _ = self.app.emit(
+        self.emit(
             "ipaste://lan-category-received",
             LanCategoryReceived { category_name, count, failed },
         );
