@@ -174,10 +174,9 @@ async fn handle_guest_with_challenge(
             .and_then(|v| v.try_into().map_err(|_| ()))
         {
             Ok(b) => b,
-            Err(_) => {
-                manager.reset_to_idle("握手数据无效".to_string());
-                return;
-            }
+            // 预认证阶段（proof 尚未校验）：坏 base64 只可能是恶意或损坏的对端，
+            // 仅断开该连接即可，绝不能 reset 整个 host 监听（防可用性 DoS）。
+            Err(_) => return,
         };
         PublicKey::from(bytes)
     };

@@ -321,7 +321,8 @@ async fn handle_frame(
         (LanMessage::CategoryBatchStart { category_name, category_color, item_count }, _) => {
             if let Err(reason) = validate_category_meta(Some(&category_name), category_color.as_deref()) {
                 manager.emit_clip_receive_failed(reason);
-                // 丢弃整个批量态；后续逐条帧因无 BatchStart 会走单条路径并被再次校验
+                // 拒收该 BatchStart：不进入新的批量态（已存在的旧批量态保持不变——其元数据
+                // 已在各自的 BatchStart 处通过校验）；后续逐条帧若无批量态则走单条路径并被再次校验。
                 return true;
             }
             // 预排 sort_order：新条目整体插到现有条目之上，且按发送顺序排列。

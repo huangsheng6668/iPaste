@@ -1152,3 +1152,70 @@ async fn oversized_category_name_frame_is_rejected_and_session_survives() {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), host_task).await;
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), guest_task).await;
 }
+
+/// 回归（最终审查 Critical #1）：预认证阶段收到坏 base64 公钥的 Handshake，
+/// host 不得 reset 整个监听——仅断开该连接，host 状态保持 Hosting。
+///
+/// 注：测试模式下 accept 循环单次 accept 后退出（见 start_host_on 的 cfg!(test)
+/// 断点，规避测试环境里持续 accept 的运行时冻结），故本测试用「状态不被重置 +
+/// 恶意连接被断开」钉住缺陷：修复前该分支调用 reset_to_idle，状态翻成 Idle、
+/// host 任务被 abort，Hosting 断言即失败。
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_pubkey_frame_does_not_stop_hosting() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::session::Connection;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+    use tokio::net::TcpStream;
+
+    let code = "REALCODE";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+    let listen_addr = start_host_on(host_manager.clone(), store, code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+
+    // 恶意对端：读到挑战后回一个坏公钥的 Handshake
+    let attacker = tokio::spawn(async move {
+        let mut conn = Connection::new(TcpStream::connect(format!("127.0.0.1:{port}")).await.unwrap());
+        let (msg, _) = conn.read_message().await.unwrap();
+        assert!(matches!(msg, LanMessage::PairChallenge { .. }));
+        conn.write_message(
+            &LanMessage::Handshake {
+                version: LAN_PROTOCOL_VERSION,
+                device_name: "attacker".into(),
+                guest_pubkey: Some("!!!not-base64!!!".into()),
+                guest_proof: Some("deadbeef".into()),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        // host 应直接断开本连接（读到 EOF/错误）且不回任何帧；无论读到什么到这里都是异常
+        let reply = conn.read_message().await;
+        panic!("malformed pubkey peer must be dropped without any reply, got: {reply:?}");
+    });
+
+    // host 状态必须保持 Hosting（修复前坏公钥分支 reset_to_idle → Idle，本断言失败即回归）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        assert_eq!(
+            host_manager.snapshot().status,
+            LanStatus::Hosting,
+            "host must keep Hosting after malformed pubkey frame"
+        );
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // 恶意连接应被 host 快速断开（任务以 panic 收场即代表连接被断、无回复帧）
+    let attacked = tokio::time::timeout(std::time::Duration::from_secs(5), attacker)
+        .await
+        .expect("host must drop the malformed-pubkey peer promptly");
+    assert!(attacked.is_err(), "attacker must be dropped, not left hanging or replied to");
+}

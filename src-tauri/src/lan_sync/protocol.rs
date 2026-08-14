@@ -234,16 +234,16 @@ mod tests {
         let json = r#"{"kind":"handshake","code":"ROOM","device_name":"old"}"#;
         let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(json.as_bytes());
-    match decode_frame(&bytes).unwrap() {
-        LanMessage::Handshake { version, guest_pubkey, guest_proof, device_name } => {
-            assert_eq!(version, 1);
-            assert_eq!(guest_pubkey, None);
-            assert_eq!(guest_proof, None, "v3 老帧无 guest_proof，host 据此拒绝");
-            assert_eq!(device_name, "old");
+        match decode_frame(&bytes).unwrap() {
+            LanMessage::Handshake { version, guest_pubkey, guest_proof, device_name } => {
+                assert_eq!(version, 1);
+                assert_eq!(guest_pubkey, None);
+                assert_eq!(guest_proof, None, "v3 老帧无 guest_proof，host 据此拒绝");
+                assert_eq!(device_name, "old");
+            }
+            other => panic!("wrong variant: {other:?}"),
         }
-        other => panic!("wrong variant: {other:?}"),
     }
-}
 
     /// 老版本 PairAccepted 帧：只有 host_device_name。缺 auth_tag 时 guest 报握手异常。
     #[test]
@@ -251,14 +251,14 @@ mod tests {
         let json = r#"{"kind":"pairAccepted","host_device_name":"old-host"}"#;
         let mut bytes = (json.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(json.as_bytes());
-    match decode_frame(&bytes).unwrap() {
-        LanMessage::PairAccepted { host_device_name, auth_tag } => {
-            assert_eq!(host_device_name, "old-host");
-            assert_eq!(auth_tag, None);
+        match decode_frame(&bytes).unwrap() {
+            LanMessage::PairAccepted { host_device_name, auth_tag } => {
+                assert_eq!(host_device_name, "old-host");
+                assert_eq!(auth_tag, None);
+            }
+            other => panic!("wrong variant: {other:?}"),
         }
-        other => panic!("wrong variant: {other:?}"),
     }
-}
 
     #[test]
     fn clip_push_with_empty_roundtrips() {
