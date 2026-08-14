@@ -11,7 +11,7 @@ use crate::clipboard::{
 use crate::util::clean_display_name;
 use crate::lan_sync::crypto::SecureConnection;
 use crate::lan_sync::protocol::*;
-use crate::lan_sync::{ControlMsg, LanSessionManager};
+use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
 use crate::models::ClipboardRead;
 use crate::store::Store;
 
@@ -287,14 +287,14 @@ fn image_data_url(bytes: &Option<Vec<u8>>) -> Result<String, String> {
 
 /// 处理一条入站帧。返回 `false` 表示该帧要求结束会话（对端 Disconnect）。
 ///
-/// 抽出来是为了让 `run_session_loop` 的 select 分支体更短，且便于在「读到一条帧就
-/// 原地处理」与「读循环转发到通道再处理」两种结构之间复用。
+/// 由会话的**读任务**逐条调用（读到即原地处理）；`write_half` 是与主循环共享的
+/// 写半（仅回 `ClipResponse` 时短暂加锁）。
 #[allow(clippy::too_many_arguments)]
 async fn handle_frame(
     frame: (LanMessage, Option<Vec<u8>>),
     manager: &Arc<LanSessionManager>,
     store: &Store,
-    write_half: &mut crate::lan_sync::crypto::SecureWriteHalf,
+    write_half: &Arc<tokio::sync::Mutex<crate::lan_sync::crypto::SecureWriteHalf>>,
     batch: &mut Option<BatchState>,
 ) -> bool {
     match frame {
@@ -353,7 +353,8 @@ async fn handle_frame(
                         category_color: None,
                         display_name: None,
                     };
-                    if write_half.write_message(&msg, Some(&data)).await.is_err() {
+                    let mut wh = write_half.lock().await;
+                    if wh.write_message(&msg, Some(&data)).await.is_err() {
                         return false;
                     }
                 }
@@ -365,7 +366,8 @@ async fn handle_frame(
                         category_color: None,
                         display_name: None,
                     };
-                    let _ = write_half.write_message(&msg, None).await;
+                    let mut wh = write_half.lock().await;
+                    let _ = wh.write_message(&msg, None).await;
                 }
             }
         }
@@ -380,8 +382,11 @@ async fn handle_frame(
             }
         }
         (LanMessage::Disconnect, _) => {
-            // 对端主动发来 Disconnect 帧。
-            manager.reset_to_idle("对方已断开".to_string());
+            // 对端主动发来 Disconnect 帧。若本地主循环已抢先清理（如本地刚断开、
+            // abort 读任务前来得及处理这条帧），不再重复 reset，避免二次 emit。
+            if !matches!(manager.snapshot().status, LanStatus::Idle) {
+                manager.reset_to_idle("对方已断开".to_string());
+            }
             return false;
         }
         _ => { /* Handshake/Pair* 不应在会话期出现，忽略 */ }
@@ -389,18 +394,27 @@ async fn handle_frame(
     true
 }
 
-/// 会话主循环：在「控制指令」与「入站帧」两个**通道**之间 `select!`，
-/// 自动响应 `ClipRequest`。
+/// 会话主循环：在「控制指令」与「读任务结束信号」之间 `select!`。
 ///
 /// 调用方（Task 4/5）保证在进入前已调用 `set_hosting`/`set_joining`，因此 `role` 已设置。
 ///
-/// **为什么读循环在独立任务里**：`SecureReadHalf::read_message` 内部走
-/// `AsyncReadExt::read_exact`，而 tokio 官方文档明确 `read_exact` 在 `select!`
-/// 中**不 cancellation-safe**——把它直接作为 select 分支 future 时，心跳分支
-/// 先就绪会丢弃半完成的读 future，破坏流状态，导致该分支再也不会就绪，
-/// 整个 `select!` 被绑死（用户报的「B 端点断开无反应、连接一直 Connected」
-/// 的根因）。改为：独立任务反复 `read_message` 并把帧经 `mpsc` 送给主循环；
-/// 主循环的两个分支都是 `mpsc::Receiver::recv`（cancel-safe），彻底规避该陷阱。
+/// **架构**：两条并行路径共享同一连接——
+/// - **读任务**：独立 `tokio::spawn`，反复 `read_message` 并**原地处理**每一条入站帧
+///   （`handle_frame`）。`read_message` 内部走 `AsyncReadExt::read_exact`，tokio 官方
+///   明确它在 `select!` 里**不 cancellation-safe**，故绝不能放进 select 分支。读任务
+///   退出（读到 Disconnect / EOF / 解密失败）时经 `Notify` 通知主循环。
+/// - **主循环（本函数）**：只处理本地控制指令（`control_rx`）与读任务的结束信号，
+///   两者都 cancel-safe（`mpsc::Receiver::recv` / `Notify::notified`）。
+///
+/// **为什么不再用「帧 mpsc」把帧从读任务转发给主循环**：早期实现让读任务把帧经
+/// `mpsc` 送给主循环、主循环在「control_rx + frame_rx」两个 receiver 之间 select。
+/// 实测在 host 全链路（start_host → accept → 配对 → 会话）里，一旦对端（guest 的
+/// 会话循环）并发运行，host 主循环 park 后就**再也唤不醒**——frame_rx 的 send 唤不醒、
+/// 心跳定时器唤不醒、连 control_rx 也唤不醒（host 点「断开」因此无响应）；而直连
+/// `run_session_loop` 的单测却一切正常。把帧处理下沉到读任务、彻底取消帧通道后，
+/// 主循环不再依赖任何「跨任务 receiver 唤醒」来处理入站帧，该现象消失。
+/// `write_half` 经 `tokio::sync::Mutex` 在两条路径间共享（写操作互斥；帧处理只在回
+/// `ClipResponse` 时短暂持锁，不与控制写长期争用）。
 pub(crate) async fn run_session_loop(
     conn: SecureConnection,
     manager: Arc<LanSessionManager>,
@@ -411,48 +425,57 @@ pub(crate) async fn run_session_loop(
     if cfg!(test) { eprintln!("[session {:?}] session loop entered for peer {peer_device_name}", manager.snapshot().role); }
     manager.set_connected(peer_device_name);
 
-    // 拆成读/写两半：读半交给独立读任务，写半留给主循环响应控制/帧。
-    let (mut read_half, mut write_half) = conn.into_split();
+    // 拆成读/写两半：读半交给独立读任务；写半经 Mutex 在读任务与主循环间共享。
+    let (mut read_half, write_half) = conn.into_split();
+    let write_half = Arc::new(tokio::sync::Mutex::new(write_half));
+    // 读任务结束信号：读到 Disconnect / EOF / 解密失败时通知主循环。
+    let peer_gone = Arc::new(tokio::sync::Notify::new());
 
-    // 帧通道：读任务 → 主循环。读任务退出（drop sender 或读错）后，
-    // 主循环的 frame_rx.recv() 返回 None，等价于「对端已断开」。
-    // 用 unbounded 通道：读任务的 send 是同步的，不在读任务里 await，调度更简单。
-    let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<(LanMessage, Option<Vec<u8>>)>();
-
-    // 读任务：循环读帧并转发。读错即退出（主循环随后收到 None）。
+    // 读任务：循环读帧并原地处理。处理要求结束会话（对端 Disconnect）或读错时退出，
+    // 并通知主循环。
+    let read_manager = manager.clone();
+    let read_store = store.clone();
+    let read_write = write_half.clone();
+    let read_signal = peer_gone.clone();
     let read_task = tokio::spawn(async move {
+        // 接收侧整组传输状态：None = 未在批量中（逐条行为）。仅帧处理使用，读任务独占。
+        let mut batch: Option<BatchState> = None;
         loop {
             match read_half.read_message().await {
                 Ok(frame) => {
-                    // unbounded send 永不阻塞；Err 仅表示主循环已退出（frame_rx 被 drop）。
-                    let _ = frame_tx.send(frame);
+                    // false = 对端 Disconnect / 回写失败：结束读任务。
+                    if !handle_frame(frame, &read_manager, &read_store, &read_write, &mut batch).await {
+                        break;
+                    }
                 }
                 Err(_) => {
-                    // 解密失败 / EOF / 流错误：读任务退出。主循环 frame_rx 收到 None
-                    // 后按「连接已断开」处理（MVP 不做逐帧容错，避免读任务死循环）。
-                    return;
+                    // 解密失败 / EOF / 流错误：读任务退出，通知主循环（对端断开）。
+                    break;
                 }
             }
         }
+        read_signal.notify_one();
     });
-
-    // 接收侧整组传输状态：None = 未在批量中（逐条行为）。
-    let mut batch: Option<BatchState> = None;
 
     loop {
         tokio::select! {
             biased;
+            // 本地控制指令；None = 所有 sender dropped（如 reset_to_idle 后）= 干净关闭。
             control = control_rx.recv() => {
                 match control {
                 Some(ControlMsg::BatchStart { category_name, category_color, item_count }) => {
                     let msg = LanMessage::CategoryBatchStart { category_name, category_color, item_count };
-                    if write_half.write_message(&msg, None).await.is_err() {
+                    let mut wh = write_half.lock().await;
+                    if wh.write_message(&msg, None).await.is_err() {
+                        drop(wh);
                         manager.reset_to_idle("连接已断开".to_string());
                         break;
                     }
                 }
                 Some(ControlMsg::BatchEnd) => {
-                    if write_half.write_message(&LanMessage::CategoryBatchEnd, None).await.is_err() {
+                    let mut wh = write_half.lock().await;
+                    if wh.write_message(&LanMessage::CategoryBatchEnd, None).await.is_err() {
+                        drop(wh);
                         manager.reset_to_idle("连接已断开".to_string());
                         break;
                     }
@@ -466,13 +489,17 @@ pub(crate) async fn run_session_loop(
                         category_color,
                         display_name,
                     };
-                    if write_half.write_message(&msg, if empty { None } else { Some(&payload) }).await.is_err() {
+                    let mut wh = write_half.lock().await;
+                    if wh.write_message(&msg, if empty { None } else { Some(&payload) }).await.is_err() {
+                        drop(wh);
                         manager.reset_to_idle("连接已断开".to_string());
                         break;
                     }
                 }
                 Some(ControlMsg::RequestClip) => {
-                    if write_half.write_message(&LanMessage::ClipRequest, None).await.is_err() {
+                    let mut wh = write_half.lock().await;
+                    if wh.write_message(&LanMessage::ClipRequest, None).await.is_err() {
+                        drop(wh);
                         manager.reset_to_idle("连接已断开".to_string());
                         break;
                     }
@@ -480,21 +507,22 @@ pub(crate) async fn run_session_loop(
                 // 所有 sender dropped（如 reset_to_idle 后）视作干净关闭
                 Some(ControlMsg::Disconnect) | None => {
                     // 本地主动断开：尽力发一帧 Disconnect，随即清理。
-                    let _ = write_half.write_message(&LanMessage::Disconnect, None).await;
+                    let mut wh = write_half.lock().await;
+                    let _ = wh.write_message(&LanMessage::Disconnect, None).await;
+                    drop(wh);
                     manager.reset_to_idle("已断开".to_string());
                     break;
                 }
                 }
             },
-            // 读任务转发来的帧；None = 读任务结束 = 对端断开。
-            frame = frame_rx.recv() => {
-                let Some(frame) = frame else {
+            // 读任务结束 = 对端断开（Disconnect 帧 / EOF / 解密失败）。
+            // Disconnect 帧已由读任务的 handle_frame 处理并 reset（状态已 Idle），
+            // 这里只兜底读错/EOF 的情况，避免重复 emit 断开事件。
+            _ = peer_gone.notified() => {
+                if !matches!(manager.snapshot().status, LanStatus::Idle) {
                     manager.reset_to_idle("连接已断开".to_string());
-                    break;
-                };
-                if !handle_frame(frame, &manager, &store, &mut write_half, &mut batch).await {
-                    break;
                 }
+                break;
             },
             _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
                 // 心跳：定期唤醒，避免 select! 因漏注册 waker 而长期沉睡（也用于诊断）。

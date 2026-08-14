@@ -1,7 +1,7 @@
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::lan_sync::protocol::*;
-use crate::lan_sync::session::Connection;
+use crate::lan_sync::session::{run_session_loop, Connection};
 
 #[tokio::test]
 async fn full_handshake_push_request_disconnect_roundtrip() {
@@ -476,3 +476,361 @@ async fn host_initiated_disconnect_resets_both_sides() {
     }
 }
 
+/// 回归（用户报告的核心 bug）：A 端（guest）连上 B 端（host）后，B 端在**收过数据帧
+/// 之后**仍能主动断开。
+///
+/// 旧架构里读任务把帧经 mpsc 转发给主循环、主循环在「control_rx + frame_rx」之间
+/// select。全链路下 host 主循环一旦 park（尤其在收过数据后）就再也唤不醒——既收不到
+/// 后续帧、也响应不了 Disconnect，表现为「B 端点断开无反应、双方一直 Connected」。
+/// 改为读任务原地处理帧、主循环只 select「control + 读任务结束信号」后，本测试通过。
+///
+/// 流程：host 真实 start_host_on → guest 真实 join → 双方 Connected →
+/// guest 经 control 发一条带分组的 SendClip（走 DB 落库、不碰系统剪贴板）→
+/// 断言 host 收到落库（修复前这里超时）→ host 发 Disconnect → 断言双方都回 Idle。
+#[tokio::test(flavor = "multi_thread")]
+async fn host_initiated_disconnect_after_receiving_data() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let code = "TESTCD";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let listen_addr = start_host_on(host_manager.clone(), store.clone(), code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+    let dial_addr = format!("127.0.0.1:{port}");
+
+    let join_task = {
+        let manager = guest_manager.clone();
+        let store = store.clone();
+        let code = code.to_string();
+        tokio::spawn(async move { join_by_address(manager, store, dial_addr, code).await })
+    };
+
+    // host 同意配对
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(tx) = host_manager.take_pair_decision_tx() {
+            let _ = tx.send(true);
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pair request never arrived"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 等双方 Connected
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "session never connected"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // guest → host：发一条带分组的文本（走 DB 落库，不写系统剪贴板）
+    guest_manager
+        .control_tx()
+        .expect("guest control tx")
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"hello-after-data".to_vec(),
+            category_name: Some("leftover-cat".into()),
+            category_color: Some("#0D9488".into()),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    // 等 host 真实收到并落库（收过数据帧是复现「已知遗留」的关键前提）：
+    // apply_received 会按名称新建分组「leftover-cat」，分组出现即证明数据帧已被处理。
+    // 修复前：host 主循环 park 后再也唤不醒，分组永不出现，本断言超时失败。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store
+            .list_categories()
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "leftover-cat")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "host never received data frame after guest SendClip (regression: host session loop stuck)"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // host 点「断开」（等价于 lan_disconnect 的 Connected 分支）
+    host_manager
+        .control_tx()
+        .expect("host control tx")
+        .send(ControlMsg::Disconnect)
+        .await
+        .unwrap();
+
+    // 双方都应回到 Idle（卡住即复现「收过数据后 host 无法主动断开」）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Idle
+            && guest_manager.snapshot().status == LanStatus::Idle
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "host disconnect after data did not reset sessions (leftover reproduced)"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), join_task)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+/// 回归：两侧并发跑 `run_session_loop`，guest 经 control 发一条带分组的文本，
+/// host 必须收到并落库。覆盖「读任务原地处理入站帧」的新架构——确保 frame 不再
+/// 经 mpsc 转发给主循环时，host 仍能稳定接收 guest 推送的内容。
+#[tokio::test(flavor = "multi_thread")]
+async fn two_direct_session_loops_guest_sends_host_receives() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::crypto::SecureConnection;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let key = [42u8; 32];
+
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let (host_ctx, host_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    let (guest_ctx, guest_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
+    // 模拟全链路：host 的 control channel 经 manager 存取（set_hosting → take_control_rx）
+    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx, 1);
+
+    let host_mgr = host_manager.clone();
+    let host_store = store.clone();
+    let host_task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let host_crx = host_mgr.take_control_rx().expect("host control rx");
+        run_session_loop(
+            SecureConnection::new(stream, key),
+            host_mgr,
+            host_store,
+            "guest".to_string(),
+            host_crx,
+        )
+        .await;
+    });
+
+    let guest_mgr = guest_manager.clone();
+    let guest_store = store.clone();
+    let guest_task = tokio::spawn(async move {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        run_session_loop(
+            SecureConnection::new(stream, key),
+            guest_mgr,
+            guest_store,
+            "host".to_string(),
+            guest_crx,
+        )
+        .await;
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    guest_ctx
+        .send(ControlMsg::SendClip {
+            clip_type: "text".into(),
+            payload: b"two-loops-payload".to_vec(),
+            category_name: Some("twoloops-cat".into()),
+            category_color: Some("#0D9488".into()),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store
+            .list_categories()
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "twoloops-cat")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "two concurrent session loops: host did not receive guest's frame"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let _ = host_manager
+        .control_tx()
+        .unwrap()
+        .send(ControlMsg::Disconnect)
+        .await;
+    let _ = guest_ctx.send(ControlMsg::Disconnect).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), host_task).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), guest_task).await;
+}
+
+/// 回归：host 走**真实全链路**（start_host_on + accept + handle_guest_with_handshake
+/// + 配对确认 + 真实 v2 crypto），对端是裸客户端（手动握手后写一帧）。确保 host 的
+/// 全链路能稳定接收并落库对端推送的帧。
+#[tokio::test(flavor = "multi_thread")]
+async fn host_full_path_with_raw_client_receives_frame() {
+    use std::sync::Arc;
+
+    use base64::Engine as _;
+    use x25519_dalek::PublicKey;
+
+    use crate::lan_sync::crypto::{
+        code_claim, derive_session_key, generate_pair_keys, host_auth_tag, SecureConnection,
+    };
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let code = "RAWCODE";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    let listen_addr = start_host_on(host_manager.clone(), store.clone(), code.to_string(), 0)
+        .await
+        .unwrap();
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+    let dial_addr = format!("127.0.0.1:{port}");
+
+    // 裸客户端：手动 v2 握手 + 写一帧。
+    let raw_client = tokio::spawn(async move {
+        use crate::lan_sync::session::Connection;
+        let mut conn = Connection::new(TcpStream::connect(dial_addr).await.unwrap());
+        let (guest_secret, guest_public) = generate_pair_keys();
+        conn.write_message(
+            &LanMessage::Handshake {
+                version: LAN_PROTOCOL_VERSION,
+                code_claim: Some(code_claim(code)),
+                device_name: "raw-guest".into(),
+                guest_pubkey: Some(
+                    base64::engine::general_purpose::STANDARD.encode(guest_public.as_bytes()),
+                ),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let (reply, _) = conn.read_message().await.unwrap();
+        let LanMessage::PairAccepted {
+            host_pubkey: Some(host_pubkey_b64),
+            auth_tag: Some(tag),
+            ..
+        } = reply
+        else {
+            panic!("expected PairAccepted v2: {reply:?}");
+        };
+        let host_public = {
+            let bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                .decode(&host_pubkey_b64)
+                .unwrap()
+                .try_into()
+                .unwrap();
+            PublicKey::from(bytes)
+        };
+        let key = derive_session_key(&guest_secret, &host_public, code);
+        assert_eq!(host_auth_tag(&key), tag);
+        let mut secure = SecureConnection::new(conn.into_stream(), key);
+        secure
+            .write_message(
+                &LanMessage::ClipPush {
+                    clip_type: "text".into(),
+                    empty: false,
+                    category_name: Some("rawclient-cat".into()),
+                    category_color: Some("#0D9488".into()),
+                    display_name: None,
+                },
+                Some(b"rawclient-payload"),
+            )
+            .await
+            .unwrap();
+        // 保持连接一小段，让 host 有时间读帧。
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    });
+
+    // host 同意配对
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(tx) = host_manager.take_pair_decision_tx() {
+            let _ = tx.send(true);
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pair request never arrived"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 等 Connected
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // host 是否收到并落库
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if store
+            .list_categories()
+            .unwrap()
+            .iter()
+            .any(|c| c.name == "rawclient-cat")
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "host full path did not receive raw client's frame"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let _ = raw_client.await;
+}
