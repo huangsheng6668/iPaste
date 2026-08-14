@@ -295,3 +295,184 @@ async fn secure_connection_preserves_category_fields_over_encrypted_roundtrip() 
         .unwrap();
     server.await.unwrap();
 }
+
+
+/// 最小复现：std listener + TcpListener::from_std + accept 在测试运行时内是否可用。
+#[tokio::test(flavor = "multi_thread")]
+async fn minimal_from_std_accept_works() {
+    use tokio::net::{TcpListener, TcpStream};
+    let std_listener = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+    let listener = TcpListener::from_std(std_listener).unwrap();
+    let addr = listener.local_addr().unwrap();
+    eprintln!("[minimal] listening at {addr}");
+    let port = addr.port();
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
+    let mgr = std::sync::Arc::new(crate::lan_sync::LanSessionManager::new_for_test());
+    let st = crate::store::test_support::temp_store();
+    let code_str = String::from("TESTCD");
+    let task = tokio::spawn(async move {
+        eprintln!("[minimal] accept task running");
+        let (stream, peer) = listener.accept().await.unwrap();
+        eprintln!("[minimal] accepted");
+        let _permit = sem.clone().try_acquire_owned().unwrap();
+        let mgr = mgr.clone();
+        let st = st.clone();
+        let code_str = code_str.clone();
+        let handler = tokio::spawn(async move {
+            eprintln!("[minimal] REAL-STYLE handler running");
+            let mut conn = crate::lan_sync::session::Connection::new(stream);
+            let read = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                conn.read_message(),
+            )
+            .await;
+            eprintln!("[minimal] REAL-STYLE read done: {}", read.is_ok());
+            let _ = (mgr, st, code_str, peer, _permit);
+        });
+        handler.await.unwrap();
+        true
+    });
+    let loopback = format!("127.0.0.1:{port}");
+    let mut conn = TcpStream::connect(&loopback).await.unwrap();
+    eprintln!("[minimal] connected to {loopback}");
+    use tokio::io::AsyncWriteExt;
+    conn.write_all(b"hi!!").await.unwrap();
+    eprintln!("[minimal] wrote 4 bytes");
+    assert!(task.await.unwrap());
+}
+
+/// 隔离实验：manager 控制通道在不涉及 TCP/session loop 的情况下，
+/// `control_tx().send()` 的消息能否被 `take_control_rx()` 拿到的 receiver 收到。
+#[tokio::test]
+async fn manager_control_channel_roundtrip_in_isolation() {
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    use crate::lan_sync::{ControlMsg, LanSessionManager};
+
+    let mgr = Arc::new(LanSessionManager::new_for_test());
+    let (tx, rx) = mpsc::channel::<ControlMsg>(16);
+    mgr.set_hosting("CODE".into(), "127.0.0.1:1".into(), tx, rx, 42);
+
+    let Some(mut rx) = mgr.take_control_rx() else { panic!("rx missing"); };
+    let recv_task = tokio::spawn(async move { rx.recv().await });
+    let tx = mgr.control_tx().expect("tx missing");
+    tx.send(ControlMsg::Disconnect).await.unwrap();
+    let got = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task)
+        .await
+        .expect("recv timed out")
+        .unwrap();
+    eprintln!("[isolated] received: {got:?}");
+    assert!(matches!(got, Some(ControlMsg::Disconnect)));
+}
+
+/// 复现「A 端（guest）主动连接、B 端（host）点断开」全链路，且走**真实**代码路径：
+/// - host：真实 `start_host_on`（真实 accept 循环 + 握手 + 配对确认），临时端口；
+/// - guest：真实 `join_by_address` 直连；
+/// - host 端「断开」：等价于 `lan_disconnect` 的 Connected 分支（经 control channel 发 Disconnect）；
+/// - 断言：双方回到 Idle、guest 会话循环退出、host 监听端口被释放。
+#[tokio::test(flavor = "multi_thread")]
+async fn host_initiated_disconnect_resets_both_sides() {
+    use std::sync::Arc;
+
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::server::start_host_on;
+    use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let code = "TESTCD";
+    let host_manager = Arc::new(LanSessionManager::new_for_test());
+    let guest_manager = Arc::new(LanSessionManager::new_for_test());
+    let store = temp_store();
+
+    // host：真实 start_host 路径，端口 0 = 临时端口。
+    let listen_addr = start_host_on(host_manager.clone(), store.clone(), code.to_string(), 0)
+        .await
+        .unwrap();
+    eprintln!("[test] host started at {listen_addr}");
+    let port: u16 = listen_addr.rsplit(':').next().unwrap().parse().unwrap();
+    let dial_addr = format!("127.0.0.1:{port}");
+
+    // guest：真实 join_by_address 直连（内部自建 control channel + set_joining）。
+    let join_task = {
+        let manager = guest_manager.clone();
+        let store = store.clone();
+        let code = code.to_string();
+        tokio::spawn(async move { join_by_address(manager, store, dial_addr, code).await })
+    };
+
+    // host 端用户同意配对（等价于 lan_accept_pair(true)）。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        eprintln!(
+            "[test] poll: host={:?} guest={:?}",
+            host_manager.snapshot().status,
+            guest_manager.snapshot().status
+        );
+        if let Some(tx) = host_manager.take_pair_decision_tx() {
+            let _ = tx.send(true);
+            eprintln!("[test] pair accepted");
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "pair request never arrived");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 等双方 Connected。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Connected
+            && guest_manager.snapshot().status == LanStatus::Connected
+        {
+            eprintln!("[test] both connected");
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "session never connected");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // B 端点「断开」：等价于 lan_disconnect 的 Connected 分支。
+    eprintln!("[test] sending Disconnect via host control channel");
+    host_manager
+        .control_tx()
+        .expect("host control tx available")
+        .send(ControlMsg::Disconnect)
+        .await
+        .unwrap();
+    eprintln!("[test] Disconnect enqueued");
+
+    // 双方都应回到 Idle（若这里卡住，即复现「host 无法主动断开」）。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if host_manager.snapshot().status == LanStatus::Idle
+            && guest_manager.snapshot().status == LanStatus::Idle
+        {
+            eprintln!("[test] both idle");
+            break;
+        }
+        eprintln!(
+            "[test] after disconnect poll: host={:?} guest={:?}",
+            host_manager.snapshot().status,
+            guest_manager.snapshot().status
+        );
+        assert!(std::time::Instant::now() < deadline, "host disconnect did not reset sessions");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // guest 会话循环应已退出（join_by_address 返回）。
+    tokio::time::timeout(std::time::Duration::from_secs(5), join_task)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // host 的 accept 任务被 abort 后，监听端口应已释放（断开真正生效）。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "host port not released after disconnect");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+

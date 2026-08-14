@@ -27,6 +27,8 @@ const SESSION_KEY_INFO: &[u8] = b"ipaste-lan-sync-v2";
 pub(crate) struct SecureConnection {
     stream: TcpStream,
     cipher: Aes256Gcm,
+    /// 会话密钥原值，供 `into_split` 为读/写两半各重建一份无状态 cipher。
+    session_key: [u8; 32],
 }
 
 pub(crate) fn code_claim(code: &str) -> String {
@@ -119,7 +121,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-async fn read_u32(stream: &mut TcpStream) -> Result<u32, String> {
+async fn read_u32<R: AsyncReadExt + Unpin>(stream: &mut R) -> Result<u32, String> {
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).await.map_err(|e| e.to_string())?;
     Ok(u32::from_le_bytes(buf))
@@ -127,7 +129,7 @@ async fn read_u32(stream: &mut TcpStream) -> Result<u32, String> {
 
 impl SecureConnection {
     pub(crate) fn new(stream: TcpStream, key: [u8; 32]) -> Self {
-        Self { stream, cipher: cipher_from_key(&key) }
+        Self { stream, cipher: cipher_from_key(&key), session_key: key }
     }
 
     pub(crate) async fn read_message(&mut self) -> Result<(LanMessage, Option<Vec<u8>>), String> {
@@ -173,6 +175,83 @@ impl SecureConnection {
         self.stream.write_all(&(ct.len() as u32).to_le_bytes()).await.map_err(|e| e.to_string())?;
         self.stream.write_all(&ct).await.map_err(|e| e.to_string())?;
         self.stream.flush().await.map_err(|e| e.to_string())
+    }
+}
+
+/// 加密连接的「读半」：持有 `OwnedReadHalf` 与一份无状态的 cipher。
+///
+/// 设计动机：`run_session_loop` 在 `tokio::select!` 循环里调用 `read_message`
+/// 会命中 `AsyncReadExt::read_exact` 在 `select!` 中**不 cancellation-safe**
+/// 的陷阱——心跳分支先就绪时丢弃读 future 会破坏流状态，进而把整个
+/// `select!` 绑死（host 无法响应 Disconnect 的根因）。把读循环挪进独立任务、
+/// 主循环改为在「控制通道 / 帧通道」之间 select 即可彻底规避（两者均 cancel-safe）。
+pub(crate) struct SecureReadHalf {
+    read: tokio::net::tcp::OwnedReadHalf,
+    cipher: Aes256Gcm,
+}
+
+/// 加密连接的「写半」：持有 `OwnedWriteHalf` 与一份 cipher。
+/// 仅在 select 分支**体内** `.await`（非分支 future），不涉及 cancel-safety。
+pub(crate) struct SecureWriteHalf {
+    write: tokio::net::tcp::OwnedWriteHalf,
+    cipher: Aes256Gcm,
+}
+
+impl SecureConnection {
+    /// 拆成读/写两半，分别交给读任务与会话主循环。
+    /// cipher 无状态，两半各自从同一密钥重建，互不影响。
+    pub(crate) fn into_split(self) -> (SecureReadHalf, SecureWriteHalf) {
+        let cipher = cipher_from_key(&self.session_key);
+        let cipher2 = cipher_from_key(&self.session_key);
+        let (read, write) = self.stream.into_split();
+        (SecureReadHalf { read, cipher }, SecureWriteHalf { write, cipher: cipher2 })
+    }
+}
+
+impl SecureReadHalf {
+    /// 读取并解密一帧。读循环在独立任务里反复调用它。
+    pub(crate) async fn read_message(&mut self) -> Result<(LanMessage, Option<Vec<u8>>), String> {
+        let plain = self.read_plaintext_frame().await?;
+        parse_plaintext_frame(&plain)
+    }
+
+    async fn read_plaintext_frame(&mut self) -> Result<Vec<u8>, String> {
+        let nonce_len = read_u32(&mut self.read).await? as usize;
+        if nonce_len != 12 {
+            return Err("nonce 长度异常".to_string());
+        }
+        let mut nonce_bytes = [0u8; 12];
+        self.read.read_exact(&mut nonce_bytes).await.map_err(|e| e.to_string())?;
+        let ct_len = read_u32(&mut self.read).await? as usize;
+        if ct_len > LAN_MAX_FRAME {
+            return Err("加密帧超限".to_string());
+        }
+        let mut ct = vec![0u8; ct_len];
+        self.read.read_exact(&mut ct).await.map_err(|e| e.to_string())?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        self.cipher
+            .decrypt(nonce, ct.as_ref())
+            .map_err(|_| "帧解密失败".to_string())
+    }
+}
+
+impl SecureWriteHalf {
+    /// 加密并写出一帧。仅被会话主循环在响应控制/帧时调用。
+    pub(crate) async fn write_message(
+        &mut self,
+        msg: &LanMessage,
+        payload: Option<&[u8]>,
+    ) -> Result<(), String> {
+        let plain = build_plaintext_frame(msg, payload)?;
+        let mut nonce_bytes = [0u8; 12];
+        getrandom::getrandom(&mut nonce_bytes).map_err(|e| e.to_string())?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ct = self.cipher.encrypt(nonce, plain.as_ref()).map_err(|_| "帧加密失败".to_string())?;
+        self.write.write_all(&12u32.to_le_bytes()).await.map_err(|e| e.to_string())?;
+        self.write.write_all(&nonce_bytes).await.map_err(|e| e.to_string())?;
+        self.write.write_all(&(ct.len() as u32).to_le_bytes()).await.map_err(|e| e.to_string())?;
+        self.write.write_all(&ct).await.map_err(|e| e.to_string())?;
+        self.write.flush().await.map_err(|e| e.to_string())
     }
 }
 

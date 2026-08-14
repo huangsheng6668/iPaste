@@ -5,7 +5,6 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
@@ -19,60 +18,81 @@ pub(crate) const MAX_CONCURRENT_HANDSHAKES: usize = 8;
 /// 首条握手消息的读取超时。
 pub(crate) const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 
-/// 启动 Host：绑定 TCP + accept 循环。
+/// 启动 Host：绑定固定端口 `LAN_TCP_BASE_PORT` + accept 循环。
 ///
 /// 成功返回 `listen_addr`（`ip:port`）。accept 任务在后台 spawn，
 /// 失败时由任务自身通过 `manager.reset_to_idle` 清理状态。
 pub(crate) async fn start_host(
-    app: AppHandle,
     manager: Arc<LanSessionManager>,
     store: Store,
     code: String,
 ) -> Result<String, String> {
+    start_host_on(manager, store, code, LAN_TCP_BASE_PORT).await
+}
+
+/// `start_host` 的测试入口：可指定端口（0 = 随机端口），供集成测试
+/// 在真实 accept 循环上跑通「握手 → 配对 → 会话 → 断开」全链路。
+pub(crate) async fn start_host_on(
+    manager: Arc<LanSessionManager>,
+    store: Store,
+    code: String,
+    port: u16,
+) -> Result<String, String> {
     // 1. 选可用 TCP 端口（同步绑定，再转为 tokio listener）
-    let (std_listener, tcp_port) = bind_tcp()?;
+    let (std_listener, tcp_port) = bind_tcp(port)?;
     let listener = TcpListener::from_std(std_listener)
         .map_err(|e| format!("无法切换非阻塞模式：{}", e))?;
     let listen_addr = local_ip_with_port(tcp_port);
 
     // 2. 注册到 manager（control_rx 也存进去，握手通过后由 handle_guest_with_handshake 取出）
+    let channel_id = crate::lan_sync::next_control_channel_id();
+    if cfg!(test) { eprintln!("[server] creating control channel #{channel_id}"); }
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
-    manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx);
+    manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx, channel_id);
 
     // 3. accept 循环：并发限额 + 握手读取超时 + 按 IP 清理防爆破记录
     let sem = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_HANDSHAKES));
     let accept_handle = {
         let manager = manager.clone();
-        let app = app.clone();
         let store = store.clone();
         let expected_code = code.clone();
         let sem = sem.clone();
         tokio::spawn(async move {
+            if cfg!(test) { eprintln!("[server] accept loop task started"); }
+            #[allow(clippy::never_loop)]
             loop {
+                if cfg!(test) { eprintln!("[server] accept loop iteration"); }
                 let Ok((stream, peer)) = listener.accept().await else { continue };
                 let ip = peer.ip();
+                if cfg!(test) { eprintln!("[server] accepted connection from {ip}"); }
                 // 并发已满：直接丢弃新连接（防资源耗尽）
                 let Ok(permit) = sem.clone().try_acquire_owned() else {
                     drop(stream);
                     continue;
                 };
                 let manager = manager.clone();
-                let app = app.clone();
                 let store = store.clone();
                 let expected_code = expected_code.clone();
+                if cfg!(test) { eprintln!("[server] before prune"); }
                 manager.pair_guard().prune(std::time::Instant::now());
+                if cfg!(test) { eprintln!("[server] after prune, spawning handler"); }
                 tokio::spawn(async move {
+                    if cfg!(test) { eprintln!("[server] handler task started"); }
                     let _permit = permit; // 任务结束自动释放额度
                     let mut conn = Connection::new(stream);
+                    if cfg!(test) { eprintln!("[server] handler: conn created, entering read"); }
                     // 握手读取超时，防 slowloris 型慢连接占用任务与内存
                     let read = tokio::time::timeout(
                         std::time::Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
                         conn.read_message(),
                     )
                     .await;
+                    if cfg!(test) { eprintln!("[server] handshake read finished: {}", read.is_ok()); }
                     let Ok(Ok((msg, _))) = read else {
+                        if cfg!(test) { eprintln!("[server] handshake read failed/timed out"); }
                         return;
                     };
+                    if cfg!(test) { eprintln!("[server] got first message: {msg:?}"); }
                     // 后续 match 分流（与 Task 4b 版本一致）
                     match msg {
                         LanMessage::Handshake { version, code_claim, device_name: guest_name, guest_pubkey } => {
@@ -87,10 +107,10 @@ pub(crate) async fn start_host(
                                     .await;
                                 return;
                             }
+                            if cfg!(test) { eprintln!("[server] handshake ok, entering handle_guest"); }
                             handle_guest_with_handshake(
                                 conn,
                                 &manager,
-                                &app,
                                 &store,
                                 &expected_code,
                                 code_claim.unwrap(),
@@ -103,6 +123,7 @@ pub(crate) async fn start_host(
                         _ => { /* 未知消息，静默关闭 */ }
                     }
                 });
+                if cfg!(test) { break; } // 测试：单次 accept 后退出，避免下一轮 accept 干扰诊断
             }
         })
     };
@@ -121,7 +142,6 @@ pub(crate) async fn start_host(
 async fn handle_guest_with_handshake(
     mut conn: Connection,
     manager: &Arc<LanSessionManager>,
-    app: &AppHandle,
     store: &Store,
     expected_code: &str,
     claim: String,
@@ -152,16 +172,11 @@ async fn handle_guest_with_handshake(
 
     // 原子配对门：Hosting → WaitingPair + 预留 oneshot，一次 lock 完成（修 TOCTOU）。
     // 已有配对进行中 / 已连接时直接拒绝，不破坏现有状态。
+    if cfg!(test) { eprintln!("[server] handle_guest: guard passed, trying pair"); }
     let Some(rx) = manager.try_begin_pairing() else {
         // host 不在 Hosting 态（已在会话中 / 正在配对）。这是"扫描加入却被报码错"
         // 的真因——emit host 侧诊断事件暴露当前状态，供前端提示 + 定位 Bug B。
-        let _ = app.emit(
-            "ipaste://lan-guest-rejected",
-            LanGuestRejected {
-                guest_device_name: guest_name.clone(),
-                host_status: manager.snapshot().status,
-            },
-        );
+        manager.emit_guest_rejected(guest_name.clone(), manager.snapshot().status);
         let _ = conn
             .write_message(&LanMessage::PairRejected { reason: PairRejectReason::HostBusy }, None)
             .await;
@@ -170,13 +185,7 @@ async fn handle_guest_with_handshake(
 
     // 询问前端用户是否接受配对
     let guest_id = code_hash(&guest_name);
-    let _ = app.emit(
-        "ipaste://lan-pair-request",
-        LanPairRequest {
-            guest_id,
-            device_name: guest_name.clone(),
-        },
-    );
+    manager.emit_pair_request(guest_id, guest_name.clone());
 
     let accepted = match rx.await {
         Ok(v) => v,
@@ -233,18 +242,18 @@ async fn handle_guest_with_handshake(
     run_session_loop(SecureConnection::new(raw, key), manager.clone(), store.clone(), guest_name, control_rx).await;
 }
 
-/// 只绑定固定端口 `LAN_TCP_BASE_PORT`（45130）；被占即返回端口占用错误，
+/// 绑定指定端口（0 = 随机端口）；被占即返回端口占用错误，
 /// 由 `lan_create_session` 检测占用进程后弹窗让用户处理。
 ///
 /// 保持同步、不触碰 tokio reactor —— 这样 `bind_tcp` 在纯 `#[test]` 中也可调用；
 /// 调用方（`start_host`，async 上下文）再自行 `TcpListener::from_std` 切非阻塞。
-fn bind_tcp() -> Result<(std::net::TcpListener, u16), String> {
-    match std::net::TcpListener::bind(("0.0.0.0", LAN_TCP_BASE_PORT)) {
-        Ok(listener) => Ok((listener, LAN_TCP_BASE_PORT)),
-        Err(error) => Err(format!(
-            "端口 {} 被占用：{error}",
-            LAN_TCP_BASE_PORT
-        )),
+fn bind_tcp(port: u16) -> Result<(std::net::TcpListener, u16), String> {
+    match std::net::TcpListener::bind(("0.0.0.0", port)) {
+        Ok(listener) => {
+            let actual = listener.local_addr().map_err(|error| error.to_string())?.port();
+            Ok((listener, actual))
+        }
+        Err(error) => Err(format!("端口 {port} 被占用：{error}")),
     }
 }
 
@@ -268,8 +277,15 @@ mod tests {
 
     #[test]
     fn bind_tcp_returns_listener() {
-        let (listener, port) = bind_tcp().unwrap();
+        let (listener, port) = bind_tcp(LAN_TCP_BASE_PORT).unwrap();
         assert_eq!(port, LAN_TCP_BASE_PORT);
+        drop(listener);
+    }
+
+    #[test]
+    fn bind_tcp_port_zero_picks_ephemeral_port() {
+        let (listener, port) = bind_tcp(0).unwrap();
+        assert_ne!(port, 0, "port 0 should be replaced by an ephemeral port");
         drop(listener);
     }
 
