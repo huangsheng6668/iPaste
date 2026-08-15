@@ -1,0 +1,6 @@
+# ts-rs 导出目录：相对仓库根（本文件所在目录）解析到 src/types/generated。
+# 由 cargo [env] 注入；cargo 从 cwd 向上发现本配置（--manifest-path 不参与发现，
+# 配置放 src-tauri/.cargo 下时仓库根发起的 cargo 命令拿不到），仓库内任何 cwd
+# 跑 cargo test 都落到同一位置。
+[env]
+TS_RS_EXPORT_DIR = { value = "src/types/generated", relative = true }

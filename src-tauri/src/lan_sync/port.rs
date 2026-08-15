@@ -6,9 +6,11 @@
 use std::process::Command;
 
 use serde::Serialize;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct PortConflict {
     pub(crate) pid: u32,
     pub(crate) name: String,

@@ -4,6 +4,7 @@ use crate::store::Store;
 
 use serde::{Deserialize, Serialize};
 use tauri::{menu::MenuItem, Wry};
+use ts_rs::TS;
 
 #[derive(Clone, Copy)]
 pub(crate) struct WindowGeometry {
@@ -29,8 +30,9 @@ pub(crate) enum MainWindowActivation {
     PreserveCurrentApp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct ClipItem {
     pub(crate) id: String,
     pub(crate) clip_type: String,
@@ -40,23 +42,27 @@ pub(crate) struct ClipItem {
     pub(crate) text: String,
     pub(crate) source_app: Option<String>,
     pub(crate) last_captured_at: String,
+    #[ts(type = "number")]
     pub(crate) favorite_count: i64,
     pub(crate) is_pinned: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct Category {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) color: String,
+    #[ts(type = "number")]
     pub(crate) sort_order: i64,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct CategoryItem {
     pub(crate) id: String,
     pub(crate) category_id: String,
@@ -66,6 +72,7 @@ pub(crate) struct CategoryItem {
     pub(crate) display_name: Option<String>,
     pub(crate) preview_text: String,
     pub(crate) text: String,
+    #[ts(type = "number")]
     pub(crate) sort_order: i64,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
@@ -73,25 +80,29 @@ pub(crate) struct CategoryItem {
     pub(crate) is_pinned: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct CategoryWithItem {
     pub(crate) category: Category,
     pub(crate) item: CategoryItem,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(untagged)]
+#[ts(export)]
 pub(crate) enum ClipUpdate {
     Clip(ClipItem),
     CategoryItem(CategoryItem),
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AppSnapshot {
     pub(crate) clips: Vec<ClipItem>,
     pub(crate) has_more_clips: bool,
+    #[ts(type = "number")]
     pub(crate) clip_total_count: usize,
     pub(crate) categories: Vec<Category>,
     pub(crate) category_items: Vec<CategoryItem>,
@@ -101,40 +112,49 @@ pub(crate) struct AppSnapshot {
     pub(crate) settings: AppSettings,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AppInfo {
     pub(crate) version: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct ClipPage {
     pub(crate) clips: Vec<ClipItem>,
     pub(crate) has_more: bool,
+    #[ts(type = "number")]
     pub(crate) total_count: usize,
+    #[ts(type = "number")]
     pub(crate) all_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct CategoryHitGroup {
     pub(crate) category: Category,
     pub(crate) items: Vec<CategoryItem>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) enum SearchResult {
     History { page: ClipPage },
     CategoryHits { groups: Vec<CategoryHitGroup> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AppSettings {
     pub(crate) shortcut: String,
+    #[ts(type = "number")]
     pub(crate) retention_days: i64,
+    #[ts(type = "number")]
     pub(crate) append_copy_timeout_minutes: i64,
     pub(crate) panel_open_behavior: String,
     pub(crate) panel_layout: String,
@@ -143,8 +163,9 @@ pub(crate) struct AppSettings {
     pub(crate) cloud: CloudSettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct CloudSettings {
     pub(crate) api_address: String,
     pub(crate) api_key: String,
@@ -152,8 +173,9 @@ pub(crate) struct CloudSettings {
     pub(crate) last_connected_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct OcrInstallStatus {
     pub(crate) installed: bool,
     pub(crate) engine_id: String,
@@ -162,22 +184,28 @@ pub(crate) struct OcrInstallStatus {
     pub(crate) platform: String,
     pub(crate) manifest_url: String,
     pub(crate) install_dir: String,
+    #[ts(type = "number")]
     pub(crate) downloaded_bytes: u64,
+    #[ts(type = "number")]
     pub(crate) total_bytes: u64,
     pub(crate) missing_files: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct OcrInstallProgress {
     pub(crate) phase: String,
     pub(crate) file_name: Option<String>,
+    #[ts(type = "number")]
     pub(crate) downloaded_bytes: u64,
+    #[ts(type = "number")]
     pub(crate) total_bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct ImageOcrResult {
     pub(crate) text: String,
     pub(crate) engine: String,
@@ -185,8 +213,9 @@ pub(crate) struct ImageOcrResult {
     pub(crate) words: Vec<ImageOcrWord>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct ImageOcrWord {
     pub(crate) text: String,
     pub(crate) left: f64,
@@ -194,9 +223,13 @@ pub(crate) struct ImageOcrWord {
     pub(crate) width: f64,
     pub(crate) height: f64,
     pub(crate) confidence: f64,
+    #[ts(type = "number")]
     pub(crate) block_index: i64,
+    #[ts(type = "number")]
     pub(crate) paragraph_index: i64,
+    #[ts(type = "number")]
     pub(crate) line_index: i64,
+    #[ts(type = "number")]
     pub(crate) word_index: i64,
 }
 
@@ -234,8 +267,9 @@ pub(crate) struct OcrManifestFile {
     pub(crate) entries: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct CloudSnapshot {
     pub(crate) categories: Vec<Category>,
     pub(crate) category_items: Vec<CategoryItem>,
@@ -285,36 +319,42 @@ pub(crate) struct CapturedClipboardItem {
     pub(crate) display_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct ClipboardCaptured {
     pub(crate) clip: ClipItem,
+    #[ts(type = "number")]
     pub(crate) clip_total_count: usize,
     pub(crate) was_inserted: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AppendCopyChanged {
     pub(crate) is_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct ListeningChanged {
     pub(crate) is_listening: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct PanelVisibilityChanged {
     pub(crate) visible: bool,
     pub(crate) preserves_current_app: bool,
     pub(crate) native_panel: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct SettingsChanged {
     pub(crate) settings: AppSettings,
 }
@@ -384,8 +424,9 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AutomationAction {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -394,29 +435,35 @@ pub(crate) struct AutomationAction {
     pub(crate) run_mode: String,
     pub(crate) confirm_before_run: bool,
     pub(crate) close_panel_on_success: bool,
+    #[ts(type = "number")]
     pub(crate) sort_order: i64,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     pub(crate) last_run: Option<AutomationRunSummary>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AutomationRunSummary {
     pub(crate) id: String,
     pub(crate) status: String,
+    #[ts(type = "number | null")]
     pub(crate) exit_code: Option<i64>,
     pub(crate) started_at: String,
     pub(crate) finished_at: Option<String>,
+    #[ts(type = "number | null")]
     pub(crate) duration_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AutomationRunDetail {
     pub(crate) id: String,
     pub(crate) automation_id: String,
     pub(crate) status: String,
+    #[ts(type = "number | null")]
     pub(crate) exit_code: Option<i64>,
     pub(crate) stdout: String,
     pub(crate) stderr: String,
@@ -424,11 +471,13 @@ pub(crate) struct AutomationRunDetail {
     pub(crate) stderr_truncated: bool,
     pub(crate) started_at: String,
     pub(crate) finished_at: Option<String>,
+    #[ts(type = "number | null")]
     pub(crate) duration_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct AutomationInput {
     pub(crate) name: String,
     pub(crate) command: String,

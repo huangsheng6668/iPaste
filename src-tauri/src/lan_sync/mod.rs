@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use ts_rs::TS;
 
 use crate::lan_sync::pair_guard::PairGuard;
 
@@ -75,16 +76,19 @@ impl CapturingEventSink {
 use crate::lan_sync::protocol::*;
 use crate::models::*;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) enum LanRole { Host, Guest }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) enum LanStatus { Idle, Hosting, WaitingPair, Connected }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanSessionInfo {
     pub(crate) role: Option<LanRole>,
     pub(crate) status: LanStatus,
@@ -93,8 +97,9 @@ pub(crate) struct LanSessionInfo {
     pub(crate) peer_device_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "kind")]
+#[ts(export)]
 pub(crate) enum ClipSource {
     Current,
     Item { id: String },
@@ -107,20 +112,24 @@ pub(crate) enum ClipSource {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanPairRequest { pub(crate) guest_id: String, pub(crate) device_name: String }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanSessionReady { pub(crate) peer_device_name: String, pub(crate) role: LanRole }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanDisconnected { pub(crate) reason: String }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanClipReceived {
     pub(crate) clip_type: String,
     /// 收到的是分组条目时，携带分组名；历史/无分组条目为 None。
@@ -128,8 +137,9 @@ pub(crate) struct LanClipReceived {
     pub(crate) category_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanJoinFailed { pub(crate) reason: String }
 
 /// 接收对端推送的条目时落库/解析失败发出（接收侧诊断事件）。
@@ -137,22 +147,25 @@ pub(crate) struct LanJoinFailed { pub(crate) reason: String }
 /// 此前 `session::apply_received` 在解析或落库失败时静默 return，导致"A 端显示成功、
 /// B 端无反应"且无从排查。现在改为 emit 本事件 + `eprintln!`，前端可据此提示用户，
 /// 开发者/用户也能从日志拿到具体原因（如 DB 约束冲突、图片解码失败等）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanClipReceiveFailed { pub(crate) reason: String }
 
 /// host 因非 Hosting 态拒绝 guest 时发出（host 侧事件），携带当时 host 的状态，
 /// 用于前端提示"有设备尝试加入但当前正忙"以及定位加入被拒的根因。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanGuestRejected {
     pub(crate) guest_device_name: String,
     pub(crate) host_status: LanStatus,
 }
 
 /// 发送端整组发送完成（`lan_send_category` 结束时发出，前端用于提示结果）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanCategorySent {
     pub(crate) category_name: String,
     pub(crate) sent: u32,
@@ -160,8 +173,9 @@ pub(crate) struct LanCategorySent {
 }
 
 /// 接收端整组接收完成（收到 `CategoryBatchEnd` 后发出；count/failed 为落库结果）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub(crate) struct LanCategoryReceived {
     pub(crate) category_name: String,
     pub(crate) count: u32,
