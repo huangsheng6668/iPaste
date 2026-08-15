@@ -47,14 +47,4 @@ describe("PortConflict reactive model", () => {
     conflict.value = null;
     expect(conflict.value).toBeNull();
   });
-
-  it("matches the backend port-in-use error format", () => {
-    // 后端格式：`端口 45130 被 ipaste.exe（PID 52276）占用。{bind 原因}`
-    // 正则不能带 `$`——错误尾巴还附带了 bind 原因。
-    const message = "端口 45130 被 ipaste.exe（PID 52276）占用。Address already in use";
-    const m = message.match(/端口 (\d+) 被 (.+?)（PID (\d+)）占用/);
-    expect(m).not.toBeNull();
-    expect(m?.[2]).toBe("ipaste.exe");
-    expect(Number(m?.[3])).toBe(52276);
-  });
 });

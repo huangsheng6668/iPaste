@@ -20,8 +20,8 @@ export function useLanSync() {
   // pair-request 时携带的对方设备名；与 info.peerDeviceName（仅 Connected 后由
   // set_connected 写入）分离，避免确认弹窗读到空名。
   const pendingPeerName = ref("");
-  // 端口占用：lan_create_session 因 45130 被占用失败时，由后端错误字符串解析得到。
-  // 非 null 时面板覆盖显示「杀进程 / 退出应用 / 取消」三按钮弹窗。
+  // 端口占用：lan_create_session 因 45130 被占用失败时返回错误码 port_in_use，
+  // 由 appErrorParams 取 { name, pid }。非 null 时面板覆盖显示「杀进程 / 退出应用 / 取消」三按钮弹窗。
   const portConflict = ref<PortConflict | null>(null);
   // host 因非 Hosting 态拒绝 guest（如本机已在会话中）——既给 host 端反馈，
   // 也用于定位"加入被报码错"的真因。带设备名 + 当时的 host 状态。
