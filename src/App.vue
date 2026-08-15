@@ -8,7 +8,6 @@ import AutomationCard from "./components/AutomationCard.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationDetailPane from "./components/AutomationDetailPane.vue";
-import { serializeAutomations, parseImportFile } from "./stores/lib/automationTransfer";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import LanSyncPanel from "./components/LanSyncPanel.vue";
 import QuickPreviewPanel from "./components/QuickPreviewPanel.vue";
@@ -17,6 +16,7 @@ import TopBar from "./components/TopBar.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
 import { useUpdater } from "./composables/useUpdater";
 import { useAppEvents } from "./composables/useAppEvents";
+import { useAutomationFlow } from "./composables/useAutomationFlow";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { isTauri } from "./lib/env";
@@ -24,7 +24,7 @@ import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
-import type { AutomationAction, AutomationInput, Category, CategoryItem, ClipViewItem } from "./types";
+import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "./types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const store = useIpasteStore();
@@ -36,13 +36,6 @@ const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.user
 const isPreservingCurrentApp = ref(false);
 const contextMenu = ref<{ item: ClipViewItem; index: number; x: number; y: number } | null>(null);
 const contextMenuElement = ref<HTMLElement | null>(null);
-const automationEditorOpen = ref(false);
-const automationEditorAction = ref<AutomationAction | null>(null);
-const automationConfirmOpen = ref(false);
-const automationConfirmAction = ref<AutomationAction | null>(null);
-const automationContextMenu = ref<{ action: AutomationAction; x: number; y: number } | null>(null);
-const automationDetailOpen = ref(false);
-const automationDetailAction = ref<AutomationAction | null>(null);
 const moveSubmenuBranchElement = ref<HTMLElement | null>(null);
 const moveSubmenuElement = ref<HTMLElement | null>(null);
 const showMoveSubmenu = ref(false);
@@ -98,6 +91,32 @@ const {
   isEditableTarget,
 } = quickPreview;
 
+const {
+  automationEditorOpen,
+  automationEditorAction,
+  automationConfirmOpen,
+  automationConfirmAction,
+  automationContextMenu,
+  automationDetailOpen,
+  automationDetailAction,
+  importFileInput,
+  selectActionCard,
+  runSelectedAction,
+  executeAutomation,
+  openAutomationEditor,
+  saveAutomation,
+  deleteAutomationAction,
+  copyAutomationCommand,
+  openAutomationContextMenu,
+  closeAutomationContextMenu,
+  openAutomationDetail,
+  exportAllAutomations,
+  triggerImport,
+  onImportFileSelected,
+  handleActionsKey,
+  watchClosePanelRequest,
+} = useAutomationFlow(store, hidePanelFromUi);
+
 const categoryById = computed(() =>
   store.categories.reduce<Record<string, Category>>((categories, category) => {
     categories[category.id] = category;
@@ -141,6 +160,7 @@ onMounted(async () => {
 
   await store.load();
   await store.loadAutomations();
+  watchClosePanelRequest();
   await useAppEvents(store);
   if (isTauri) {
     scheduleSilentUpdateCheck();
@@ -681,161 +701,6 @@ function handlePanelKey(key: string) {
   }
 
   return false;
-}
-
-function handleActionsKey(key: string): boolean {
-  if (key === "ArrowDown") {
-    store.selectedActionIndex = Math.min(store.selectedActionIndex + 1, Math.max(store.visibleActions.length - 1, 0));
-    return true;
-  }
-  if (key === "ArrowUp") {
-    store.selectedActionIndex = Math.max(store.selectedActionIndex - 1, 0);
-    return true;
-  }
-  if (key === "Enter") {
-    const action = store.visibleActions[store.selectedActionIndex];
-    if (action) void runSelectedAction(action);
-    return true;
-  }
-  if (key === "Escape") {
-    store.selectCategory("history");
-    return true;
-  }
-  return false;
-}
-
-function selectActionCard(index: number) {
-  store.selectedActionIndex = index;
-}
-
-function runSelectedAction(action: AutomationAction) {
-  if (action.confirmBeforeRun) {
-    automationConfirmAction.value = action;
-    automationConfirmOpen.value = true;
-    return;
-  }
-  void executeAutomation(action);
-}
-
-async function executeAutomation(action: AutomationAction) {
-  try {
-    await store.runAutomation(action.id);
-  } catch (unknownError) {
-    console.error("automation run failed", unknownError);
-  }
-}
-
-function openAutomationEditor(action: AutomationAction | null) {
-  automationEditorAction.value = action;
-  automationEditorOpen.value = true;
-}
-
-async function saveAutomation(input: AutomationInput) {
-  try {
-    if (automationEditorAction.value) {
-      await store.updateAutomation(automationEditorAction.value.id, input);
-    } else {
-      await store.createAutomation(input);
-    }
-  } catch (unknownError) {
-    console.error("automation save failed", unknownError);
-  }
-  automationEditorOpen.value = false;
-}
-
-async function deleteAutomationAction(action: AutomationAction) {
-  try {
-    await store.deleteAutomation(action.id);
-  } catch (unknownError) {
-    console.error("automation delete failed", unknownError);
-  }
-}
-
-async function copyAutomationCommand(action: AutomationAction) {
-  try {
-    await ipasteApi.copyClip("text", action.command);
-  } catch (unknownError) {
-    console.error("copy failed", unknownError);
-  }
-}
-
-function openAutomationContextMenu(action: AutomationAction, payload: { x: number; y: number }) {
-  automationContextMenu.value = { action, x: payload.x, y: payload.y };
-}
-
-function closeAutomationContextMenu() {
-  automationContextMenu.value = null;
-}
-
-function openAutomationDetail(action: AutomationAction) {
-  automationDetailAction.value = action;
-  automationDetailOpen.value = true;
-}
-
-watch(
-  () => store.closePanelRequested,
-  (requested) => {
-    if (requested) {
-      void hidePanelFromUi();
-      store.closePanelRequested = false;
-    }
-  },
-);
-
-function exportAllAutomations() {
-  closeAutomationContextMenu();
-  if (!store.automations.length) {
-    alert(t("automation.exportEmpty"));
-    return;
-  }
-  try {
-    const json = serializeAutomations(store.automations);
-    const date = new Date().toISOString().slice(0, 10);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ipaste-automations-${date}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch {
-    alert(t("automation.exportFailed"));
-  }
-}
-
-const importFileInput = ref<HTMLInputElement | null>(null);
-
-function triggerImport() {
-  closeAutomationContextMenu();
-  importFileInput.value?.click();
-}
-
-async function onImportFileSelected(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
-  input.value = "";
-
-  try {
-    const text = await file.text();
-    const existingNames = new Set(store.automations.map((a) => a.name));
-    const result = parseImportFile(text, existingNames);
-
-    if (result.skippedInvalid > 0 && result.valid.length === 0 && result.skippedDuplicates === 0) {
-      alert(t("automation.importNoValid"));
-      return;
-    }
-
-    for (const input_ of result.valid) {
-      await store.createAutomation(input_);
-    }
-
-    alert(t("automation.importSuccess", { imported: result.valid.length, skipped: result.skippedDuplicates }));
-  } catch {
-    alert(t("automation.importFailed"));
-  }
 }
 
 function handleCategoryShortcut(event: KeyboardEvent) {
