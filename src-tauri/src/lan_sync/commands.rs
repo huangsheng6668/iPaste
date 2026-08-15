@@ -23,6 +23,7 @@ use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
+use crate::error::AppError;
 use crate::Store;
 
 #[tauri::command]
@@ -30,23 +31,32 @@ pub(crate) async fn lan_create_session(
     app: AppHandle,
     state: State<'_, AppState>,
     code: Option<String>,
-) -> Result<LanSessionInfo, String> {
+) -> Result<LanSessionInfo, AppError> {
     let manager = app.lan_manager();
     // 已有进行中的会话（Hosting / WaitingPair / Connected）则拒绝新建。
     if manager.status_is_connected_or_hosting() {
-        return Err("已有进行中的会话".to_string());
+        return Err(AppError::SessionBusy);
     }
     let code = normalize_pair_code(code)?;
     // start_host 内部会把状态置为 Hosting 并存好 control_tx/rx + host_tasks。
     // 端口被占用时 start_host 返回错误；这里查占用进程把信息并入错误，前端据此弹窗。
     if let Err(error) = start_host(Arc::clone(&manager), state.store.clone(), code).await {
         let port = LAN_TCP_BASE_PORT;
-        let detail = get_port_conflict(port)
-            .ok()
-            .flatten()
-            .map(|c| format!("端口 {port} 被 {}（PID {}）占用", c.name, c.pid))
-            .unwrap_or_else(|| format!("端口 {port} 被占用"));
-        return Err(format!("{detail}。{error}"));
+        let detail = error.to_string();
+        return Err(match get_port_conflict(port).ok().flatten() {
+            Some(conflict) => AppError::PortInUse {
+                port,
+                name: conflict.name,
+                pid: conflict.pid,
+                detail,
+            },
+            None => AppError::PortInUse {
+                port,
+                name: "未知进程".to_string(),
+                pid: 0,
+                detail,
+            },
+        });
     }
     Ok(manager.snapshot())
 }
@@ -57,12 +67,12 @@ pub(crate) async fn lan_join_by_address(
     state: State<'_, AppState>,
     address: String,
     code: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let manager = app.lan_manager();
     // 与 lan_create_session 同款守门：已有进行中的会话（含 WaitingPair）则拒绝，
     // 防止并发 join 互相覆写控制通道。
     if manager.status_is_connected_or_hosting() {
-        return Err("已有进行中的会话".to_string());
+        return Err(AppError::SessionBusy);
     }
     // 握手与会话循环放后台任务执行（不随命令返回而结束）；句柄存入 manager，
     // 断开/reset 时 abort——消灭「用户已断开、残留握手任务继续跑完再弹
@@ -78,13 +88,13 @@ pub(crate) async fn lan_join_by_address(
 }
 
 #[tauri::command]
-pub(crate) fn lan_accept_pair(app: AppHandle, accept: bool) -> Result<(), String> {
+pub(crate) fn lan_accept_pair(app: AppHandle, accept: bool) -> Result<(), AppError> {
     let manager = app.lan_manager();
     if let Some(tx) = manager.take_pair_decision_tx() {
         let _ = tx.send(accept);
         Ok(())
     } else {
-        Err("当前没有待确认的加入请求".to_string())
+        Err(AppError::internal("当前没有待确认的加入请求"))
     }
 }
 
@@ -97,12 +107,12 @@ pub(crate) async fn lan_send_clip(
     app: AppHandle,
     state: State<'_, AppState>,
     source: ClipSource,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let manager = app.lan_manager();
     let (clip_type, payload, category_name, category_color, display_name) = match source {
         ClipSource::Current => {
             let opt = clipboard_read_to_payload(read_current_clipboard()?)?;
-            let (ct, data) = opt.ok_or_else(|| "当前剪贴板为空".to_string())?;
+            let (ct, data) = opt.ok_or_else(|| AppError::internal("当前剪贴板为空"))?;
             (ct, data, None, None, None)
         }
         ClipSource::Item { id } => {
@@ -116,11 +126,11 @@ pub(crate) async fn lan_send_clip(
         }
     };
     let Some(tx) = manager.control_tx() else {
-        return Err("未连接".to_string());
+        return Err(AppError::internal("未连接"));
     };
     tx.send(ControlMsg::SendClip { clip_type, payload, category_name, category_color, display_name })
         .await
-        .map_err(|_| "会话已关闭".to_string())
+        .map_err(|_| AppError::internal("会话已关闭"))
 }
 
 /// 整组发送：把某分组下的全部条目一次性推给对端（`lan_send_category`）。
@@ -133,10 +143,10 @@ pub(crate) async fn lan_send_category(
     app: AppHandle,
     state: State<'_, AppState>,
     category_id: String,
-) -> Result<LanCategorySent, String> {
+) -> Result<LanCategorySent, AppError> {
     let manager = app.lan_manager();
     let Some(tx) = manager.control_tx() else {
-        return Err("未连接".to_string());
+        return Err(AppError::internal("未连接"));
     };
 
     let conn = state.store.connect()?;
@@ -145,7 +155,7 @@ pub(crate) async fn lan_send_category(
         .store
         .list_category_items_for_category_with_conn(&conn, &category_id)?;
     if items.is_empty() {
-        return Err("该分组没有可发送的条目".to_string());
+        return Err(AppError::internal("该分组没有可发送的条目"));
     }
 
     let item_count = items.len().min(u32::MAX as usize) as u32;
@@ -155,7 +165,7 @@ pub(crate) async fn lan_send_category(
         item_count,
     })
     .await
-    .map_err(|_| "会话已关闭".to_string())?;
+    .map_err(|_| AppError::internal("会话已关闭"))?;
 
     let mut sent: u32 = 0;
     let mut failed: u32 = 0;
@@ -173,7 +183,7 @@ pub(crate) async fn lan_send_category(
                     .await
                     .is_err()
                 {
-                    return Err("会话已关闭".to_string());
+                    return Err(AppError::internal("会话已关闭"));
                 }
                 sent += 1;
             }
@@ -185,7 +195,7 @@ pub(crate) async fn lan_send_category(
     }
 
     if tx.send(ControlMsg::BatchEnd).await.is_err() {
-        return Err("会话已关闭".to_string());
+        return Err(AppError::internal("会话已关闭"));
     }
 
     manager.emit_category_sent(category.name.clone(), sent, failed);
@@ -197,18 +207,18 @@ pub(crate) async fn lan_send_category(
 }
 
 #[tauri::command]
-pub(crate) async fn lan_request_clip(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn lan_request_clip(app: AppHandle) -> Result<(), AppError> {
     let manager = app.lan_manager();
     let Some(tx) = manager.control_tx() else {
-        return Err("未连接".to_string());
+        return Err(AppError::internal("未连接"));
     };
     tx.send(ControlMsg::RequestClip)
         .await
-        .map_err(|_| "会话已关闭".to_string())
+        .map_err(|_| AppError::internal("会话已关闭"))
 }
 
 #[tauri::command]
-pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), AppError> {
     let manager = app.lan_manager();
     match manager.snapshot().status {
         LanStatus::Connected => {
@@ -233,28 +243,28 @@ pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn lan_get_state(app: AppHandle) -> Result<LanSessionInfo, String> {
+pub(crate) fn lan_get_state(app: AppHandle) -> Result<LanSessionInfo, AppError> {
     Ok(app.lan_manager().snapshot())
 }
 
 #[tauri::command]
-pub(crate) async fn open_lan_sync(app: AppHandle) -> Result<(), String> {
-    crate::window::open_lan_sync_window(&app)
+pub(crate) async fn open_lan_sync(app: AppHandle) -> Result<(), AppError> {
+    crate::window::open_lan_sync_window(&app).map_err(AppError::from)
 }
 
 /// 查询固定端口 `LAN_TCP_BASE_PORT` 的占用进程（用于 UI 提示与一键 kill）。
 #[tauri::command]
-pub(crate) fn lan_get_port_conflict() -> Result<Option<PortConflict>, String> {
-    get_port_conflict(LAN_TCP_BASE_PORT)
+pub(crate) fn lan_get_port_conflict() -> Result<Option<PortConflict>, AppError> {
+    get_port_conflict(LAN_TCP_BASE_PORT).map_err(AppError::from)
 }
 
 /// 结束占用固定端口的进程（前端弹窗确认后调用）。
 #[tauri::command]
-pub(crate) fn lan_kill_port_process(pid: u32) -> Result<(), String> {
+pub(crate) fn lan_kill_port_process(pid: u32) -> Result<(), AppError> {
     // 后端复核：只有确实占用 45130 端口的进程才允许被结束
     let conflict = get_port_conflict(LAN_TCP_BASE_PORT)?;
     verify_port_owner(conflict, pid)?;
-    kill_port_process(pid)
+    kill_port_process(pid).map_err(AppError::from)
 }
 
 /// 退出整个 App（前端在「占用进程是自身残留实例」等场景下调用）。

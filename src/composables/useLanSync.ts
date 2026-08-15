@@ -1,7 +1,7 @@
 import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
-import { errorMessage } from "../lib/appError";
+import { appErrorCode, appErrorParams, errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 import type { LanCategoryReceivedEvent, LanCategorySentEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
 
@@ -50,18 +50,11 @@ export function useLanSync() {
     try {
       applyInfo(await ipasteApi.lanCreateSession(code.value.trim() || null));
     } catch (e) {
-      // 后端错误格式「端口 45130 被 <name>（PID <pid>）占用。{原始 bind 错误}」。
-      // 正则不带 `$` 锚定——错误尾巴还有 bind 原因。name 用非贪婪避免吞掉 PID。
-      const message = String(e);
-      if (message.includes("端口") && message.includes("占用")) {
-        const m = message.match(/端口 (\d+) 被 (.+?)（PID (\d+)）占用/);
-        if (m) {
-          portConflict.value = { name: m[2], pid: Number(m[3]) };
-        } else {
-          portConflict.value = { name: "未知进程", pid: 0 };
-        }
+      if (appErrorCode(e) === "port_in_use") {
+        const params = (appErrorParams(e) ?? {}) as { name?: string; pid?: number };
+        portConflict.value = { name: params.name ?? "未知进程", pid: params.pid ?? 0 };
       } else {
-        error.value = message;
+        error.value = errorMessage(e);
       }
     }
   }
