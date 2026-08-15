@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, Download, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, Upload, Zap } from "lucide-vue-next";
+import { AlertCircle, ClipboardCopy, Download, Inbox, Info, Pencil, Play, Trash2, Upload, Zap } from "lucide-vue-next";
 import CategoryRail from "./components/CategoryRail.vue";
 import ClipCard from "./components/ClipCard.vue";
+import ClipContextMenu from "./components/ClipContextMenu.vue";
 import AutomationCard from "./components/AutomationCard.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
@@ -17,8 +18,10 @@ import UpdateDialog from "./components/UpdateDialog.vue";
 import { useUpdater } from "./composables/useUpdater";
 import { useAppEvents } from "./composables/useAppEvents";
 import { useAutomationFlow } from "./composables/useAutomationFlow";
+import { useClipContextMenu } from "./composables/useClipContextMenu";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
+import { contextItemKey, originalClipId } from "./lib/clipKeys";
 import { isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
@@ -26,7 +29,6 @@ import { useIpasteStore } from "./stores/ipasteStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
 import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "./types";
 
-const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const store = useIpasteStore();
 const updater = useUpdater();
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
@@ -34,18 +36,8 @@ const isClipViewerWindow = new URLSearchParams(window.location.search).get("wind
 const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const isPreservingCurrentApp = ref(false);
-const contextMenu = ref<{ item: ClipViewItem; index: number; x: number; y: number } | null>(null);
-const contextMenuElement = ref<HTMLElement | null>(null);
-const moveSubmenuBranchElement = ref<HTMLElement | null>(null);
-const moveSubmenuElement = ref<HTMLElement | null>(null);
-const showMoveSubmenu = ref(false);
-const submenuAlignLeft = ref(false);
-const submenuOffsetTop = ref(0);
-const editingCategoryId = ref<string | null>(null);
 const categoryRailElement = ref<InstanceType<typeof CategoryRail> | null>(null);
 const clipListElement = ref<HTMLElement | null>(null);
-const pendingDeleteContextKey = ref<string | null>(null);
-const pendingDeleteByKey = ref<string | null>(null);
 const editingClipKey = ref<string | null>(null);
 const editingClipName = ref("");
 const isClipListScrolling = ref(false);
@@ -67,12 +59,35 @@ let itemDragState: {
 } | null = null;
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
-let moveSubmenuCloseTimer: number | null = null;
 let clipListScrollTimer: number | null = null;
 let selectionScrollFrame: number | null = null;
 let searchReloadTimer: number | null = null;
 let lastUpdateCheckAt = 0;
 let suppressNextItemSelect = false;
+
+const clipMenu = useClipContextMenu(store, { onStartRename: startEditingClipName });
+const {
+  contextMenu,
+  editingCategoryId,
+  showMoveSubmenu,
+  pendingDeleteContextKey,
+  pendingDeleteByKey,
+  contextDeleteLabel,
+  openFallbackContextMenu,
+  openClipContextMenu,
+  pasteContextItem,
+  copyContextItem,
+  renameContextItem,
+  addContextItemToCategory,
+  deleteContextItem,
+  deleteSelectedItem,
+  createCategoryForContextItem,
+  openMoveSubmenu,
+  scheduleCloseMoveSubmenu,
+  closeMoveSubmenu,
+  clearMoveSubmenuCloseTimer,
+  resetPendingDelete,
+} = clipMenu;
 
 const quickPreview = useQuickPreview({
   visibleItems: () => store.visibleItems,
@@ -265,24 +280,6 @@ function finishEditingCategory() {
   editingCategoryId.value = null;
 }
 
-async function createCategoryForContextItem() {
-  const item = contextMenu.value?.item;
-  if (!item) return;
-
-  closeFloatingLayers();
-  const clipId = item.collection === "history" ? item.id : item.clipSnapshotId;
-  const color = CATEGORY_COLORS[store.categories.length % CATEGORY_COLORS.length];
-  const { category, item: categoryItem } = await ipasteApi.createCategoryWithClip(t("category.newCategory"), color, clipId);
-  store.categories.push(category);
-  store.categoryItems.push(categoryItem);
-  store.clips = store.clips.map((clip) =>
-    clip.id === clipId ? { ...clip, favoriteCount: clip.favoriteCount + 1 } : clip,
-  );
-  store.selectCategory(category.id);
-  store.syncCloudInBackground();
-  editingCategoryId.value = category.id;
-}
-
 async function deleteCategory(id: string) {
   await store.deleteCategory(id);
 }
@@ -305,68 +302,6 @@ function toCategoryClipViewItem(item: CategoryItem): ClipViewItem {
 
 async function applyFallbackItem(item: ClipViewItem) {
   await store.applyItem(item);
-}
-
-function openFallbackContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
-  contextMenu.value = payload;
-  void nextTick(positionContextMenu);
-}
-
-function openClipContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
-  store.setSelectedIndex(payload.index);
-  pendingDeleteContextKey.value = null;
-  pendingDeleteByKey.value = null;
-  contextMenu.value = payload;
-  void nextTick(positionContextMenu);
-}
-
-function positionContextMenu() {
-  if (!contextMenu.value || !contextMenuElement.value) return;
-
-  const rect = contextMenuElement.value.getBoundingClientRect();
-  const padding = 8;
-  const maxX = Math.max(padding, window.innerWidth - rect.width - padding);
-  const maxY = Math.max(padding, window.innerHeight - rect.height - padding);
-  contextMenu.value = {
-    ...contextMenu.value,
-    x: clamp(contextMenu.value.x, padding, maxX),
-    y: clamp(contextMenu.value.y, padding, maxY),
-  };
-  positionMoveSubmenu();
-}
-
-async function pasteContextItem() {
-  const item = contextMenu.value?.item;
-  closeFloatingLayers();
-  if (!item) return;
-  await store.applyItem(item);
-}
-
-async function copyContextItem() {
-  const item = contextMenu.value?.item;
-  closeFloatingLayers();
-  if (!item) return;
-  await store.copyItem(item);
-}
-
-async function renameContextItem() {
-  const item = contextMenu.value?.item;
-  closeFloatingLayers();
-  if (!item) return;
-
-  await startEditingClipName(item);
-}
-
-async function addContextItemToCategory(categoryId: string) {
-  const item = contextMenu.value?.item;
-  if (!item) return;
-  closeFloatingLayers();
-  await addItemToCategory(item, categoryId);
-}
-
-async function addItemToCategory(item: ClipViewItem, categoryId: string) {
-  const clipId = item.collection === "history" ? item.id : item.clipSnapshotId;
-  await store.addToCategory(clipId, categoryId);
 }
 
 function startItemDrag(payload: { item: ClipViewItem; index: number; event: PointerEvent }) {
@@ -528,49 +463,6 @@ function selectClipCard(index: number) {
 
   pendingDeleteByKey.value = null;
   store.setSelectedIndex(index);
-}
-
-async function deleteContextItem() {
-  const item = contextMenu.value?.item;
-  if (!item) return;
-
-  const deleteKey = contextItemKey(item);
-  if (pendingDeleteContextKey.value !== deleteKey) {
-    pendingDeleteContextKey.value = deleteKey;
-    return;
-  }
-
-  closeFloatingLayers();
-  if (item.collection === "history") {
-    await store.deleteClip(item.id);
-    return;
-  }
-
-  await store.removeCategoryItem(item.id);
-}
-
-async function deleteSelectedItem(item: ClipViewItem) {
-  pendingDeleteByKey.value = null;
-  if (item.collection === "history") {
-    await store.deleteClip(item.id);
-    return;
-  }
-
-  await store.removeCategoryItem(item.id);
-}
-
-function contextItemKey(item: ClipViewItem) {
-  return `${item.collection}-${item.id}`;
-}
-
-function originalClipId(item: ClipViewItem) {
-  return item.collection === "history" ? item.id : item.clipSnapshotId;
-}
-
-function contextDeleteLabel(item: ClipViewItem) {
-  const isPending = pendingDeleteContextKey.value === contextItemKey(item);
-  if (item.collection === "history") return isPending ? t("common.confirmDelete") : t("common.delete");
-  return isPending ? t("context.confirmRemove") : t("context.removeFromCategory");
 }
 
 async function startEditingClipName(item: ClipViewItem) {
@@ -756,11 +648,8 @@ function blurCategoryFocus() {
 }
 
 function closeFloatingLayers() {
-  contextMenu.value = null;
-  pendingDeleteContextKey.value = null;
-  pendingDeleteByKey.value = null;
+  clipMenu.close();
   quickPreview.resetQuickPreviewState();
-  closeMoveSubmenu();
   categoryRailElement.value?.closeFloatingLayers();
 }
 
@@ -788,33 +677,6 @@ async function focusEditingClipName() {
     input?.focus();
     input?.select();
   }, 40);
-}
-
-async function openMoveSubmenu() {
-  clearMoveSubmenuCloseTimer();
-  showMoveSubmenu.value = true;
-  await nextTick();
-  positionMoveSubmenu();
-}
-
-function scheduleCloseMoveSubmenu() {
-  clearMoveSubmenuCloseTimer();
-  moveSubmenuCloseTimer = window.setTimeout(() => {
-    showMoveSubmenu.value = false;
-    moveSubmenuCloseTimer = null;
-  }, 120);
-}
-
-function closeMoveSubmenu() {
-  clearMoveSubmenuCloseTimer();
-  showMoveSubmenu.value = false;
-  submenuOffsetTop.value = 0;
-}
-
-function clearMoveSubmenuCloseTimer() {
-  if (moveSubmenuCloseTimer === null) return;
-  window.clearTimeout(moveSubmenuCloseTimer);
-  moveSubmenuCloseTimer = null;
 }
 
 function showClipListScrollbar() {
@@ -851,23 +713,6 @@ function resetClipListScroll() {
   if (clipListElement.value) {
     clipListElement.value.scrollTop = 0;
   }
-}
-
-function positionMoveSubmenu() {
-  if (!moveSubmenuBranchElement.value || !moveSubmenuElement.value) return;
-
-  const branchRect = moveSubmenuBranchElement.value.getBoundingClientRect();
-  const submenuRect = moveSubmenuElement.value.getBoundingClientRect();
-  const padding = 8;
-  const maxY = Math.max(padding, window.innerHeight - submenuRect.height - padding);
-
-  submenuAlignLeft.value = branchRect.right + submenuRect.width + padding > window.innerWidth
-    && branchRect.left - submenuRect.width - padding >= padding;
-  submenuOffsetTop.value = clamp(branchRect.top, padding, maxY) - branchRect.top;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function scheduleSelectedClipScroll() {
@@ -1168,119 +1013,23 @@ function scrollSelectedClipIntoView() {
       </section>
     </section>
 
-    <div
+    <ClipContextMenu
       v-if="contextMenu"
-      ref="contextMenuElement"
-      class="clip-context-menu"
-      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
-      role="menu"
-      @click.stop
-      @contextmenu.prevent.stop
-      @mouseleave="pendingDeleteContextKey = null"
-    >
-      <button
-        type="button"
-        class="context-menu-item context-menu-item-strong"
-        tabindex="-1"
-        role="menuitem"
-        @click="pasteContextItem"
-      >
-        <CornerDownLeft class="size-4" />
-        <span>{{ t("common.paste") }}</span>
-      </button>
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="copyContextItem"
-      >
-        <ClipboardCopy class="size-4" />
-        <span>{{ t("common.copy") }}</span>
-      </button>
-      <div class="context-menu-separator" />
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="renameContextItem"
-      >
-        <Pencil class="size-4" />
-        <span>{{ t("common.rename") }}</span>
-      </button>
-      <div
-        ref="moveSubmenuBranchElement"
-        class="context-menu-branch"
-        :class="{ 'context-menu-branch-left': submenuAlignLeft }"
-        @mouseenter="openMoveSubmenu"
-        @mouseleave="scheduleCloseMoveSubmenu"
-      >
-        <button
-          type="button"
-          class="context-menu-item"
-          tabindex="-1"
-          role="menuitem"
-          @click.stop="openMoveSubmenu"
-        >
-          <FolderInput class="size-4" />
-          <span>{{ t("context.moveTo") }}</span>
-          <ChevronRight class="ml-auto size-4 text-slate-400" />
-        </button>
-        <div
-          v-if="showMoveSubmenu"
-          ref="moveSubmenuElement"
-          class="clip-context-submenu"
-          :class="{ 'clip-context-submenu-left': submenuAlignLeft }"
-          :style="{ top: `${submenuOffsetTop}px` }"
-          @mouseenter="openMoveSubmenu"
-          @mouseleave="scheduleCloseMoveSubmenu"
-        >
-          <button
-            v-for="category in store.categories"
-            :key="category.id"
-            type="button"
-            class="context-menu-item"
-            tabindex="-1"
-            role="menuitem"
-            @click="addContextItemToCategory(category.id)"
-          >
-            <span
-              class="size-2 rounded-full"
-              :style="{ backgroundColor: category.color }"
-            />
-            <span class="min-w-0 flex-1 truncate">{{ categoryDisplayName(category.name) }}</span>
-          </button>
-          <div
-            v-if="store.categories.length"
-            class="context-menu-separator"
-          />
-          <button
-            type="button"
-            class="context-menu-item"
-            tabindex="-1"
-            role="menuitem"
-            @click="createCategoryForContextItem"
-          >
-            <Plus class="size-4" />
-            <span>{{ t("context.createCategory") }}</span>
-          </button>
-        </div>
-      </div>
-      <div class="context-menu-separator" />
-      <button
-        type="button"
-        class="context-menu-item context-menu-item-danger"
-        :class="{ 'context-menu-item-confirm': pendingDeleteContextKey === contextItemKey(contextMenu.item) }"
-        tabindex="-1"
-        role="menuitem"
-        @click="deleteContextItem"
-        @mouseleave="pendingDeleteContextKey = null"
-      >
-        <Trash2 class="size-4" />
-        <span>{{ contextDeleteLabel(contextMenu.item) }}</span>
-      </button>
-    </div>
+      :context-menu="contextMenu"
+      :categories="store.categories"
+      :delete-label="contextDeleteLabel(contextMenu.item)"
+      :delete-confirming="pendingDeleteContextKey === contextItemKey(contextMenu.item)"
+      :show-move-submenu="showMoveSubmenu"
+      @paste="pasteContextItem"
+      @copy="copyContextItem"
+      @rename="renameContextItem"
+      @move-to="addContextItemToCategory"
+      @create-category="createCategoryForContextItem"
+      @delete="deleteContextItem"
+      @open-move-submenu="openMoveSubmenu"
+      @schedule-close-move-submenu="scheduleCloseMoveSubmenu"
+      @reset-pending-delete="resetPendingDelete"
+    />
 
     <AutomationEditorDialog
       :open="automationEditorOpen"
