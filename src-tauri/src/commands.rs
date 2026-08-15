@@ -1,10 +1,7 @@
-#[cfg(not(target_os = "macos"))]
-use std::fs;
 use std::thread;
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-use rusqlite::params;
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -12,18 +9,27 @@ use crate::clipboard::*;
 use crate::error::AppError;
 use crate::events::*;
 use crate::models::*;
-use crate::ocr::*;
 use crate::paste::*;
 use crate::shortcut::*;
 use crate::tray::*;
 use crate::util::*;
 use crate::window::*;
 use crate::{cloud::test_cloud_connection, CLIP_PAGE_SIZE};
-#[tauri::command]
-pub(crate) fn get_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
+/// get_snapshot 与 sync_cloud_now 共用的 AppSnapshot 组装
+/// （原两处逐行重复约 22 行）。prune_expired 统一在读取前执行。
+fn build_app_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
     state.store.prune_expired()?;
     let (clip_page, categories, category_items) = state.store.snapshot()?;
     let settings = state.store.settings()?;
+    let is_listening = *state
+        .is_listening
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    let is_append_copy_enabled = state
+        .append_copy_state
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .is_enabled;
     Ok(AppSnapshot {
         clips: clip_page.clips,
         has_more_clips: clip_page.has_more,
@@ -31,17 +37,15 @@ pub(crate) fn get_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnaps
         categories,
         category_items,
         shortcut: settings.shortcut.clone(),
-        is_listening: *state
-            .is_listening
-            .lock()
-            .map_err(|error| error.to_string())?,
-        is_append_copy_enabled: state
-            .append_copy_state
-            .lock()
-            .map(|value| value.is_enabled)
-            .map_err(|error| error.to_string())?,
+        is_listening,
+        is_append_copy_enabled,
         settings,
     })
+}
+
+#[tauri::command]
+pub(crate) fn get_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
+    build_app_snapshot(state)
 }
 
 #[tauri::command]
@@ -191,36 +195,8 @@ pub(crate) fn copy_clip(
     clip_type: String,
     text: String,
 ) -> Result<(), AppError> {
-    let captured_item = captured_item_from_payload(&clip_type, &text)?;
-
-    if clip_type == "image" {
-        write_clipboard_image(&text)?;
-    } else {
-        write_clipboard_text(&text)?;
-    }
-
-    remember_current_clipboard_marker(
-        &state.last_clipboard_change_id,
-        &state.last_clipboard_hash,
-        captured_item.as_ref().map(|item| item.content_hash.clone()),
-    );
-
-    if let Some(item) = captured_item {
-        if let Some((clip, clip_total_count, was_inserted)) =
-            state.store.insert_captured_item(item)?
-        {
-            let _ = app.emit(
-                EVENT_CLIPBOARD_CAPTURED,
-                ClipboardCaptured {
-                    clip,
-                    clip_total_count,
-                    was_inserted,
-                },
-            );
-        }
-    }
-
-    Ok(())
+    let captured_item = write_clipboard_and_mark(&state, &clip_type, &text)?;
+    record_inserted_capture(&app, &state, captured_item)
 }
 
 #[tauri::command]
@@ -387,16 +363,7 @@ pub(crate) fn get_ocr_install_status(
     _app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<OcrInstallStatus, AppError> {
-    #[cfg(target_os = "macos")]
-    {
-        return macos_ocr_install_status().map_err(AppError::from);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let mode = _state.store.settings()?.ocr_mode;
-        ocr_install_status(&_app, &mode).map_err(AppError::from)
-    }
+    crate::ocr::install_status(&_app, &_state.store).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -404,21 +371,9 @@ pub(crate) async fn install_ocr_assets(
     _app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<OcrInstallStatus, AppError> {
-    #[cfg(target_os = "macos")]
-    {
-        emit_ocr_install_progress(&_app, "completed", None, 0, 0);
-        return macos_ocr_install_status().map_err(AppError::from);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let app_for_task = _app.clone();
-        let mode = _state.store.settings()?.ocr_mode;
-        tokio::task::spawn_blocking(move || install_ocr_assets_inner(&app_for_task, &mode))
-            .await
-            .map_err(|error| error.to_string())?
-            .map_err(AppError::from)
-    }
+    crate::ocr::install_assets(_app, _state.store.clone())
+        .await
+        .map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -426,20 +381,7 @@ pub(crate) fn remove_ocr_assets(
     _app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<OcrInstallStatus, AppError> {
-    #[cfg(target_os = "macos")]
-    {
-        return macos_ocr_install_status().map_err(AppError::from);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let mode = _state.store.settings()?.ocr_mode;
-        let root = ocr_root_dir(&_app)?;
-        if root.exists() {
-            fs::remove_dir_all(&root).map_err(|error| error.to_string())?;
-        }
-        ocr_install_status(&_app, &mode).map_err(AppError::from)
-    }
+    crate::ocr::remove_assets(&_app, &_state.store).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -447,46 +389,15 @@ pub(crate) async fn recognize_image_text(
     _app: tauri::AppHandle,
     image_path: String,
 ) -> Result<ImageOcrResult, AppError> {
-    #[cfg(target_os = "macos")]
-    {
-        return tokio::task::spawn_blocking(move || recognize_image_text_macos(image_path))
-            .await
-            .map_err(|error| error.to_string())?
-            .map_err(AppError::from);
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        tokio::task::spawn_blocking(move || recognize_image_text_inner(&_app, image_path))
-            .await
-            .map_err(|error| error.to_string())?
-            .map_err(AppError::from)
-    }
+    crate::ocr::recognize_image(_app, image_path)
+        .await
+        .map_err(AppError::from)
 }
 
 #[tauri::command]
 pub(crate) fn sync_cloud_now(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
     state.store.sync_cloud()?;
-    let (clip_page, categories, category_items) = state.store.snapshot()?;
-    let settings = state.store.settings()?;
-    Ok(AppSnapshot {
-        clips: clip_page.clips,
-        has_more_clips: clip_page.has_more,
-        clip_total_count: clip_page.all_count,
-        categories,
-        category_items,
-        shortcut: settings.shortcut.clone(),
-        is_listening: *state
-            .is_listening
-            .lock()
-            .map_err(|error| error.to_string())?,
-        is_append_copy_enabled: state
-            .append_copy_state
-            .lock()
-            .map(|value| value.is_enabled)
-            .map_err(|error| error.to_string())?,
-        settings,
-    })
+    build_app_snapshot(state)
 }
 
 #[tauri::command]
@@ -607,70 +518,18 @@ pub(crate) fn apply_clip(
     clip_type: String,
     text: String,
 ) -> Result<(), AppError> {
-    let captured_item = captured_item_from_payload(&clip_type, &text)?;
-    if clip_type == "image" {
-        write_clipboard_image(&text)?;
-    } else {
-        write_clipboard_text(&text)?;
-    }
-    remember_current_clipboard_marker(
-        &state.last_clipboard_change_id,
-        &state.last_clipboard_hash,
-        captured_item.as_ref().map(|item| item.content_hash.clone()),
-    );
-    let target_app_bundle_id = state
-        .target_app_bundle_id
-        .lock()
-        .map_err(|error| error.to_string())?
-        .clone();
-
+    let captured_item = write_clipboard_and_mark(&state, &clip_type, &text)?;
     let _ = hide_main_window(&app);
-
-    if let Err(error) = prepare_target_for_paste(&app, target_app_bundle_id.clone()) {
+    // 面板隐藏/恢复留在命令层：paste.rs 不反向依赖 window.rs（window.rs 已依赖 paste.rs）。
+    if let Err(error) = paste_to_previous_app(&app, &state) {
         let _ = show_main_window(&app, MainWindowActivation::Activate);
-        return Err(AppError::from(error));
+        return Err(error);
     }
-
-    // 等待并确认目标应用获得键盘焦点，避免 Cmd+V 投递到未就绪的窗口
-    #[cfg(target_os = "macos")]
-    if let Some(bundle_id) = target_app_bundle_id.as_deref() {
-        if let Some(pid) = pid_for_bundle_id(bundle_id) {
-            if let Err(error) = focus_target_app_window(pid) {
-                let _ = show_main_window(&app, MainWindowActivation::Activate);
-                return Err(AppError::from(error));
-            }
-        }
-    }
-
-    if let Err(error) = send_paste_shortcut() {
-        let _ = show_main_window(&app, MainWindowActivation::Activate);
-        return Err(AppError::from(error));
-    }
-
-    if let Some(item) = captured_item {
-        if let Some((clip, clip_total_count, was_inserted)) =
-            state.store.insert_captured_item(item)?
-        {
-            let _ = app.emit(
-                EVENT_CLIPBOARD_CAPTURED,
-                ClipboardCaptured {
-                    clip,
-                    clip_total_count,
-                    was_inserted,
-                },
-            );
-        }
+    if captured_item.is_some() {
+        record_inserted_capture(&app, &state, captured_item)
     } else {
-        let conn = state.store.connect()?;
-        let clip = state.store.get_clip_with_conn(&conn, &id)?;
-        conn.execute(
-            "UPDATE clips SET last_captured_at = ?1 WHERE id = ?2",
-            params![now(), clip.id],
-        )
-        .map_err(|error| error.to_string())?;
+        state.store.touch_clip_captured(&id).map_err(AppError::from)
     }
-
-    Ok(())
 }
 
 #[tauri::command]

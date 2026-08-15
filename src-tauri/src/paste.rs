@@ -12,8 +12,13 @@ use objc2_app_kit::{
 };
 #[cfg(target_os = "macos")]
 use objc2_foundation::NSString;
+use enigo::{
+    Direction::{Click, Press, Release},
+    Enigo, Key, Keyboard, Settings,
+};
 use tauri::Manager;
 
+use crate::error::AppError;
 use crate::models::*;
 
 #[cfg(target_os = "macos")]
@@ -134,6 +139,70 @@ pub(crate) fn prepare_target_for_paste(
 
     thread::sleep(Duration::from_millis(180));
     Ok(())
+}
+
+/// 把粘贴键投递给之前聚焦的目标应用（面板的隐藏/恢复由命令层负责，
+/// 避免 paste → window 的模块循环依赖；window.rs 已依赖 paste.rs）。
+/// apply_clip 的粘贴段编排（原 commands.rs 内联）。
+pub(crate) fn paste_to_previous_app(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<(), AppError> {
+    let target_app_bundle_id = state
+        .target_app_bundle_id
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .clone();
+
+    prepare_target_for_paste(app, target_app_bundle_id.clone()).map_err(AppError::from)?;
+
+    // 等待并确认目标应用获得键盘焦点，避免 Cmd+V 投递到未就绪的窗口
+    #[cfg(target_os = "macos")]
+    if let Some(bundle_id) = target_app_bundle_id.as_deref() {
+        if let Some(pid) = pid_for_bundle_id(bundle_id) {
+            focus_target_app_window(pid).map_err(AppError::from)?;
+        }
+    }
+
+    send_paste_shortcut().map_err(AppError::from)?;
+
+    Ok(())
+}
+
+pub(crate) fn send_paste_shortcut() -> Result<(), String> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(permission_error)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        enigo.key(Key::Meta, Press).map_err(permission_error)?;
+        let paste_result = enigo.key(Key::Other(9), Click).map_err(permission_error);
+        let release_result = enigo.key(Key::Meta, Release).map_err(permission_error);
+        paste_result?;
+        release_result?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        enigo.key(Key::Control, Press).map_err(permission_error)?;
+        let paste_result = enigo
+            .key(Key::Unicode('v'), Click)
+            .map_err(permission_error);
+        let release_result = enigo.key(Key::Control, Release).map_err(permission_error);
+        paste_result?;
+        release_result?;
+    }
+
+    Ok(())
+}
+
+fn permission_error(error: impl ToString) -> String {
+    let message = error.to_string();
+    if message.to_lowercase().contains("permission") {
+        "无法自动粘贴：请在 macOS「系统设置 > 隐私与安全性 > 辅助功能」中允许当前安装的 iPaste 控制电脑。若已授权，请移除旧的 iPaste 项后重新添加当前 App。"
+            .to_string()
+    } else {
+        message
+    }
 }
 
 #[cfg(target_os = "macos")]

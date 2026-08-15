@@ -19,15 +19,6 @@ pub(crate) mod tesseract;
 #[cfg(target_os = "macos")]
 pub(crate) mod vision;
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) use installer::{install_ocr_assets_inner, ocr_install_status, ocr_root_dir};
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) use tesseract::recognize_image_text_inner;
-
-#[cfg(target_os = "macos")]
-pub(crate) use vision::recognize_image_text_macos;
-
 fn ocr_platform() -> &'static str {
     #[cfg(target_os = "macos")]
     {
@@ -79,4 +70,84 @@ pub(crate) fn macos_ocr_install_status() -> Result<OcrInstallStatus, String> {
         total_bytes: 0,
         missing_files: Vec::new(),
     })
+}
+
+/// 供 commands.rs 使用的跨平台调度入口（原命令体内的 cfg 分支收编于此）。
+
+pub(crate) fn install_status(
+    app: &tauri::AppHandle,
+    store: &crate::store::Store,
+) -> Result<OcrInstallStatus, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (app, store);
+        macos_ocr_install_status()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mode = store.settings()?.ocr_mode;
+        installer::ocr_install_status(app, &mode)
+    }
+}
+
+pub(crate) async fn install_assets(
+    app: tauri::AppHandle,
+    store: crate::store::Store,
+) -> Result<OcrInstallStatus, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = &store;
+        emit_ocr_install_progress(&app, "completed", None, 0, 0);
+        macos_ocr_install_status()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mode = store.settings()?.ocr_mode;
+        tokio::task::spawn_blocking(move || installer::install_ocr_assets_inner(&app, &mode))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+}
+
+pub(crate) fn remove_assets(
+    app: &tauri::AppHandle,
+    store: &crate::store::Store,
+) -> Result<OcrInstallStatus, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (app, store);
+        macos_ocr_install_status()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mode = store.settings()?.ocr_mode;
+        let root = installer::ocr_root_dir(app)?;
+        if root.exists() {
+            std::fs::remove_dir_all(&root).map_err(|error| error.to_string())?;
+        }
+        installer::ocr_install_status(app, &mode)
+    }
+}
+
+pub(crate) async fn recognize_image(
+    app: tauri::AppHandle,
+    image_path: String,
+) -> Result<ImageOcrResult, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = &app;
+        tokio::task::spawn_blocking(move || vision::recognize_image_text_macos(image_path))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        tokio::task::spawn_blocking(move || tesseract::recognize_image_text_inner(&app, image_path))
+            .await
+            .map_err(|error| error.to_string())?
+    }
 }

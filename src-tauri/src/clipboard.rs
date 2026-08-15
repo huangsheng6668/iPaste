@@ -8,13 +8,10 @@ use std::{
 
 use arboard::{Clipboard, Error as ClipboardError, ImageData};
 use base64::{engine::general_purpose, Engine as _};
-use enigo::{
-    Direction::{Click, Press, Release},
-    Enigo, Key, Keyboard, Settings,
-};
 use image::{ImageBuffer, ImageEncoder, Rgba};
 use tauri::Emitter;
 
+use crate::error::AppError;
 use crate::events::*;
 use crate::models::*;
 use crate::store::Store;
@@ -328,6 +325,50 @@ pub(crate) fn remember_current_clipboard_marker(
     }
 }
 
+/// 写剪贴板并记录捕获 marker，返回待入库的捕获条目。
+/// copy_clip 与 apply_clip 共用的前半段编排（原两处重复序列）。
+pub(crate) fn write_clipboard_and_mark(
+    state: &AppState,
+    clip_type: &str,
+    text: &str,
+) -> Result<Option<CapturedClipboardItem>, AppError> {
+    let captured_item = captured_item_from_payload(clip_type, text)?;
+    if clip_type == "image" {
+        write_clipboard_image(text)?;
+    } else {
+        write_clipboard_text(text)?;
+    }
+    remember_current_clipboard_marker(
+        &state.last_clipboard_change_id,
+        &state.last_clipboard_hash,
+        captured_item.as_ref().map(|item| item.content_hash.clone()),
+    );
+    Ok(captured_item)
+}
+
+/// 捕获条目入库并向前端广播（None = 无需入库，如 marker 命中）。
+pub(crate) fn record_inserted_capture(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    captured_item: Option<CapturedClipboardItem>,
+) -> Result<(), AppError> {
+    if let Some(item) = captured_item {
+        if let Some((clip, clip_total_count, was_inserted)) =
+            state.store.insert_captured_item(item)?
+        {
+            let _ = app.emit(
+                EVENT_CLIPBOARD_CAPTURED,
+                ClipboardCaptured {
+                    clip,
+                    clip_total_count,
+                    was_inserted,
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 fn clipboard_change_id() -> Option<u64> {
     let value = unsafe { GetClipboardSequenceNumber() };
@@ -356,42 +397,6 @@ pub(crate) fn write_clipboard_image(data_url: &str) -> Result<(), String> {
     clipboard
         .set_image(image)
         .map_err(|error| error.to_string())
-}
-
-pub(crate) fn send_paste_shortcut() -> Result<(), String> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(permission_error)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        enigo.key(Key::Meta, Press).map_err(permission_error)?;
-        let paste_result = enigo.key(Key::Other(9), Click).map_err(permission_error);
-        let release_result = enigo.key(Key::Meta, Release).map_err(permission_error);
-        paste_result?;
-        release_result?;
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        enigo.key(Key::Control, Press).map_err(permission_error)?;
-        let paste_result = enigo
-            .key(Key::Unicode('v'), Click)
-            .map_err(permission_error);
-        let release_result = enigo.key(Key::Control, Release).map_err(permission_error);
-        paste_result?;
-        release_result?;
-    }
-
-    Ok(())
-}
-
-fn permission_error(error: impl ToString) -> String {
-    let message = error.to_string();
-    if message.to_lowercase().contains("permission") {
-        "无法自动粘贴：请在 macOS「系统设置 > 隐私与安全性 > 辅助功能」中允许当前安装的 iPaste 控制电脑。若已授权，请移除旧的 iPaste 项后重新添加当前 App。"
-            .to_string()
-    } else {
-        message
-    }
 }
 
 fn captured_item_from_image(image: ImageData<'static>) -> Result<CapturedClipboardItem, String> {

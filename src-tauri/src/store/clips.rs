@@ -515,6 +515,21 @@ impl Store {
         .optional()
         .map_err(|error| error.to_string())
     }
+
+    /// 应用条目时刷新其最近捕获时间（原 commands.rs 中的裸 SQL，收编入 store 层）。
+    pub(crate) fn touch_clip_captured(&self, id: &str) -> Result<(), String> {
+        let conn = self.connect()?;
+        self.touch_clip_captured_with_conn(&conn, id)
+    }
+
+    pub(crate) fn touch_clip_captured_with_conn(&self, conn: &Connection, id: &str) -> Result<(), String> {
+        conn.execute(
+            "UPDATE clips SET last_captured_at = ?1 WHERE id = ?2",
+            params![now(), id],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -522,7 +537,28 @@ mod tests {
     use crate::models::{CapturedClipboardItem, SearchResult};
     use crate::store::test_support::{seed_clip, seed_n_clips, temp_store};
     use crate::util::hash_text;
+    use rusqlite::params;
     use std::time::Instant;
+
+    #[test]
+    fn touch_clip_captured_updates_timestamp() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "touch-me", "body");
+        let id: String = conn
+            .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        let before: String = conn
+            .query_row("SELECT last_captured_at FROM clips WHERE id = ?1", params![&id], |row| row.get(0))
+            .unwrap();
+        // now() 为秒级精度（SecondsFormat::Secs），必须跨过秒边界才能观测变化。
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        store.touch_clip_captured_with_conn(&conn, &id).unwrap();
+        let after: String = conn
+            .query_row("SELECT last_captured_at FROM clips WHERE id = ?1", params![&id], |row| row.get(0))
+            .unwrap();
+        assert_ne!(before, after, "touch 应更新 last_captured_at");
+    }
 
     #[test]
     fn count_clips_matching_respects_query() {
