@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { Check, Palette, Pencil, Plus, Trash2, Zap } from "lucide-vue-next";
+import { useDragSort } from "../composables/useDragSort";
 import { t } from "../i18n";
 import { categoryDisplayName } from "../lib/format";
 import type { Category } from "../types";
@@ -60,22 +61,8 @@ const editingColorCategoryId = ref<string | null>(null);
 const colorPopoverPosition = ref({ left: 0, top: 0 });
 const isCategoryScrolling = ref(false);
 const committedEditingId = ref<string | null>(null);
-const draggingCategoryId = ref<string | null>(null);
-const categoryDropTargetId = ref<string | null>(null);
-const categoryDropSide = ref<"before" | "after" | null>(null);
-const categoryDragOffset = ref({ x: 0, y: 0 });
 const categoryMenu = ref<{ category: Category; left: number; top: number } | null>(null);
 const categoryMenuAnchorRect = ref<DOMRect | null>(null);
-let categoryDragState: {
-  id: string;
-  startX: number;
-  startY: number;
-  width: number;
-  height: number;
-  hasMoved: boolean;
-  targetId: string | null;
-  side: "before" | "after" | null;
-} | null = null;
 let focusTimer: number | null = null;
 let categoryScrollTimer: number | null = null;
 let suppressNextCategoryClick = false;
@@ -308,105 +295,46 @@ function clearCategoryScrollTimer() {
   categoryScrollTimer = null;
 }
 
-function startCategoryDrag(category: Category, event: PointerEvent) {
-  if (props.editingCategoryId || event.button !== 0) return;
-
-  const chip = (event.currentTarget as HTMLElement).closest<HTMLElement>("[data-category-id]");
-  const rect = chip?.getBoundingClientRect();
-  pendingDeleteCategoryId.value = null;
-  editingColorCategoryId.value = null;
-  categoryMenu.value = null;
-  categoryDragState = {
-    id: category.id,
-    startX: event.clientX,
-    startY: event.clientY,
-    width: rect?.width ?? 0,
-    height: rect?.height ?? 0,
-    hasMoved: false,
-    targetId: null,
-    side: null,
-  };
-  categoryDragOffset.value = { x: 0, y: 0 };
-  window.addEventListener("pointermove", handleCategoryPointerMove);
-  window.addEventListener("pointerup", finishCategoryDrag);
-  window.addEventListener("pointercancel", cancelCategoryDrag);
-}
-
-function handleCategoryPointerMove(event: PointerEvent) {
-  const state = categoryDragState;
-  if (!state) return;
-
-  if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) > 3) {
-    if (!state.hasMoved) {
-      draggingCategoryId.value = state.id;
-    }
-    state.hasMoved = true;
-  }
-  if (!state.hasMoved) return;
-
-  event.preventDefault();
-  categoryDragOffset.value = {
-    x: event.clientX - state.startX,
-    y: event.clientY - state.startY,
-  };
-
-  const target = categoryTargetFromPosition(state.id, event.clientX, event.clientY);
-  if (!target) {
-    state.targetId = null;
-    state.side = null;
-    categoryDropTargetId.value = null;
-    categoryDropSide.value = null;
-    return;
-  }
-
-  state.targetId = target.id;
-  state.side = target.side;
-  categoryDropTargetId.value = target.id;
-  categoryDropSide.value = target.side;
-  scrollCategoriesNearPointer(event.clientX, event.clientY);
-  showCategoryScrollbar();
-}
-
-function finishCategoryDrag(event?: PointerEvent) {
-  event?.preventDefault();
-
-  const state = categoryDragState;
-  if (state?.hasMoved) {
+// 显式标注断开 config 箭头函数对 drag 自身的推断循环（vue-tsc TS7022/TS7023）。
+const drag: ReturnType<typeof useDragSort<Category>> = useDragSort<Category>({
+  canStart: ({ event }) => !props.editingCategoryId && event.button === 0,
+  items: () => props.categories,
+  itemKey: (category) => category.id,
+  itemId: (category) => category.id,
+  targetFromPoint: (clientX, clientY) => categoryTargetFromPoint(drag.draggingKey.value ?? "", clientX, clientY),
+  onReorder: (categoryIds) => emit("reorder", categoryIds),
+  container: () => categoryScroller.value,
+  orientation: () => (props.orientation === "vertical" ? "vertical" : "horizontal"),
+  edge: 28,
+  scrollStep: 12,
+  lockAxis: true,
+  sourceSelector: "[data-category-id]",
+  onDragStarted: () => {
+    pendingDeleteCategoryId.value = null;
+    editingColorCategoryId.value = null;
+    categoryMenu.value = null;
+  },
+  onDragFinished: () => {
     suppressNextCategoryClick = true;
     window.setTimeout(() => {
       suppressNextCategoryClick = false;
     }, 0);
-  }
-  cleanupCategoryDrag();
-  if (!state?.hasMoved || !state.targetId || !state.side || state.id === state.targetId) return;
+  },
+  onEdgeScroll: () => showCategoryScrollbar(),
+});
+const {
+  draggingKey: draggingCategoryId,
+  dropTargetKey: categoryDropTargetId,
+  dropSide: categoryDropSide,
+  dragStyle: categoryDragStyle,
+  cleanup: cleanupCategoryDrag,
+} = drag;
 
-  const ids = props.categories.map((item) => item.id);
-  const nextIds = ids.filter((id) => id !== state.id);
-  const targetIndex = nextIds.indexOf(state.targetId);
-  if (targetIndex < 0) return;
-
-  nextIds.splice(state.side === "after" ? targetIndex + 1 : targetIndex, 0, state.id);
-  if (nextIds.join("\n") !== ids.join("\n")) {
-    emit("reorder", nextIds);
-  }
+function startCategoryDrag(category: Category, event: PointerEvent) {
+  drag.start({ item: category, event });
 }
 
-function cancelCategoryDrag() {
-  cleanupCategoryDrag();
-}
-
-function cleanupCategoryDrag() {
-  window.removeEventListener("pointermove", handleCategoryPointerMove);
-  window.removeEventListener("pointerup", finishCategoryDrag);
-  window.removeEventListener("pointercancel", cancelCategoryDrag);
-  categoryDragState = null;
-  draggingCategoryId.value = null;
-  categoryDropTargetId.value = null;
-  categoryDropSide.value = null;
-  categoryDragOffset.value = { x: 0, y: 0 };
-}
-
-function categoryTargetFromPosition(draggedId: string, clientX: number, clientY: number) {
+function categoryTargetFromPoint(draggedId: string, clientX: number, clientY: number) {
   const scroller = categoryScroller.value;
   const rail = railElement.value;
   if (!scroller || !rail) return null;
@@ -435,42 +363,12 @@ function categoryTargetFromPosition(draggedId: string, clientX: number, clientY:
       ? clientY < target.rect.top + target.rect.height / 2
       : clientX < target.rect.left + target.rect.width / 2,
   );
-  if (beforeTarget) {
-    return {
-      id: beforeTarget.id,
-      rect: beforeTarget.rect,
-      side: "before" as const,
-    };
-  }
-
-  const lastTarget = targets[targets.length - 1];
+  const resolved = beforeTarget ?? targets[targets.length - 1];
   return {
-    id: lastTarget.id,
-    rect: lastTarget.rect,
-    side: "after" as const,
+    key: resolved.id,
+    id: resolved.id,
+    rect: resolved.rect,
   };
-}
-
-function scrollCategoriesNearPointer(clientX: number, clientY: number) {
-  const scroller = categoryScroller.value;
-  if (!scroller) return;
-
-  const rect = scroller.getBoundingClientRect();
-  const edge = 28;
-  if (props.orientation === "vertical") {
-    if (clientY < rect.top + edge) {
-      scroller.scrollTop -= 12;
-    } else if (clientY > rect.bottom - edge) {
-      scroller.scrollTop += 12;
-    }
-    return;
-  }
-
-  if (clientX < rect.left + edge) {
-    scroller.scrollLeft -= 12;
-  } else if (clientX > rect.right - edge) {
-    scroller.scrollLeft += 12;
-  }
 }
 
 function openCategoryMenu(category: Category, event: MouseEvent) {
@@ -502,18 +400,6 @@ function closeFloatingLayers() {
 defineExpose({
   closeFloatingLayers,
 });
-
-function categoryDragStyle(category: Category) {
-  if (draggingCategoryId.value !== category.id) return undefined;
-  const state = categoryDragState;
-  return {
-    transform: props.orientation === "vertical"
-      ? `translate3d(0, ${categoryDragOffset.value.y}px, 0)`
-      : `translate3d(${categoryDragOffset.value.x}px, 0, 0)`,
-    width: state?.width ? `${state.width}px` : undefined,
-    height: state?.height ? `${state.height}px` : undefined,
-  };
-}
 
 function countLabel(count: number | undefined) {
   return (count ?? 0) > 99 ? "99+" : String(Math.max(count ?? 0, 0));

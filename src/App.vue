@@ -20,6 +20,7 @@ import { useAppEvents } from "./composables/useAppEvents";
 import { useAutomationFlow } from "./composables/useAutomationFlow";
 import { useClipContextMenu } from "./composables/useClipContextMenu";
 import { useClipListScroll } from "./composables/useClipListScroll";
+import { useDragSort } from "./composables/useDragSort";
 import { usePanelKeyboard } from "./composables/usePanelKeyboard";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
@@ -41,22 +42,6 @@ const isPreservingCurrentApp = ref(false);
 const categoryRailElement = ref<InstanceType<typeof CategoryRail> | null>(null);
 const editingClipKey = ref<string | null>(null);
 const editingClipName = ref("");
-const draggingItemKey = ref<string | null>(null);
-const itemDropTargetKey = ref<string | null>(null);
-const itemDropSide = ref<"before" | "after" | null>(null);
-const itemDragOffset = ref({ x: 0, y: 0 });
-let itemDragState: {
-  key: string;
-  id: string;
-  startX: number;
-  startY: number;
-  width: number;
-  height: number;
-  hasMoved: boolean;
-  targetKey: string | null;
-  targetId: string | null;
-  side: "before" | "after" | null;
-} | null = null;
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
 let lastUpdateCheckAt = 0;
@@ -146,6 +131,37 @@ const {
   setupWatches,
   cleanup: cleanupClipListScroll,
 } = useClipListScroll({ store });
+
+const itemDrag = useDragSort<ClipViewItem>({
+  canStart: ({ item, event }) =>
+    canReorderVisibleItems.value && item.collection === "category" && event.button === 0,
+  items: () => store.visibleItems.filter((item) => item.collection === "category"),
+  itemKey: contextItemKey,
+  itemId: (item) => item.id,
+  targetFromPoint: itemTargetFromPoint,
+  onReorder: (orderedIds) => store.reorderCategoryItems(store.selectedCategoryId, orderedIds),
+  container: () => clipListElement.value,
+  orientation: "vertical",
+  isActive: () => canReorderVisibleItems.value,
+  onDragStarted: () => {
+    pendingDeleteContextKey.value = null;
+    closeMoveSubmenu();
+  },
+  onDragFinished: () => {
+    suppressNextItemSelect = true;
+    window.setTimeout(() => {
+      suppressNextItemSelect = false;
+    }, 0);
+  },
+  onEdgeScroll: () => showClipListScrollbar(),
+});
+const {
+  draggingKey: draggingItemKey,
+  dropTargetKey: itemDropTargetKey,
+  dropSide: itemDropSide,
+  dragStyle: itemDragStyle,
+  cleanup: cleanupItemDrag,
+} = itemDrag;
 
 const categoryById = computed(() =>
   store.categories.reduce<Record<string, Category>>((categories, category) => {
@@ -303,116 +319,8 @@ async function applyFallbackItem(item: ClipViewItem) {
 }
 
 function startItemDrag(payload: { item: ClipViewItem; index: number; event: PointerEvent }) {
-  if (!canReorderVisibleItems.value || payload.item.collection !== "category" || payload.event.button !== 0) {
-    payload.event.preventDefault();
-    return;
-  }
-
   payload.event.preventDefault();
-  const key = contextItemKey(payload.item);
-  const dragSource = (payload.event.currentTarget ?? payload.event.target) as Element | null;
-  const card = dragSource?.closest<HTMLElement>("[data-item-key]");
-  const rect = card?.getBoundingClientRect();
-  pendingDeleteContextKey.value = null;
-  closeMoveSubmenu();
-  itemDragState = {
-    key,
-    id: payload.item.id,
-    startX: payload.event.clientX,
-    startY: payload.event.clientY,
-    width: rect?.width ?? 0,
-    height: rect?.height ?? 0,
-    hasMoved: false,
-    targetKey: null,
-    targetId: null,
-    side: null,
-  };
-  itemDragOffset.value = { x: 0, y: 0 };
-  window.addEventListener("pointermove", handleItemPointerMove);
-  window.addEventListener("pointerup", finishItemDrag);
-  window.addEventListener("pointercancel", cancelItemDrag);
-}
-
-function handleItemPointerMove(event: PointerEvent) {
-  const state = itemDragState;
-  if (!state || !canReorderVisibleItems.value) return;
-
-  event.preventDefault();
-  if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) > 3) {
-    if (!state.hasMoved) {
-      draggingItemKey.value = state.key;
-    }
-    state.hasMoved = true;
-  }
-  if (!state.hasMoved) return;
-
-  itemDragOffset.value = {
-    x: event.clientX - state.startX,
-    y: event.clientY - state.startY,
-  };
-
-  const target = itemTargetFromPoint(event.clientX, event.clientY);
-  if (!target || target.key === state.key) {
-    state.targetKey = null;
-    state.targetId = null;
-    state.side = null;
-    itemDropTargetKey.value = null;
-    itemDropSide.value = null;
-    return;
-  }
-
-  const side = event.clientY < target.rect.top + target.rect.height / 2 ? "before" : "after";
-  state.targetKey = target.key;
-  state.targetId = target.id;
-  state.side = side;
-  itemDropTargetKey.value = target.key;
-  itemDropSide.value = side;
-  scrollItemsNearPointer(event.clientY);
-  showClipListScrollbar();
-}
-
-async function finishItemDrag(event?: PointerEvent) {
-  event?.preventDefault();
-
-  const state = itemDragState;
-  if (state?.hasMoved) {
-    suppressNextItemSelect = true;
-    window.setTimeout(() => {
-      suppressNextItemSelect = false;
-    }, 0);
-  }
-  cleanupItemDrag();
-  if (!state?.hasMoved || !state.targetKey || !state.targetId || !state.side || state.key === state.targetKey) return;
-  const currentItems = store.visibleItems.filter((item) => item.collection === "category");
-  const draggedItem = currentItems.find((item) => contextItemKey(item) === state.key);
-  if (!draggedItem) return;
-
-  const nextIds = currentItems
-    .filter((item) => contextItemKey(item) !== state.key)
-    .map((item) => item.id);
-  const targetIndex = nextIds.indexOf(state.targetId);
-  if (targetIndex < 0) return;
-
-  nextIds.splice(state.side === "after" ? targetIndex + 1 : targetIndex, 0, draggedItem.id);
-  const currentIds = currentItems.map((item) => item.id);
-  if (nextIds.join("\n") === currentIds.join("\n")) return;
-
-  await store.reorderCategoryItems(store.selectedCategoryId, nextIds);
-}
-
-function cancelItemDrag() {
-  cleanupItemDrag();
-}
-
-function cleanupItemDrag() {
-  window.removeEventListener("pointermove", handleItemPointerMove);
-  window.removeEventListener("pointerup", finishItemDrag);
-  window.removeEventListener("pointercancel", cancelItemDrag);
-  itemDragState = null;
-  draggingItemKey.value = null;
-  itemDropTargetKey.value = null;
-  itemDropSide.value = null;
-  itemDragOffset.value = { x: 0, y: 0 };
+  itemDrag.start(payload);
 }
 
 function itemTargetFromPoint(clientX: number, clientY: number) {
@@ -427,29 +335,6 @@ function itemTargetFromPoint(clientX: number, clientY: number) {
     key,
     id,
     rect: card.getBoundingClientRect(),
-  };
-}
-
-function scrollItemsNearPointer(clientY: number) {
-  const list = clipListElement.value;
-  if (!list) return;
-
-  const rect = list.getBoundingClientRect();
-  const edge = 48;
-  if (clientY < rect.top + edge) {
-    list.scrollTop -= 14;
-  } else if (clientY > rect.bottom - edge) {
-    list.scrollTop += 14;
-  }
-}
-
-function itemDragStyle(item: ClipViewItem) {
-  if (draggingItemKey.value !== contextItemKey(item)) return undefined;
-  const state = itemDragState;
-  return {
-    transform: `translate(${itemDragOffset.value.x}px, ${itemDragOffset.value.y}px)`,
-    width: state?.width ? `${state.width}px` : undefined,
-    height: state?.height ? `${state.height}px` : undefined,
   };
 }
 
