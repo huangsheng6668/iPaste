@@ -1,4 +1,3 @@
-import { listen } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
@@ -6,8 +5,6 @@ import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
 import { errorMessage, isCommandMissing } from "../lib/appError";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
-import { isTauri } from "../lib/env";
-import { IPASTE_EVENTS } from "../types/generated/events";
 import { filterAutomations } from "./lib/automationFilter";
 import {
   compareSortOrder,
@@ -28,26 +25,19 @@ import {
 } from "./lib/settings";
 import type {
   AppSettings,
-  AppendCopyChangedEvent,
+  AppSnapshot,
   AutomationAction,
   AutomationInput,
-  AutomationRunFinishedEvent,
-  AutomationRunOutputEvent,
-  AutomationRunStartedEvent,
-  CapturedEvent,
   Category,
   CategoryHitGroup,
   CategoryItem,
   ClipItem,
-  ClipUpdatedEvent,
   ClipViewItem,
   CloudSettings,
-  ListeningChangedEvent,
   Language,
   OcrMode,
   PanelLayout,
   PanelOpenBehavior,
-  SettingsChangedEvent,
 } from "../types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
@@ -110,29 +100,34 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   const selectedItem = computed(() => visibleItems.value[selectedIndex.value]);
 
+  /** load 与 applyCloudSnapshot 共用的快照装配（原两处 ~20 行逐行重复）。 */
+  function hydrateFromSnapshot(snapshot: AppSnapshot) {
+    clips.value = snapshot.clips;
+    hasMoreClips.value = snapshot.hasMoreClips;
+    clipTotalCount.value = snapshot.clipTotalCount;
+    visibleHistoryTotalCount.value = snapshot.clipTotalCount;
+    categories.value = snapshot.categories;
+    categoryItems.value = snapshot.categoryItems;
+    shortcut.value = snapshot.shortcut;
+    isListening.value = snapshot.isListening;
+    isAppendCopyEnabled.value = snapshot.isAppendCopyEnabled;
+    retentionDays.value = snapshot.settings.retentionDays;
+    appendCopyTimeoutMinutes.value = cleanAppendCopyTimeoutMinutes(snapshot.settings.appendCopyTimeoutMinutes);
+    panelOpenBehavior.value = snapshot.settings.panelOpenBehavior;
+    panelLayout.value = cleanPanelLayout(snapshot.settings.panelLayout);
+    ocrMode.value = cleanOcrMode(snapshot.settings.ocrMode);
+    language.value = cleanLanguage(snapshot.settings.language);
+    setLanguage(language.value);
+    cloud.value = snapshot.settings.cloud;
+  }
+
   async function load() {
     isLoading.value = true;
     error.value = null;
 
     try {
       const snapshot = await ipasteApi.snapshot();
-      clips.value = snapshot.clips;
-      hasMoreClips.value = snapshot.hasMoreClips;
-      clipTotalCount.value = snapshot.clipTotalCount;
-      visibleHistoryTotalCount.value = snapshot.clipTotalCount;
-      categories.value = snapshot.categories;
-      categoryItems.value = snapshot.categoryItems;
-      shortcut.value = snapshot.shortcut;
-      isListening.value = snapshot.isListening;
-      isAppendCopyEnabled.value = snapshot.isAppendCopyEnabled;
-      retentionDays.value = snapshot.settings.retentionDays;
-      appendCopyTimeoutMinutes.value = cleanAppendCopyTimeoutMinutes(snapshot.settings.appendCopyTimeoutMinutes);
-      panelOpenBehavior.value = snapshot.settings.panelOpenBehavior;
-      panelLayout.value = cleanPanelLayout(snapshot.settings.panelLayout);
-      ocrMode.value = cleanOcrMode(snapshot.settings.ocrMode);
-      language.value = cleanLanguage(snapshot.settings.language);
-      setLanguage(language.value);
-      cloud.value = snapshot.settings.cloud;
+      hydrateFromSnapshot(snapshot);
 
       if (!categories.value.some((category) => category.id === selectedCategoryId.value)) {
         selectedCategoryId.value = "history";
@@ -143,63 +138,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     } finally {
       isLoading.value = false;
     }
-  }
-
-  async function bindEvents() {
-    if (!isTauri) return;
-
-    await listen<CapturedEvent>(IPASTE_EVENTS.clipboardCaptured, (event) => {
-      upsertClip(event.payload.clip, event.payload.clipTotalCount, event.payload.wasInserted);
-    });
-
-    // 局域网同步收到条目（历史或分组）后，主窗口也要刷新列表：lan-clip-received
-    // 广播到所有窗口，但此前只有 LAN 同步窗口监听，主窗口列表不更新，
-    // 表现为「B 端提示已接收但列表里没有新条目」。
-    await listen(IPASTE_EVENTS.lanClipReceived, () => {
-      void load();
-    });
-
-    await listen<ListeningChangedEvent>(IPASTE_EVENTS.listeningChanged, (event) => {
-      isListening.value = event.payload.isListening;
-    });
-
-    await listen<AppendCopyChangedEvent>(IPASTE_EVENTS.appendCopyChanged, (event) => {
-      isAppendCopyEnabled.value = event.payload.isEnabled;
-    });
-
-    await listen<ClipUpdatedEvent>(IPASTE_EVENTS.clipUpdated, (event) => {
-      if (event.payload.mergedFromId && event.payload.mergedFromId !== event.payload.item.id) {
-        if (event.payload.collection === "history") {
-          clips.value = clips.value.filter((clip) => clip.id !== event.payload.mergedFromId);
-          clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
-          visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
-        } else {
-          categoryItems.value = categoryItems.value.filter((item) => item.id !== event.payload.mergedFromId);
-        }
-      }
-      patchItem(event.payload.collection, event.payload.item);
-      if (event.payload.collection === "category") {
-        syncCloudInBackground();
-      }
-    });
-
-    await listen<SettingsChangedEvent>(IPASTE_EVENTS.settingsChanged, (event) => {
-      applySettings(event.payload.settings);
-    });
-
-    await listen<{ visible: boolean }>(IPASTE_EVENTS.panelVisibilityChanged, (event) => {
-      if (event.payload.visible) {
-        // 每次面板显示时刷新快照：LAN 同步收到的条目/分类在面板隐藏期间落库，
-        // 若事件驱动的刷新错过（如 webview 重建），这里兜底保证数据可见。
-        void load();
-        activatePanelDefault();
-      }
-    });
-
-    // 捕获失败此前是死事件（Rust 发、无人听）：保留排障信号但不打扰 UI。
-    await listen<{ message?: string }>(IPASTE_EVENTS.captureError, (event) => {
-      console.warn("[ipaste] clipboard capture error:", event.payload);
-    });
   }
 
   async function createCategory(name: string, options: { select?: boolean } = {}) {
@@ -569,23 +507,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   async function applyCloudSnapshot() {
     const snapshot = await ipasteApi.syncCloudNow();
-    clips.value = snapshot.clips;
-    hasMoreClips.value = snapshot.hasMoreClips;
-    clipTotalCount.value = snapshot.clipTotalCount;
-    visibleHistoryTotalCount.value = snapshot.clipTotalCount;
-    categories.value = snapshot.categories;
-    categoryItems.value = snapshot.categoryItems;
-    shortcut.value = snapshot.shortcut;
-    isListening.value = snapshot.isListening;
-    isAppendCopyEnabled.value = snapshot.isAppendCopyEnabled;
-    retentionDays.value = snapshot.settings.retentionDays;
-    appendCopyTimeoutMinutes.value = cleanAppendCopyTimeoutMinutes(snapshot.settings.appendCopyTimeoutMinutes);
-    panelOpenBehavior.value = snapshot.settings.panelOpenBehavior;
-    panelLayout.value = cleanPanelLayout(snapshot.settings.panelLayout);
-    ocrMode.value = cleanOcrMode(snapshot.settings.ocrMode);
-    language.value = cleanLanguage(snapshot.settings.language);
-    setLanguage(language.value);
-    cloud.value = snapshot.settings.cloud;
+    hydrateFromSnapshot(snapshot);
     clampSelection();
   }
 
@@ -725,34 +647,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     return await ipasteApi.runAutomation(id);
   }
 
-  if (isTauri) {
-    void listen<AutomationRunStartedEvent>(IPASTE_EVENTS.automationRunStarted, (event) => {
-      const { automationId, runId, startedAt } = event.payload;
-      const action = automations.value.find((entry) => entry.id === automationId);
-      if (action) {
-        action.lastRun = { id: runId, status: "running", startedAt, finishedAt: null, exitCode: null, durationMs: null };
-      }
-    });
-    void listen<AutomationRunOutputEvent>(IPASTE_EVENTS.automationRunOutput, (event) => {
-      const { runId, stream, chunk } = event.payload;
-      const logs = runningAutomationLogs.value[runId] ?? { stdout: "", stderr: "" };
-      const limit = 200 * 1024;
-      if (stream === "stderr") logs.stderr = (logs.stderr + chunk).slice(-limit);
-      else logs.stdout = (logs.stdout + chunk).slice(-limit);
-      runningAutomationLogs.value = { ...runningAutomationLogs.value, [runId]: logs };
-    });
-    void listen<AutomationRunFinishedEvent>(IPASTE_EVENTS.automationRunFinished, (event) => {
-      const { automationId, status, exitCode, finishedAt } = event.payload;
-      const action = automations.value.find((entry) => entry.id === automationId);
-      if (action?.lastRun) {
-        action.lastRun = { ...action.lastRun, status, exitCode: exitCode ?? null, finishedAt };
-      }
-      if (action?.closePanelOnSuccess && status === "success") {
-        closePanelRequested.value = true;
-      }
-    });
-  }
-
   return {
     clips,
     categories,
@@ -783,7 +677,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     load,
     reloadClips,
     loadMoreClips,
-    bindEvents,
     createCategory,
     createCategoryWithClip,
     renameCategory,
@@ -816,12 +709,15 @@ export const useIpasteStore = defineStore("ipaste", () => {
     testCloudSettings,
     syncCloudNow,
     syncCloudInBackground,
+    applySettings,
     selectCategory,
     clearSearch,
     activatePanelDefault,
     moveSelection,
     setSelectedIndex,
     clampSelection,
+    upsertClip,
+    patchItem,
     automations,
     selectedActionIndex,
     actionsQuery,

@@ -15,6 +15,7 @@ import SettingsWindow from "./components/SettingsWindow.vue";
 import TopBar from "./components/TopBar.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
 import { useUpdater } from "./composables/useUpdater";
+import { useAppEvents } from "./composables/useAppEvents";
 import { t } from "./i18n";
 import { clipImageSrc } from "./lib/clipMedia";
 import { isTauri } from "./lib/env";
@@ -161,7 +162,7 @@ onMounted(async () => {
 
   await store.load();
   await store.loadAutomations();
-  await store.bindEvents();
+  await useAppEvents(store);
   if (isTauri) {
     scheduleSilentUpdateCheck();
   }
