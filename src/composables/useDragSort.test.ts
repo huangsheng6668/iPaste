@@ -17,4 +17,7 @@ describe("reorderedIdsAfter", () => {
     expect(reorderedIdsAfter(ids, "a", "b", "before")).toBe(ids);
     expect(reorderedIdsAfter(ids, "b", "a", "after")).toBe(ids);
   });
+  it("swaps adjacent items", () => {
+    expect(reorderedIdsAfter(["a", "b"], "a", "b", "after")).toEqual(["b", "a"]);
+  });
 });
