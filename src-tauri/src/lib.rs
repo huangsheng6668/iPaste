@@ -17,6 +17,9 @@ use crate::clipboard::*;
 mod commands;
 use crate::commands::*;
 
+pub(crate) mod error;
+pub(crate) use error::*;
+
 mod models;
 use crate::models::*;
 
