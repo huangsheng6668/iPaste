@@ -346,7 +346,7 @@ pub(crate) fn write_clipboard_and_mark(
     Ok(captured_item)
 }
 
-/// 捕获条目入库并向前端广播（None = 无需入库，如 marker 命中）。
+/// 捕获条目入库并向前端广播（None = 文本为空等无需入库的载荷，见 captured_item_from_payload）。
 pub(crate) fn record_inserted_capture(
     app: &tauri::AppHandle,
     state: &AppState,

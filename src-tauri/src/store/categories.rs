@@ -1,14 +1,41 @@
 // store/categories.rs — 分类+分类项 CRUD/排序
+use std::collections::HashSet;
+
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::*;
 use crate::util::*;
 use super::Store;
 use crate::{
-    cloud::{ensure_category_exists, ensure_unique_ids},
     store::rows::{collect_rows, map_category, map_category_item, map_clip},
     util::{clean_color, new_id, now},
 };
+
+fn ensure_unique_ids(ids: &[String]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for id in ids {
+        let id = id.trim();
+        if id.is_empty() {
+            return Err("排序 ID 不能为空".to_string());
+        }
+        if !seen.insert(id.to_string()) {
+            return Err("排序列表包含重复条目".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn ensure_category_exists(conn: &Connection, category_id: &str) -> Result<(), String> {
+    conn.query_row(
+        "SELECT id FROM categories WHERE id = ?1",
+        params![category_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())?
+    .map(|_| ())
+    .ok_or_else(|| "未找到分类".to_string())
+}
 
 pub(crate) fn ensure_all_categories_exist(conn: &Connection, category_ids: &[String]) -> Result<(), String> {
     let count: i64 = conn

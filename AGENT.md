@@ -61,7 +61,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `util.rs`：跨模块共享的纯函数辅助（哈希/剪贴板类型检测/预览、`clean_*` 入参校验清理、`now`、本地化文案）。
 - `store.rs` + `store/`：SQLite 持久化。子模块按域拆分（clips/categories/settings/automations/sync/migrations/secrets/rows/test_support），统一 `xxx_with_conn` 事务模式。
 - `clipboard.rs`：剪贴板捕获、规范化和写回。
-- `cloud.rs`：自托管同步 API 客户端（依赖 store 单向）。
+- `cloud.rs`：自托管同步 API 客户端（store 侧调用 cloud，cloud 不依赖 store）。
 - `ocr/`：图片 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows 资源安装器、`tesseract.rs` Windows 识别执行、`vision.rs` macOS Vision 管线。
 - `window.rs`：面板/设置/放大窗口、原生面板行为和窗口定位（辅助窗口统一走 `show_auxiliary_window`）。
 - `tray.rs`：系统托盘、菜单文案与菜单事件处理。

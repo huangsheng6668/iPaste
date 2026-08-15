@@ -1,39 +1,11 @@
-use std::collections::HashSet;
 use std::time::Duration;
 
 use reqwest::{blocking::Client, StatusCode};
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::models::*;
 use crate::models::HealthPayload;
-
-pub(crate) fn ensure_unique_ids(ids: &[String]) -> Result<(), String> {
-    let mut seen = HashSet::new();
-    for id in ids {
-        let id = id.trim();
-        if id.is_empty() {
-            return Err("排序 ID 不能为空".to_string());
-        }
-        if !seen.insert(id.to_string()) {
-            return Err("排序列表包含重复条目".to_string());
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn ensure_category_exists(conn: &Connection, category_id: &str) -> Result<(), String> {
-    conn.query_row(
-        "SELECT id FROM categories WHERE id = ?1",
-        params![category_id],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .map_err(|error| error.to_string())?
-    .map(|_| ())
-    .ok_or_else(|| "未找到分类".to_string())
-}
 
 pub(crate) fn cloud_get<T: DeserializeOwned>(
     api_address: &str,
