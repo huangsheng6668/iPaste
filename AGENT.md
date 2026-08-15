@@ -52,29 +52,32 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 
 ## Rust 模块布局
 
-`src-tauri/src/` 按领域拆分为独立模块，每个文件一个模块：
+`src-tauri/src/` 按领域拆分为独立模块：
 
-- `lib.rs`：Tauri 构建入口、共享常量和跨模块辅助函数。新增代码按模块归属，不要往 lib.rs 堆。
-- `models.rs`：命令和模块共享的结构化 serde 数据模型。
-- `store.rs`：SQLite 持久化与云同步编排。
+- `lib.rs`：Tauri 构建入口（`run()` 组合根）与跨模块共享常量。新增代码按模块归属，不要往 lib.rs 堆；lib.rs 不做 glob 再导出，其他模块一律用显式路径（如 `crate::util::now`）引用。
+- `models.rs`：命令和模块共享的结构化 serde 数据模型（含 ts-rs TS 导出注解）。
+- `error.rs`：`AppError` 统一错误契约（code/message/params），全部 Tauri 命令返回 `Result<T, AppError>`；新增错误先加变体与 code。
+- `events.rs`：前后端事件契约唯一来源（事件名常量 + payload 结构体 + events.ts 生成测试）；Rust 侧其他文件不得出现 `ipaste://` 字面量。
+- `util.rs`：跨模块共享的纯函数辅助（哈希/剪贴板类型检测/预览、`clean_*` 入参校验清理、`now`、本地化文案）。
+- `store.rs` + `store/`：SQLite 持久化。子模块按域拆分（clips/categories/settings/automations/sync/migrations/secrets/rows/test_support），统一 `xxx_with_conn` 事务模式。
 - `clipboard.rs`：剪贴板捕获、规范化和写回。
-- `cloud.rs`：自托管同步 API 客户端。
-- `ocr.rs`：图片 OCR（Windows Tesseract 资源安装、macOS 系统 Vision 管线）。
-- `window.rs`：面板/设置/放大窗口、原生面板行为和窗口定位。
-- `tray.rs`：系统托盘、菜单文案、追加复制超时。
+- `cloud.rs`：自托管同步 API 客户端（依赖 store 单向）。
+- `ocr/`：图片 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows 资源安装器、`tesseract.rs` Windows 识别执行、`vision.rs` macOS Vision 管线。
+- `window.rs`：面板/设置/放大窗口、原生面板行为和窗口定位（辅助窗口统一走 `show_auxiliary_window`）。
+- `tray.rs`：系统托盘、菜单文案与菜单事件处理。
 - `shortcut.rs`：全局快捷键注册与更新。
-- `paste.rs`：目标应用激活与触发粘贴。
-- `commands.rs`：向 UI 暴露模块函数的薄 Tauri 命令层。
+- `paste.rs`：目标应用激活与触发粘贴（含粘贴编排与快捷键投递）。
+- `automation.rs`：自动化动作的进程执行与事件流。
+- `commands.rs`：向 UI 暴露模块函数的薄 Tauri 命令层（业务编排在域模块中）。
+- `lan_sync/`：LAN 同步（protocol/crypto/session/server/client/commands/port/pair_guard 分层，v4 握手协议见各文件头注释）。
 
-模块间共享的自由函数和常量保留在 `lib.rs`（crate root），其他模块按需通过 `crate::` 引用；需要被多个模块使用的新共享项同样放到 crate root 并标 `pub(crate)`。跨平台代码用 `#[cfg(target_os = "...")]` 包裹，并保持逐平台 import 与代码块一致。
-
-新增后端功能时：数据模型进 `models.rs`，持久化进 `store.rs`，平台能力进对应域模块，命令层保持薄壳。
+新增后端功能时：数据模型进 `models.rs`，持久化进 `store/`，平台能力进对应域模块，命令层保持薄壳。跨平台代码用 `#[cfg(target_os = "...")]` 包裹，并保持逐平台 import 与代码块一致。
 
 ## Rust 规范
 
 - 对命令载荷使用带 `serde` 的结构化数据模型。
 - 将 SQLite 访问封装在小型存储层后面。
-- Tauri 命令默认返回 `Result<T, String>`，除非项目中已经建立了更丰富的错误类型。
+- Tauri 命令统一返回 `Result<T, AppError>`（`error.rs`，序列化为 `{code, message, params}`）；前端按 code 分支，不解析 message。
 - 避免让面向界面的命令执行长时间阻塞操作。
 - 平台特定的输入模拟应统一放在一个辅助函数后面。
 - 在 macOS 上，需要说明直接粘贴依赖辅助功能权限。
