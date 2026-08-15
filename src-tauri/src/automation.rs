@@ -8,6 +8,7 @@ use tokio::process::Command;
 
 use tauri::Emitter;
 
+use crate::events::*;
 use crate::models::{AutomationAction, AutomationRunSummary};
 use crate::store::Store;
 
@@ -59,7 +60,7 @@ pub(crate) async fn execute_automation(
     let started_at = crate::util::now();
     let automation_id = action.id.clone();
     let _ = app.emit(
-        "ipaste://automation-run-started",
+        EVENT_AUTOMATION_RUN_STARTED,
         serde_json::json!({
             "runId": run_id,
             "automationId": automation_id,
@@ -119,7 +120,7 @@ pub(crate) async fn execute_automation(
         .ok_or_else(|| "运行记录缺失".to_string())?;
 
     let _ = app.emit(
-        "ipaste://automation-run-finished",
+        EVENT_AUTOMATION_RUN_FINISHED,
         serde_json::json!({
             "runId": run_id,
             "automationId": automation_id,
@@ -147,7 +148,7 @@ async fn drain_stream<R>(
     while let Ok(Some(line)) = lines.next_line().await {
         let chunk = format!("{line}\n");
         let _ = app.emit(
-            "ipaste://automation-run-output",
+            EVENT_AUTOMATION_RUN_OUTPUT,
             serde_json::json!({
                 "runId": run_id,
                 "automationId": automation_id,

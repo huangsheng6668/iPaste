@@ -2,7 +2,6 @@
 import type { LanStatus } from "./LanStatus";
 
 /**
- * host 因非 Hosting 态拒绝 guest 时发出（host 侧事件），携带当时 host 的状态，
- * 用于前端提示"有设备尝试加入但当前正忙"以及定位加入被拒的根因。
+ * host 因非 Hosting 态拒绝 guest 时发出（host 侧事件）。
  */
 export type LanGuestRejected = { guestDeviceName: string, hostStatus: LanStatus, };

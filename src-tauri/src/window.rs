@@ -21,6 +21,7 @@ use tauri::{
     Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 
+use crate::events::*;
 use crate::models::*;
 use crate::util::*;
 use crate::{
@@ -208,7 +209,7 @@ pub(crate) fn show_main_window(
     }
 
     let _ = app.emit(
-        "ipaste://panel-visibility-changed",
+        EVENT_PANEL_VISIBILITY_CHANGED,
         PanelVisibilityChanged {
             visible: true,
             preserves_current_app: effective_activation == MainWindowActivation::PreserveCurrentApp,
@@ -226,7 +227,7 @@ pub(crate) fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     let native_panel = activation == MainWindowActivation::PreserveCurrentApp
         && is_native_main_panel_visible(app);
     let _ = app.emit(
-        "ipaste://panel-visibility-changed",
+        EVENT_PANEL_VISIBILITY_CHANGED,
         PanelVisibilityChanged {
             visible: false,
             preserves_current_app: activation == MainWindowActivation::PreserveCurrentApp,

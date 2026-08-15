@@ -20,6 +20,9 @@ use crate::commands::*;
 pub(crate) mod error;
 pub(crate) use error::*;
 
+pub(crate) mod events;
+pub(crate) use events::*;
+
 mod models;
 use crate::models::*;
 
@@ -132,7 +135,7 @@ pub fn run() {
                         // 目标应用（诊断确认 key window 悬空、AX 设置只读、open -b 无效）。
                         // Activate 模式下面板隐藏时系统自动把激活和键盘焦点还给目标应用。
                         let _ = show_main_window(&app, MainWindowActivation::Activate);
-                        let _ = app.emit("ipaste://shortcut-opened", active_shortcut);
+                        let _ = app.emit(EVENT_SHORTCUT_OPENED, active_shortcut);
                     });
                 })
                 .build(),
@@ -357,7 +360,7 @@ pub fn run() {
                         *listening = !*listening;
                         update_pause_capture_menu_label(&state, *listening);
                         let _ = app.emit(
-                            "ipaste://listening-changed",
+                            EVENT_LISTENING_CHANGED,
                             ListeningChanged {
                                 is_listening: *listening,
                             },

@@ -62,7 +62,7 @@ impl CapturingEventSink {
             .lock()
             .expect("capture sink poisoned")
             .iter()
-            .filter(|(event, _)| event == "ipaste://lan-join-failed")
+            .filter(|(event, _)| event == EVENT_LAN_JOIN_FAILED)
             .map(|(_, payload)| {
                 payload
                     .get("reason")
@@ -75,6 +75,7 @@ impl CapturingEventSink {
 }
 use crate::lan_sync::protocol::*;
 use crate::models::*;
+use crate::events::*;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
@@ -110,76 +111,6 @@ pub(crate) enum ClipSource {
         #[serde(rename = "categoryId")]
         category_id: String,
     },
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanPairRequest { pub(crate) guest_id: String, pub(crate) device_name: String }
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanSessionReady { pub(crate) peer_device_name: String, pub(crate) role: LanRole }
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanDisconnected { pub(crate) reason: String }
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanClipReceived {
-    pub(crate) clip_type: String,
-    /// 收到的是分组条目时，携带分组名；历史/无分组条目为 None。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) category_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanJoinFailed { pub(crate) reason: String }
-
-/// 接收对端推送的条目时落库/解析失败发出（接收侧诊断事件）。
-///
-/// 此前 `session::apply_received` 在解析或落库失败时静默 return，导致"A 端显示成功、
-/// B 端无反应"且无从排查。现在改为 emit 本事件 + `eprintln!`，前端可据此提示用户，
-/// 开发者/用户也能从日志拿到具体原因（如 DB 约束冲突、图片解码失败等）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanClipReceiveFailed { pub(crate) reason: String }
-
-/// host 因非 Hosting 态拒绝 guest 时发出（host 侧事件），携带当时 host 的状态，
-/// 用于前端提示"有设备尝试加入但当前正忙"以及定位加入被拒的根因。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanGuestRejected {
-    pub(crate) guest_device_name: String,
-    pub(crate) host_status: LanStatus,
-}
-
-/// 发送端整组发送完成（`lan_send_category` 结束时发出，前端用于提示结果）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanCategorySent {
-    pub(crate) category_name: String,
-    pub(crate) sent: u32,
-    pub(crate) failed: u32,
-}
-
-/// 接收端整组接收完成（收到 `CategoryBatchEnd` 后发出；count/failed 为落库结果）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanCategoryReceived {
-    pub(crate) category_name: String,
-    pub(crate) count: u32,
-    pub(crate) failed: u32,
 }
 
 /// session loop 的控制指令
@@ -366,7 +297,7 @@ impl LanSessionManager {
             inner.peer_device_name = Some(peer_device_name.clone());
             inner.role.unwrap_or(LanRole::Guest)
         };
-        self.emit("ipaste://lan-session-ready", LanSessionReady {
+        self.emit(EVENT_LAN_SESSION_READY, LanSessionReady {
             peer_device_name,
             role,
         });
@@ -479,13 +410,13 @@ impl LanSessionManager {
                 join.abort();
             }
         }
-        self.emit("ipaste://lan-disconnected", LanDisconnected { reason });
+        self.emit(EVENT_LAN_DISCONNECTED, LanDisconnected { reason });
     }
 
     /// host 收到 guest 的配对请求：通知前端弹确认框。
     pub(crate) fn emit_pair_request(&self, guest_id: String, device_name: String) {
         self.emit(
-            "ipaste://lan-pair-request",
+            EVENT_LAN_PAIR_REQUEST,
             LanPairRequest { guest_id, device_name },
         );
     }
@@ -493,27 +424,27 @@ impl LanSessionManager {
     /// host 因非 Hosting 态拒绝 guest：通知前端展示诊断提示。
     pub(crate) fn emit_guest_rejected(&self, guest_device_name: String, host_status: LanStatus) {
         self.emit(
-            "ipaste://lan-guest-rejected",
+            EVENT_LAN_GUEST_REJECTED,
             LanGuestRejected { guest_device_name, host_status },
         );
     }
 
     pub(crate) fn emit_clip_received(&self, clip_type: String, category_name: Option<String>) {
         self.emit(
-            "ipaste://lan-clip-received",
+            EVENT_LAN_CLIP_RECEIVED,
             LanClipReceived { clip_type, category_name },
         );
     }
 
     pub(crate) fn emit_join_failed(&self, reason: String) {
-        self.emit("ipaste://lan-join-failed", LanJoinFailed { reason });
+        self.emit(EVENT_LAN_JOIN_FAILED, LanJoinFailed { reason });
     }
 
     /// 接收侧解析/落库失败时调用：emit 诊断事件 + 打印日志，避免静默丢弃。
     pub(crate) fn emit_clip_receive_failed(&self, reason: String) {
         eprintln!("[lan-sync] 接收条目失败：{reason}");
         self.emit(
-            "ipaste://lan-clip-receive-failed",
+            EVENT_LAN_CLIP_RECEIVE_FAILED,
             LanClipReceiveFailed { reason },
         );
     }
@@ -521,7 +452,7 @@ impl LanSessionManager {
     /// 发送端整组发送完成：emit 汇总事件（前端用于提示）。
     pub(crate) fn emit_category_sent(&self, category_name: String, sent: u32, failed: u32) {
         self.emit(
-            "ipaste://lan-category-sent",
+            EVENT_LAN_CATEGORY_SENT,
             LanCategorySent { category_name, sent, failed },
         );
     }
@@ -529,7 +460,7 @@ impl LanSessionManager {
     /// 接收端整组接收完成：emit 汇总事件（前端据此刷新一次列表并提示）。
     pub(crate) fn emit_category_received(&self, category_name: String, count: u32, failed: u32) {
         self.emit(
-            "ipaste://lan-category-received",
+            EVENT_LAN_CATEGORY_RECEIVED,
             LanCategoryReceived { category_name, count, failed },
         );
     }

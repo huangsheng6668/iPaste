@@ -23,6 +23,7 @@ use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::*;
 use crate::models::*;
+use crate::events::*;
 use crate::error::AppError;
 use crate::Store;
 

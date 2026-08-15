@@ -24,6 +24,7 @@ use tauri::Manager;
 #[cfg(not(target_os = "macos"))]
 use zip::ZipArchive;
 
+use crate::events::*;
 use crate::models::*;
 #[cfg(not(target_os = "macos"))]
 use crate::util::*;
@@ -653,7 +654,7 @@ pub(crate) fn emit_ocr_install_progress(
     total_bytes: u64,
 ) {
     let _ = app.emit(
-        "ipaste://ocr-install-progress",
+        EVENT_OCR_INSTALL_PROGRESS,
         OcrInstallProgress {
             phase: phase.to_string(),
             file_name,

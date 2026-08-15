@@ -15,6 +15,7 @@ use enigo::{
 use image::{ImageBuffer, ImageEncoder, Rgba};
 use tauri::Emitter;
 
+use crate::events::*;
 use crate::models::*;
 use crate::store::Store;
 use crate::util::*;
@@ -81,7 +82,7 @@ pub(crate) fn spawn_clipboard_watcher(
                 match capture_result {
                     Ok(Some((clip, clip_total_count, was_inserted))) => {
                         let _ = app.emit(
-                            "ipaste://clipboard-captured",
+                            EVENT_CLIPBOARD_CAPTURED,
                             ClipboardCaptured {
                                 clip,
                                 clip_total_count,
@@ -91,14 +92,14 @@ pub(crate) fn spawn_clipboard_watcher(
                     }
                     Ok(None) => {}
                     Err(error) => {
-                        let _ = app.emit("ipaste://capture-error", error);
+                        let _ = app.emit(EVENT_CAPTURE_ERROR, error);
                     }
                 }
             }
             Ok(ClipboardRead::Empty) => {}
             Ok(ClipboardRead::Occupied) => {}
             Err(error) => {
-                let _ = app.emit("ipaste://capture-error", error);
+                let _ = app.emit(EVENT_CAPTURE_ERROR, error);
             }
         }
 

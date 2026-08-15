@@ -319,46 +319,6 @@ pub(crate) struct CapturedClipboardItem {
     pub(crate) display_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct ClipboardCaptured {
-    pub(crate) clip: ClipItem,
-    #[ts(type = "number")]
-    pub(crate) clip_total_count: usize,
-    pub(crate) was_inserted: bool,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct AppendCopyChanged {
-    pub(crate) is_enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct ListeningChanged {
-    pub(crate) is_listening: bool,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct PanelVisibilityChanged {
-    pub(crate) visible: bool,
-    pub(crate) preserves_current_app: bool,
-    pub(crate) native_panel: bool,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct SettingsChanged {
-    pub(crate) settings: AppSettings,
-}
-
 pub(crate) enum ClipboardRead {
     Empty,
     Occupied,

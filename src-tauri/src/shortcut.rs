@@ -1,6 +1,7 @@
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
+use crate::events::*;
 use crate::models::*;
 pub(crate) fn shortcut_matches(shortcut: &Shortcut, shortcut_spec: &str) -> bool {
     shortcut_spec
@@ -114,7 +115,7 @@ fn shortcut_registration_error(shortcut: &str, error: impl ToString) -> String {
 
 pub(crate) fn emit_settings_changed(app: &tauri::AppHandle, settings: &AppSettings) {
     let _ = app.emit(
-        "ipaste://settings-changed",
+        EVENT_SETTINGS_CHANGED,
         SettingsChanged {
             settings: settings.clone(),
         },

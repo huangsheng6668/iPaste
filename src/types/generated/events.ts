@@ -1,0 +1,28 @@
+// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.
+// Run `npm run gen:types` to regenerate.
+// clipUpdated 由前端发起（useClipEditor），其余由 Rust 发起。
+export const IPASTE_EVENTS = {
+  clipboardCaptured: "ipaste://clipboard-captured",
+  captureError: "ipaste://capture-error",
+  listeningChanged: "ipaste://listening-changed",
+  appendCopyChanged: "ipaste://append-copy-changed",
+  settingsChanged: "ipaste://settings-changed",
+  panelVisibilityChanged: "ipaste://panel-visibility-changed",
+  shortcutOpened: "ipaste://shortcut-opened",
+  ocrInstallProgress: "ipaste://ocr-install-progress",
+  automationRunStarted: "ipaste://automation-run-started",
+  automationRunOutput: "ipaste://automation-run-output",
+  automationRunFinished: "ipaste://automation-run-finished",
+  lanSessionReady: "ipaste://lan-session-ready",
+  lanDisconnected: "ipaste://lan-disconnected",
+  lanPairRequest: "ipaste://lan-pair-request",
+  lanGuestRejected: "ipaste://lan-guest-rejected",
+  lanClipReceived: "ipaste://lan-clip-received",
+  lanClipReceiveFailed: "ipaste://lan-clip-receive-failed",
+  lanCategorySent: "ipaste://lan-category-sent",
+  lanCategoryReceived: "ipaste://lan-category-received",
+  lanJoinFailed: "ipaste://lan-join-failed",
+  clipUpdated: "ipaste://clip-updated",
+} as const;
+
+export type IpasteEventName = (typeof IPASTE_EVENTS)[keyof typeof IPASTE_EVENTS];

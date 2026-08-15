@@ -10,6 +10,7 @@ use tauri::{
     Emitter,
 };
 
+use crate::events::*;
 use crate::models::*;
 use crate::util::*;
 use crate::{new_id, show_main_window, DEFAULT_LANGUAGE};
@@ -55,7 +56,7 @@ pub(crate) fn set_append_copy_enabled_inner(
 
     update_append_copy_menu_label(state, is_enabled);
     let _ = app.emit(
-        "ipaste://append-copy-changed",
+        EVENT_APPEND_COPY_CHANGED,
         AppendCopyChanged { is_enabled },
     );
     if let Some(session_id) = timer_session_id {
@@ -123,7 +124,7 @@ fn spawn_append_copy_timeout(
 
         let _ = append_copy_menu_item.set_text(localized_text(&language, "enable_append_copy"));
         let _ = app.emit(
-            "ipaste://append-copy-changed",
+            EVENT_APPEND_COPY_CHANGED,
             AppendCopyChanged { is_enabled: false },
         );
     });

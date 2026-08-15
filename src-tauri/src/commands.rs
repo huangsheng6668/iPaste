@@ -10,6 +10,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::clipboard::*;
 use crate::error::AppError;
+use crate::events::*;
 use crate::models::*;
 use crate::ocr::*;
 use crate::paste::*;
@@ -209,7 +210,7 @@ pub(crate) fn copy_clip(
             state.store.insert_captured_item(item)?
         {
             let _ = app.emit(
-                "ipaste://clipboard-captured",
+                EVENT_CLIPBOARD_CAPTURED,
                 ClipboardCaptured {
                     clip,
                     clip_total_count,
@@ -233,7 +234,7 @@ pub(crate) fn set_listening(
         .lock()
         .map_err(|error| error.to_string())? = enabled;
     let _ = app.emit(
-        "ipaste://listening-changed",
+        EVENT_LISTENING_CHANGED,
         ListeningChanged {
             is_listening: enabled,
         },
@@ -651,7 +652,7 @@ pub(crate) fn apply_clip(
             state.store.insert_captured_item(item)?
         {
             let _ = app.emit(
-                "ipaste://clipboard-captured",
+                EVENT_CLIPBOARD_CAPTURED,
                 ClipboardCaptured {
                     clip,
                     clip_total_count,
