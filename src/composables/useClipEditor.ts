@@ -3,6 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { clipMetricText, textStats } from "../lib/format";
+import { errorMessage } from "../lib/appError";
 import type { ClipUpdatedEvent, ClipViewItem, ClipViewerPayload } from "../types";
 import type { useImageOcr } from "./useImageOcr";
 
@@ -60,7 +61,7 @@ export function useClipEditor(item: ComputedRef<ClipViewItem | undefined>, optio
         });
       }
     } catch (unknownError) {
-      options.error.value = String(unknownError);
+      options.error.value = errorMessage(unknownError);
     }
   }
 

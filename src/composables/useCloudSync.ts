@@ -1,5 +1,6 @@
 import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
+import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 
 export function useCloudSync() {
@@ -34,7 +35,7 @@ export function useCloudSync() {
       await store.testCloudSettings(cloudApiAddress.value, cloudApiKey.value);
       cloudMessage.value = t("settings.cloud.connected");
     } catch (unknownError) {
-      cloudError.value = String(unknownError);
+      cloudError.value = errorMessage(unknownError);
     } finally {
       isTestingCloud.value = false;
     }
@@ -49,7 +50,7 @@ export function useCloudSync() {
       resetCloudForm();
       cloudMessage.value = t("settings.cloud.saved");
     } catch (unknownError) {
-      cloudError.value = String(unknownError);
+      cloudError.value = errorMessage(unknownError);
     } finally {
       isSavingCloud.value = false;
     }
@@ -64,7 +65,7 @@ export function useCloudSync() {
       resetCloudForm();
       cloudMessage.value = t("settings.cloud.disabledMessage");
     } catch (unknownError) {
-      cloudError.value = String(unknownError);
+      cloudError.value = errorMessage(unknownError);
     } finally {
       isSavingCloud.value = false;
     }

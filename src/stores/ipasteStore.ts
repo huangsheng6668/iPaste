@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
+import { errorMessage } from "../lib/appError";
 import { filterAutomations } from "./lib/automationFilter";
 import {
   compareSortOrder,
@@ -136,7 +137,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       }
       clampSelection();
     } catch (unknownError) {
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
     } finally {
       isLoading.value = false;
     }
@@ -223,7 +224,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       clipTotalCount.value = page.allCount;
       clampSelection();
     } catch (unknownError) {
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
     } finally {
       isLoadingMoreClips.value = false;
     }
@@ -262,7 +263,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       selectedIndex.value = 0;
     } catch (unknownError) {
       if (requestId === clipRequestId) {
-        error.value = String(unknownError);
+        error.value = errorMessage(unknownError);
       }
     }
   }
@@ -365,7 +366,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       syncCloudInBackground();
     } catch (unknownError) {
       categories.value = previous;
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -386,7 +387,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     } catch (unknownError) {
       categoryItems.value = previous;
       restoreCategorySelection(selectedItemId);
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -410,7 +411,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
         selectedItem.value.text,
       );
     } catch (unknownError) {
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
     }
   }
 
@@ -419,7 +420,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     try {
       await ipasteApi.applyClip(originalClipId(item), item.clipType, item.text);
     } catch (unknownError) {
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
     }
   }
 
@@ -431,7 +432,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     try {
       isAppendCopyEnabled.value = await ipasteApi.setAppendCopyEnabled(enabled);
     } catch (unknownError) {
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -463,7 +464,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       applySettings(settings);
     } catch (unknownError) {
       if (isSettingsCommandMissing(unknownError, "update_append_copy_timeout")) return;
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -487,7 +488,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       applySettings(settings);
     } catch (unknownError) {
       if (isSettingsCommandMissing(unknownError, "update_panel_layout")) return;
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -501,7 +502,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       applySettings(settings);
     } catch (unknownError) {
       if (isSettingsCommandMissing(unknownError, "update_ocr_mode")) return;
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -516,7 +517,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       applySettings(settings);
     } catch (unknownError) {
       if (isSettingsCommandMissing(unknownError, "update_language")) return;
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -543,7 +544,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       clearBackgroundSyncTimer();
       await applyCloudSnapshot();
     } catch (unknownError) {
-      error.value = String(unknownError);
+      error.value = errorMessage(unknownError);
       throw unknownError;
     }
   }
@@ -554,7 +555,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     backgroundSyncTimer = window.setTimeout(() => {
       backgroundSyncTimer = null;
       void ipasteApi.syncCloudInBackground().catch((unknownError) => {
-        error.value = String(unknownError);
+        error.value = errorMessage(unknownError);
       });
     }, 600);
   }

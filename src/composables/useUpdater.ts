@@ -2,6 +2,7 @@ import { computed, ref, shallowRef } from "vue";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { t } from "../i18n";
+import { errorMessage } from "../lib/appError";
 
 export type UpdateStatus = "idle" | "checking" | "noUpdate" | "available" | "downloading" | "ready" | "error";
 export type UpdateErrorPhase = "check" | "install" | "relaunch";
@@ -177,7 +178,7 @@ export function useUpdater() {
 }
 
 export function normalizeUpdateError(error: unknown, phase: UpdateErrorPhase = "check") {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   const normalized = message.toLowerCase();
 
   if (normalized.includes("请在桌面应用中检查更新") || normalized.includes("check for updates in the desktop app")) {

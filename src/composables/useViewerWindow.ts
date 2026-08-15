@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, ref, type ComputedRef, type Ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ipasteApi } from "../lib/ipasteApi";
+import { errorMessage } from "../lib/appError";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -56,7 +57,7 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
         await ipasteApi.closeClipViewer(windowLabel.value || getCurrentWindow().label);
       } catch (unknownError) {
         isForceClosing = false;
-        options.error.value = String(unknownError);
+        options.error.value = errorMessage(unknownError);
       }
       return;
     }

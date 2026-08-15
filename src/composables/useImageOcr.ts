@@ -1,6 +1,7 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import { errorMessage } from "../lib/appError";
 import type { ClipViewItem, ImageOcrResult, ImageOcrWord } from "../types";
 import type { useImageViewer } from "./useImageViewer";
 
@@ -493,7 +494,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     try {
       imageOcrResult.value = await ipasteApi.recognizeImageText(options.item.value.text);
     } catch (unknownError) {
-      imageOcrError.value = String(unknownError);
+      imageOcrError.value = errorMessage(unknownError);
     } finally {
       isRecognizingImage.value = false;
     }

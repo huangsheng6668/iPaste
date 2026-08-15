@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import appPackage from "../../package.json";
+import { errorMessage } from "./appError";
 import type {
   AppInfo,
   AppSettings,
@@ -596,7 +597,7 @@ export const ipasteApi = {
 };
 
 function isMissingCommandError(error: unknown, command: string) {
-  const message = String(error).toLowerCase();
+  const message = errorMessage(error).toLowerCase();
   return message.includes(command.toLowerCase()) && message.includes("command");
 }
 

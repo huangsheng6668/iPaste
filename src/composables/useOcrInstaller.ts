@@ -4,6 +4,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { formatBytes } from "../lib/format";
+import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 import type { OcrInstallProgress, OcrInstallStatus, OcrMode } from "../types";
 
@@ -84,7 +85,7 @@ export function useOcrInstaller() {
         lastInstalledOcrMode.value = ocrStatus.value.mode;
       }
     } catch (unknownError) {
-      ocrError.value = String(unknownError);
+      ocrError.value = errorMessage(unknownError);
     }
   }
 
@@ -97,7 +98,7 @@ export function useOcrInstaller() {
       await store.updateOcrMode(mode);
       await loadOcrStatus();
     } catch (unknownError) {
-      ocrError.value = String(unknownError);
+      ocrError.value = errorMessage(unknownError);
     }
   }
 
@@ -116,7 +117,7 @@ export function useOcrInstaller() {
       lastInstalledOcrMode.value = ocrStatus.value.mode;
       ocrMessage.value = t("ocr.readyMessage");
     } catch (unknownError) {
-      ocrError.value = String(unknownError);
+      ocrError.value = errorMessage(unknownError);
     } finally {
       isInstallingOcr.value = false;
     }
@@ -132,7 +133,7 @@ export function useOcrInstaller() {
       lastInstalledOcrMode.value = null;
       ocrMessage.value = t("ocr.removedMessage");
     } catch (unknownError) {
-      ocrError.value = String(unknownError);
+      ocrError.value = errorMessage(unknownError);
     } finally {
       isRemovingOcr.value = false;
     }
@@ -145,7 +146,7 @@ export function useOcrInstaller() {
     try {
       await openPath(ocrStatus.value.installDir);
     } catch (unknownError) {
-      ocrError.value = String(unknownError);
+      ocrError.value = errorMessage(unknownError);
     }
   }
 

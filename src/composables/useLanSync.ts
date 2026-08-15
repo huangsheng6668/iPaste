@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
+import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 import type { LanCategoryReceivedEvent, LanCategorySentEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
 
@@ -73,7 +74,7 @@ export function useLanSync() {
       portConflict.value = null;
       // 杀掉占用进程后自动重试创建会话，免去用户再点一次「Create Session」。
       await createSession();
-    } catch (e) { error.value = String(e); }
+    } catch (e) { error.value = errorMessage(e); }
   }
 
   async function quitApp() {
@@ -88,26 +89,26 @@ export function useLanSync() {
     error.value = null;
     try {
       await ipasteApi.lanJoinByAddress(manualAddress.value.trim(), manualCode.value.trim());
-    } catch (e) { error.value = String(e); }
+    } catch (e) { error.value = errorMessage(e); }
   }
 
   async function acceptPair(accept: boolean) {
-    try { await ipasteApi.lanAcceptPair(accept); } catch (e) { error.value = String(e); }
+    try { await ipasteApi.lanAcceptPair(accept); } catch (e) { error.value = errorMessage(e); }
   }
 
   async function sendCurrent() {
     const source: LanClipSource = { kind: "current" };
-    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = String(e); }
+    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = errorMessage(e); }
   }
 
   async function sendItem(id: string) {
     const source: LanClipSource = { kind: "item", id };
-    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = String(e); }
+    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = errorMessage(e); }
   }
 
   async function sendCategoryItem(id: string, categoryId: string) {
     const source: LanClipSource = { kind: "categoryItem", id, categoryId };
-    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = String(e); }
+    try { await ipasteApi.lanSendClip(source); } catch (e) { error.value = errorMessage(e); }
   }
 
   /** 整组发送：把分组下全部条目一次性推给对端（后端 BatchStart→逐条→BatchEnd）。 */
@@ -123,21 +124,21 @@ export function useLanSync() {
         lastCategorySent.value = null;
       }, 5000);
     } catch (e) {
-      error.value = String(e);
+      error.value = errorMessage(e);
     } finally {
       sendingCategory.value = null;
     }
   }
 
   async function requestClip() {
-    try { await ipasteApi.lanRequestClip(); } catch (e) { error.value = String(e); }
+    try { await ipasteApi.lanRequestClip(); } catch (e) { error.value = errorMessage(e); }
   }
 
   async function disconnect() {
     // 主动断开时清掉旧错误（如上一次 join 失败的提示），避免陈旧错误
     // 挂在面板上被误认为是本次断开引出的新问题。
     error.value = null;
-    try { await ipasteApi.lanDisconnect(); } catch (e) { error.value = String(e); }
+    try { await ipasteApi.lanDisconnect(); } catch (e) { error.value = errorMessage(e); }
   }
 
   onMounted(async () => {

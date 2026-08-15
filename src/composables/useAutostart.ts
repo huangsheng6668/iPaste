@@ -1,5 +1,6 @@
 import { onMounted, ref } from "vue";
 import { ipasteApi } from "../lib/ipasteApi";
+import { errorMessage } from "../lib/appError";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -13,7 +14,7 @@ export function useAutostart() {
     try {
       autostartEnabled.value = await ipasteApi.isAutostartEnabled();
     } catch (unknownError) {
-      autostartError.value = String(unknownError);
+      autostartError.value = errorMessage(unknownError);
     }
   }
 
@@ -26,7 +27,7 @@ export function useAutostart() {
         ? await ipasteApi.disableAutostart()
         : await ipasteApi.enableAutostart();
     } catch (unknownError) {
-      autostartError.value = String(unknownError);
+      autostartError.value = errorMessage(unknownError);
     } finally {
       isTogglingAutostart.value = false;
     }

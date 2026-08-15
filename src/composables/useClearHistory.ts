@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { t } from "../i18n";
+import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 
 export function useClearHistory() {
@@ -29,7 +30,7 @@ export function useClearHistory() {
       confirmingClearHistory.value = false;
       storageMessage.value = t("settings.storage.cleared", { count: deleted });
     } catch (unknownError) {
-      storageError.value = String(unknownError);
+      storageError.value = errorMessage(unknownError);
     } finally {
       isClearingHistory.value = false;
     }

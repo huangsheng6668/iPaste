@@ -2,6 +2,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { formatShortcut } from "../lib/format";
+import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 
 const DEFAULT_SHORTCUT = "CommandOrControl+Shift+V";
@@ -97,7 +98,7 @@ export function useShortcutRecorder() {
       shouldRestoreAppShortcutAfterRecording = true;
       return true;
     } catch (unknownError) {
-      shortcutError.value = String(unknownError);
+      shortcutError.value = errorMessage(unknownError);
       return false;
     }
   }
@@ -110,7 +111,7 @@ export function useShortcutRecorder() {
       await ipasteApi.setAppShortcutEnabled(true);
     } catch (unknownError) {
       shouldRestoreAppShortcutAfterRecording = true;
-      shortcutError.value = String(unknownError);
+      shortcutError.value = errorMessage(unknownError);
     }
   }
 
@@ -166,7 +167,7 @@ export function useShortcutRecorder() {
       shortcutDraft.value = store.shortcut;
       shortcutMessage.value = t("settings.shortcuts.saved");
     } catch (unknownError) {
-      shortcutError.value = String(unknownError);
+      shortcutError.value = errorMessage(unknownError);
     } finally {
       isSavingShortcut.value = false;
     }
