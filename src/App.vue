@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, Download, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, Upload, X, Zap } from "lucide-vue-next";
+import { AlertCircle, ChevronRight, ClipboardCopy, CornerDownLeft, Download, FolderInput, Inbox, Info, Pencil, Play, Plus, Trash2, Upload, Zap } from "lucide-vue-next";
 import CategoryRail from "./components/CategoryRail.vue";
 import ClipCard from "./components/ClipCard.vue";
 import AutomationCard from "./components/AutomationCard.vue";
@@ -11,15 +11,16 @@ import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import { serializeAutomations, parseImportFile } from "./stores/lib/automationTransfer";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import LanSyncPanel from "./components/LanSyncPanel.vue";
+import QuickPreviewPanel from "./components/QuickPreviewPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import TopBar from "./components/TopBar.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
 import { useUpdater } from "./composables/useUpdater";
 import { useAppEvents } from "./composables/useAppEvents";
+import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
-import { clipImageSrc } from "./lib/clipMedia";
 import { isTauri } from "./lib/env";
-import { categoryDisplayName, clipMetricText, formatShortcut, formatTime, typeLabel } from "./lib/format";
+import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
@@ -50,12 +51,6 @@ const submenuOffsetTop = ref(0);
 const editingCategoryId = ref<string | null>(null);
 const categoryRailElement = ref<InstanceType<typeof CategoryRail> | null>(null);
 const clipListElement = ref<HTMLElement | null>(null);
-const hoveredPreviewItemKey = ref<string | null>(null);
-const lockedPreviewItemKey = ref<string | null>(null);
-const isQuickPreviewPinned = ref(false);
-const isQuickPreviewKeyDown = ref(false);
-const isQuickPreviewActive = ref(false);
-const quickPreviewSelectedText = ref("");
 const pendingDeleteContextKey = ref<string | null>(null);
 const pendingDeleteByKey = ref<string | null>(null);
 const editingClipKey = ref<string | null>(null);
@@ -83,10 +78,25 @@ let moveSubmenuCloseTimer: number | null = null;
 let clipListScrollTimer: number | null = null;
 let selectionScrollFrame: number | null = null;
 let searchReloadTimer: number | null = null;
-let quickPreviewOpenTimer: number | null = null;
 let lastUpdateCheckAt = 0;
 let suppressNextItemSelect = false;
-let suppressQuickPreviewUntilModifierUp = false;
+
+const quickPreview = useQuickPreview({
+  visibleItems: () => store.visibleItems,
+  isMenuOpen: () => Boolean(contextMenu.value),
+  isEditing: () => editingClipKey.value !== null,
+  isMacOs,
+});
+const {
+  quickPreviewItem,
+  clearQuickPreviewHover,
+  hoverPreviewItem,
+  clearHoveredPreviewItem,
+  handleSelectionChange,
+  handleQuickPreviewKeyup: handleKeyup,
+  clearQuickPreviewTimer,
+  isEditableTarget,
+} = quickPreview;
 
 const categoryById = computed(() =>
   store.categories.reduce<Record<string, Category>>((categories, category) => {
@@ -117,37 +127,6 @@ const isSideLayout = computed(() => store.panelLayout === "side");
 const canReorderVisibleItems = computed(() =>
   store.selectedCategoryId !== "history" && !store.search.trim() && store.visibleItems.length > 1,
 );
-const quickPreviewItem = computed(() => {
-  if (!isQuickPreviewActive.value || contextMenu.value || editingClipKey.value) return null;
-
-  const itemKey = lockedPreviewItemKey.value ?? hoveredPreviewItemKey.value;
-  if (!itemKey) return null;
-  return store.visibleItems.find((item) => contextItemKey(item) === itemKey) ?? null;
-});
-const isQuickPreviewLocked = computed(() => isQuickPreviewPinned.value);
-const quickPreviewTitle = computed(() => {
-  const item = quickPreviewItem.value;
-  if (!item) return "";
-  return item.displayName?.trim() || "";
-});
-const quickPreviewAriaLabel = computed(() => {
-  const item = quickPreviewItem.value;
-  if (!item) return "";
-  return item.displayName?.trim() || t("clip.clipboardTitle", { type: typeLabel(item.clipType) });
-});
-const quickPreviewContent = computed(() => quickPreviewItem.value?.text || quickPreviewItem.value?.previewText || "");
-const quickPreviewImageSrc = computed(() => quickPreviewItem.value ? clipImageSrc(quickPreviewItem.value) : "");
-const quickPreviewTime = computed(() => {
-  const item = quickPreviewItem.value;
-  if (!item) return "";
-  return item.collection === "history" ? item.lastCapturedAt : item.createdAt;
-});
-const quickPreviewSize = computed(() => {
-  const item = quickPreviewItem.value;
-  if (!item) return "";
-  return clipMetricText(item.clipType, item.text, item.previewText);
-});
-const quickPreviewColorValue = computed(() => quickPreviewContent.value.trim());
 
 onMounted(async () => {
   if (isClipViewerWindow) return;
@@ -531,115 +510,6 @@ function selectClipCard(index: number) {
   store.setSelectedIndex(index);
 }
 
-function hoverPreviewItem(item: ClipViewItem) {
-  if (isQuickPreviewActive.value) return;
-
-  hoveredPreviewItemKey.value = contextItemKey(item);
-  if (isQuickPreviewKeyDown.value && !suppressQuickPreviewUntilModifierUp) {
-    scheduleQuickPreview();
-  }
-}
-
-function clearHoveredPreviewItem(item: ClipViewItem) {
-  if (isQuickPreviewKeyDown.value) return;
-
-  if (hoveredPreviewItemKey.value === contextItemKey(item)) {
-    hoveredPreviewItemKey.value = null;
-  }
-  stopQuickPreview();
-}
-
-function clearQuickPreviewHover() {
-  if (isQuickPreviewActive.value) return;
-
-  hoveredPreviewItemKey.value = null;
-  stopQuickPreview();
-}
-
-function scheduleQuickPreview() {
-  if (!hoveredPreviewItemKey.value || contextMenu.value || isEditableTarget(document.activeElement)) return;
-
-  clearQuickPreviewTimer();
-  const previewItemKey = hoveredPreviewItemKey.value;
-  quickPreviewOpenTimer = window.setTimeout(() => {
-    quickPreviewOpenTimer = null;
-    if (isQuickPreviewKeyDown.value && hoveredPreviewItemKey.value && !suppressQuickPreviewUntilModifierUp) {
-      lockedPreviewItemKey.value = previewItemKey;
-      isQuickPreviewActive.value = true;
-    }
-  }, 140);
-}
-
-function stopQuickPreview(options: { force?: boolean } = {}) {
-  clearQuickPreviewTimer();
-  if (isQuickPreviewPinned.value && !options.force) return;
-
-  lockedPreviewItemKey.value = null;
-  isQuickPreviewPinned.value = false;
-  isQuickPreviewActive.value = false;
-}
-
-function lockQuickPreview() {
-  const item = quickPreviewItem.value;
-  if (!item) return;
-  lockedPreviewItemKey.value = contextItemKey(item);
-  isQuickPreviewPinned.value = true;
-  isQuickPreviewActive.value = true;
-}
-
-function closeQuickPreview() {
-  lockedPreviewItemKey.value = null;
-  isQuickPreviewPinned.value = false;
-  isQuickPreviewKeyDown.value = false;
-  suppressQuickPreviewUntilModifierUp = false;
-  quickPreviewSelectedText.value = "";
-  window.getSelection()?.removeAllRanges();
-  stopQuickPreview({ force: true });
-}
-
-async function copyQuickPreviewItem() {
-  const item = quickPreviewItem.value;
-  if (!item) return;
-  await store.copyItem(item);
-}
-
-async function pasteQuickPreviewSelection() {
-  const item = quickPreviewItem.value;
-  const selectedText = quickPreviewSelectedText.value.trim();
-  if (!item || !selectedText) return;
-
-  await ipasteApi.applyClip(originalClipId(item), item.clipType, selectedText);
-  closeQuickPreview();
-}
-
-function handleSelectionChange() {
-  if (!quickPreviewItem.value) {
-    quickPreviewSelectedText.value = "";
-    return;
-  }
-
-  const selection = window.getSelection();
-  const text = selection?.toString() ?? "";
-  const anchorNode = selection?.anchorNode;
-  const focusNode = selection?.focusNode;
-  const previewElement = clipListElement.value?.parentElement?.querySelector(".quick-preview-overlay");
-  const selectionInPreview = Boolean(
-    previewElement
-      && anchorNode
-      && focusNode
-      && previewElement.contains(anchorNode)
-      && previewElement.contains(focusNode),
-  );
-
-  quickPreviewSelectedText.value = selectionInPreview ? text : "";
-}
-
-function clearQuickPreviewTimer() {
-  if (quickPreviewOpenTimer === null) return;
-  window.clearTimeout(quickPreviewOpenTimer);
-  quickPreviewOpenTimer = null;
-}
-
 async function deleteContextItem() {
   const item = contextMenu.value?.item;
   if (!item) return;
@@ -723,26 +593,7 @@ function handleKeydown(event: KeyboardEvent) {
     pendingDeleteByKey.value = null;
   }
 
-  if (quickPreviewItem.value) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeQuickPreview();
-    }
-    if (event.key === "Enter" && quickPreviewSelectedText.value.trim()) {
-      event.preventDefault();
-      void pasteQuickPreviewSelection();
-    }
-    return;
-  }
-
-  if (isQuickPreviewModifierKey(event)) {
-    isQuickPreviewKeyDown.value = true;
-    suppressQuickPreviewUntilModifierUp = false;
-    scheduleQuickPreview();
-  } else if (hasQuickPreviewModifier(event)) {
-    suppressQuickPreviewUntilModifierUp = true;
-    stopQuickPreview();
-  }
+  if (quickPreview.handleQuickPreviewKeydown(event)) return;
 
   if (handleCategoryShortcut(event)) return;
 
@@ -785,22 +636,6 @@ function handleKeydown(event: KeyboardEvent) {
     event.preventDefault();
     focusSearch();
   }
-}
-
-function handleKeyup(event: KeyboardEvent) {
-  if (!isQuickPreviewModifierKey(event)) return;
-
-  isQuickPreviewKeyDown.value = false;
-  suppressQuickPreviewUntilModifierUp = false;
-  stopQuickPreview();
-}
-
-function isQuickPreviewModifierKey(event: KeyboardEvent) {
-  return isMacOs ? event.key === "Meta" || event.key === "Command" : event.key === "Control";
-}
-
-function hasQuickPreviewModifier(event: KeyboardEvent) {
-  return isMacOs ? event.metaKey : event.ctrlKey;
 }
 
 function handlePanelKey(key: string) {
@@ -1022,11 +857,6 @@ function handleCategoryShortcut(event: KeyboardEvent) {
   return true;
 }
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
-}
-
 function focusSearch() {
   const input = document.querySelector<HTMLInputElement>(".search-box input");
   input?.focus();
@@ -1064,10 +894,7 @@ function closeFloatingLayers() {
   contextMenu.value = null;
   pendingDeleteContextKey.value = null;
   pendingDeleteByKey.value = null;
-  hoveredPreviewItemKey.value = null;
-  isQuickPreviewKeyDown.value = false;
-  suppressQuickPreviewUntilModifierUp = false;
-  stopQuickPreview({ force: true });
+  quickPreview.resetQuickPreviewState();
   closeMoveSubmenu();
   categoryRailElement.value?.closeFloatingLayers();
 }
@@ -1455,90 +1282,23 @@ function scrollSelectedClipIntoView() {
             </div>
           </div>
 
-          <div
-            v-if="quickPreviewItem"
-            class="quick-preview-overlay"
-            :class="{ 'quick-preview-overlay-locked': isQuickPreviewLocked }"
-            role="dialog"
-            :aria-label="quickPreviewAriaLabel"
-            @pointerdown.stop="lockQuickPreview"
-            @click.stop="lockQuickPreview"
-            @contextmenu.stop
-          >
-            <div class="quick-preview-meta">
-              <span class="quick-preview-type">{{ typeLabel(quickPreviewItem.clipType) }}</span>
-              <span
-                v-if="quickPreviewTitle"
-                class="quick-preview-title"
-              >{{ quickPreviewTitle }}</span>
-              <span class="quick-preview-spacer" />
-              <span>{{ formatTime(quickPreviewTime) }}</span>
-              <span v-if="quickPreviewSize">{{ quickPreviewSize }}</span>
-              <button
-                type="button"
-                class="quick-preview-action-button"
-                :disabled="!quickPreviewSelectedText.trim()"
-                tabindex="-1"
-                :aria-label="t('common.paste')"
-                :data-tooltip="t('common.paste')"
-                @pointerdown.stop
-                @click.stop="pasteQuickPreviewSelection"
-              >
-                <CornerDownLeft class="size-3.5" />
-                <span>{{ t("common.paste") }}</span>
-              </button>
-              <button
-                type="button"
-                class="quick-preview-icon-button"
-                tabindex="-1"
-                :aria-label="t('common.copy')"
-                :data-tooltip="t('common.copy')"
-                @pointerdown.stop
-                @click.stop="copyQuickPreviewItem"
-              >
-                <ClipboardCopy class="size-3.5" />
-              </button>
-              <button
-                type="button"
-                class="quick-preview-icon-button"
-                tabindex="-1"
-                :aria-label="t('common.close')"
-                :data-tooltip="t('common.close')"
-                @pointerdown.stop
-                @click.stop="closeQuickPreview"
-              >
-                <X class="size-3.5" />
-              </button>
-            </div>
-
-            <div
-              v-if="quickPreviewItem.clipType === 'image'"
-              class="quick-preview-image"
-            >
-              <img
-                :src="quickPreviewImageSrc"
-                :alt="t('common.imagePreviewAlt')"
-              >
-            </div>
-
-            <div
-              v-else-if="quickPreviewItem.clipType === 'color'"
-              class="quick-preview-color"
-            >
-              <span
-                class="quick-preview-color-swatch"
-                :style="{ backgroundColor: quickPreviewColorValue }"
-              />
-              <code>{{ quickPreviewContent }}</code>
-            </div>
-
-            <div
-              v-else
-              class="quick-preview-text"
-            >
-              {{ quickPreviewContent }}
-            </div>
-          </div>
+          <QuickPreviewPanel
+            v-if="quickPreview.quickPreviewItem.value"
+            :item="quickPreview.quickPreviewItem.value"
+            :title="quickPreview.quickPreviewTitle.value"
+            :label="quickPreview.quickPreviewAriaLabel.value"
+            :time="quickPreview.quickPreviewTime.value"
+            :size="quickPreview.quickPreviewSize.value"
+            :content="quickPreview.quickPreviewContent.value"
+            :image-src="quickPreview.quickPreviewImageSrc.value"
+            :color-value="quickPreview.quickPreviewColorValue.value"
+            :locked="quickPreview.isQuickPreviewLocked.value"
+            :selected-text="quickPreview.quickPreviewSelectedText.value"
+            @lock="quickPreview.lockQuickPreview"
+            @copy="quickPreview.copyQuickPreviewItem"
+            @paste="quickPreview.pasteQuickPreviewSelection"
+            @close="quickPreview.closeQuickPreview"
+          />
         </section>
       </section>
     </section>
