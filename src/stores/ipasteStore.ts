@@ -753,7 +753,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const { automationId, status, exitCode, finishedAt } = event.payload;
       const action = automations.value.find((entry) => entry.id === automationId);
       if (action?.lastRun) {
-        action.lastRun = { ...action.lastRun, status, exitCode, finishedAt };
+        action.lastRun = { ...action.lastRun, status, exitCode: exitCode ?? null, finishedAt };
       }
       if (action?.closePanelOnSuccess && status === "success") {
         closePanelRequested.value = true;

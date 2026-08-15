@@ -20,6 +20,7 @@ function mockCategoryItems(n: number): CategoryItem[] {
     clipSnapshotId: `snap-${i}`,
     clipType: "text" as const,
     contentHash: `hash-${i}`,
+    displayName: null,
     previewText: `item ${i}`,
     text: `item ${i}`,
     sortOrder: 0,

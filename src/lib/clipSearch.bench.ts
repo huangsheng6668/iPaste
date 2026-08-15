@@ -7,6 +7,8 @@ function mockClips(n: number): ClipItem[] {
     id: `clip-${i}`,
     clipType: "text" as const,
     contentHash: `hash-${i}`,
+    displayName: null,
+    sourceApp: null,
     previewText: `item ${i} hello world`,
     text: `item ${i} hello world`,
     lastCapturedAt: new Date().toISOString(),

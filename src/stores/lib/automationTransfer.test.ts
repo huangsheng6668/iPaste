@@ -7,7 +7,7 @@ function action(name: string, command: string, cwd?: string): AutomationAction {
     id: name,
     name,
     command,
-    cwd,
+    cwd: cwd ?? null,
     runMode: "background",
     confirmBeforeRun: false,
     closePanelOnSuccess: false,
