@@ -6,6 +6,7 @@ import { ipasteApi } from "../lib/ipasteApi";
 import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
+import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrInstallProgress, OcrInstallStatus, OcrMode } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
@@ -153,7 +154,7 @@ export function useOcrInstaller() {
   onMounted(async () => {
     await loadOcrStatus();
     if (isTauri) {
-      unlistenOcrProgress = await listen<OcrInstallProgress>("ipaste://ocr-install-progress", (event) => {
+      unlistenOcrProgress = await listen<OcrInstallProgress>(IPASTE_EVENTS.ocrInstallProgress, (event) => {
         ocrProgress.value = event.payload;
       });
     }

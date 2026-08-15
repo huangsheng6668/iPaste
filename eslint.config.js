@@ -21,4 +21,21 @@ export default [
       "vue/no-v-html": "off",
     },
   },
+  {
+    files: ["src/**/*.{ts,vue}"],
+    ignores: ["src/types/generated/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Literal[value=/ipaste:\\/\\//]",
+          message: "禁止手写 ipaste:// 事件名：从 types/generated/events 导入 IPASTE_EVENTS。",
+        },
+        {
+          selector: "VLiteral[value=/ipaste:\\/\\//]",
+          message: "禁止在模板中手写 ipaste:// 事件名：从 types/generated/events 导入 IPASTE_EVENTS。",
+        },
+      ],
+    },
+  },
 ];

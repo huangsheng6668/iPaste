@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
 import { appErrorCode, appErrorParams, errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
+import { IPASTE_EVENTS } from "../types/generated/events";
 import type { LanCategoryReceivedEvent, LanCategorySentEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
@@ -138,14 +139,14 @@ export function useLanSync() {
     await refresh();
     if (!isTauri) return;
     const handlers: Array<[string, (v: { payload: unknown }) => void]> = [
-      ["ipaste://lan-pair-request", (e) => {
+      [IPASTE_EVENTS.lanPairRequest, (e) => {
         pendingPeerName.value = (e.payload as { deviceName?: string })?.deviceName ?? "";
         notice.value = "pair-request";
       }],
       // 连接成功清掉旧错误（期间可能有「已有进行中的会话」等守门报错残留）。
-      ["ipaste://lan-session-ready", () => { error.value = null; refresh(); }],
-      ["ipaste://lan-disconnected", () => { notice.value = "disconnected"; refresh(); }],
-      ["ipaste://lan-clip-received", () => {
+      [IPASTE_EVENTS.lanSessionReady, () => { error.value = null; refresh(); }],
+      [IPASTE_EVENTS.lanDisconnected, () => { notice.value = "disconnected"; refresh(); }],
+      [IPASTE_EVENTS.lanClipReceived, () => {
         notice.value = "clip-received";
         // 3s 后自动清掉"已接收"提示，避免常驻。
         setTimeout(() => { if (notice.value === "clip-received") notice.value = null; }, 3000);
@@ -154,7 +155,7 @@ export function useLanSync() {
         void store.load();
       }],
       // 整组接收完成：一次汇总提示 + 一次刷新（批量中后端不逐条 emit）。
-      ["ipaste://lan-category-received", (e) => {
+      [IPASTE_EVENTS.lanCategoryReceived, (e) => {
         lastCategoryReceived.value = e.payload as LanCategoryReceivedEvent;
         notice.value = "category-received";
         setTimeout(() => {
@@ -164,13 +165,13 @@ export function useLanSync() {
         void store.load();
       }],
       // 接收对端条目落库/解析失败：把原因显示出来，避免「已接收但没入库」无从排查。
-      ["ipaste://lan-clip-receive-failed", (e) => {
+      [IPASTE_EVENTS.lanClipReceiveFailed, (e) => {
         const reason = String((e.payload as { reason?: string })?.reason ?? "receive failed");
         error.value = reason;
         notice.value = null;
       }],
-      ["ipaste://lan-join-failed", (v) => { error.value = String((v.payload as { reason?: string })?.reason ?? "join failed"); refresh(); }],
-      ["ipaste://lan-guest-rejected", (v) => {
+      [IPASTE_EVENTS.lanJoinFailed, (v) => { error.value = String((v.payload as { reason?: string })?.reason ?? "join failed"); refresh(); }],
+      [IPASTE_EVENTS.lanGuestRejected, (v) => {
         const p = v.payload as { guestDeviceName?: string; hostStatus?: string } | undefined;
         rejectedGuest.value = {
           deviceName: p?.guestDeviceName ?? "",

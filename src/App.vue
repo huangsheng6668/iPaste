@@ -20,6 +20,7 @@ import { clipImageSrc } from "./lib/clipMedia";
 import { categoryDisplayName, clipMetricText, formatShortcut, formatTime, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
+import { IPASTE_EVENTS } from "./types/generated/events";
 import type { AutomationAction, AutomationInput, Category, CategoryItem, ClipViewItem } from "./types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
@@ -77,7 +78,6 @@ let itemDragState: {
 } | null = null;
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
-let unlistenPanelKey: UnlistenFn | null = null;
 let moveSubmenuCloseTimer: number | null = null;
 let clipListScrollTimer: number | null = null;
 let selectionScrollFrame: number | null = null;
@@ -166,12 +166,9 @@ onMounted(async () => {
     scheduleSilentUpdateCheck();
   }
   if (isTauri) {
-    unlistenShortcutOpened = await listen("ipaste://shortcut-opened", closeFloatingLayers);
-    unlistenPanelKey = await listen<{ key: PanelKey }>("ipaste://panel-key", (event) => {
-      handlePanelKey(event.payload.key);
-    });
+    unlistenShortcutOpened = await listen(IPASTE_EVENTS.shortcutOpened, closeFloatingLayers);
     unlistenPanelVisibilityChanged = await listen<{ visible: boolean; preservesCurrentApp: boolean; nativePanel?: boolean }>(
-      "ipaste://panel-visibility-changed",
+      IPASTE_EVENTS.panelVisibilityChanged,
       (event) => {
         applyPanelVisibility(event.payload);
       },
@@ -196,10 +193,8 @@ onUnmounted(() => {
   clearQuickPreviewTimer();
   cleanupItemDrag();
   unlistenShortcutOpened?.();
-  unlistenPanelKey?.();
   unlistenPanelVisibilityChanged?.();
   unlistenShortcutOpened = null;
-  unlistenPanelKey = null;
   unlistenPanelVisibilityChanged = null;
   document.body.classList.remove("ipaste-preserve-current-app");
 });
@@ -806,8 +801,6 @@ function isQuickPreviewModifierKey(event: KeyboardEvent) {
 function hasQuickPreviewModifier(event: KeyboardEvent) {
   return isMacOs ? event.metaKey : event.ctrlKey;
 }
-
-type PanelKey = "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "Enter" | "Escape";
 
 function handlePanelKey(key: string) {
   if (store.selectedCategoryId === "actions") {

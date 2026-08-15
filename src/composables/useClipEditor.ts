@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { clipMetricText, textStats } from "../lib/format";
 import { errorMessage } from "../lib/appError";
+import { IPASTE_EVENTS } from "../types/generated/events";
 import type { ClipUpdatedEvent, ClipViewItem, ClipViewerPayload } from "../types";
 import type { useImageOcr } from "./useImageOcr";
 
@@ -54,7 +55,7 @@ export function useClipEditor(item: ComputedRef<ClipViewItem | undefined>, optio
       localStorage.setItem(clipViewerStorageKey(options.payload.value.label), JSON.stringify(options.payload.value));
       draftText.value = next.text;
       if (isTauri) {
-        await emit<ClipUpdatedEvent>("ipaste://clip-updated", {
+        await emit<ClipUpdatedEvent>(IPASTE_EVENTS.clipUpdated, {
           collection: item.value.collection,
           item: next,
           mergedFromId: next.id === item.value.id ? undefined : item.value.id,
