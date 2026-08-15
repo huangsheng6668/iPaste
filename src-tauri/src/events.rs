@@ -41,6 +41,8 @@ pub(crate) const EVENT_LAN_CATEGORY_RECEIVED: &str = "ipaste://lan-category-rece
 pub(crate) const EVENT_LAN_JOIN_FAILED: &str = "ipaste://lan-join-failed";
 
 // —— 前端发起（useClipEditor 放大窗口 → 主窗口；Rust 不 emit）——
+/// 由前端发起（useClipEditor），Rust 不 emit——加 allow 消除非测试构建的 dead_code 警告。
+#[allow(dead_code)]
 pub(crate) const EVENT_CLIP_UPDATED: &str = "ipaste://clip-updated";
 
 // —— 事件 payload（自 models.rs / lan_sync/mod.rs 移入；derive 随行）——
@@ -194,6 +196,9 @@ mod export_tests {
             ("lanJoinFailed", EVENT_LAN_JOIN_FAILED),
             ("clipUpdated", EVENT_CLIP_UPDATED),
         ];
+        // 完整性守护：新增事件常量时必须同步登记到此表，否则 events.ts 会静默缺项
+        // （CI 新鲜度检查无法发现「从未生成」的缺失）。
+        assert_eq!(events.len(), 21, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
         let mut out = String::from(
             "// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.\n\
              // Run `npm run gen:types` to regenerate.\n\
