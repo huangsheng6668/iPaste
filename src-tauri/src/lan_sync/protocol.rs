@@ -4,8 +4,9 @@ use sha2::{Digest, Sha256};
 pub(crate) const LAN_TCP_BASE_PORT: u16 = 45130;
 pub(crate) const LAN_MAX_PAYLOAD: usize = 8 * 1024 * 1024;
 pub(crate) const LAN_PROTOCOL_VERSION: u32 = 4;
-/// guest 等待 host 下发 PairChallenge 的超时（秒）。超时提示「对方版本过旧」
-/// （v3 host 只等不答，永远不发挑战）。测试下缩短，避免集成测试空等。
+/// guest 等待 host 下发 PairChallenge 的超时（秒）。超时提示「对方版本可能过旧」
+/// （v3 host 只等不答，永远不发挑战）；对端关闭连接则报连接错误，不误报版本。
+/// 测试下缩短，避免集成测试空等。
 pub(crate) const CHALLENGE_WAIT_TIMEOUT_SECS: u64 = if cfg!(test) { 2 } else { 10 };
 /// 单次分组批量传输最多接纳的条目数（用于接收端预排 sort_order 的上界）。
 pub(crate) const LAN_BATCH_MAX_ITEMS: u32 = 10_000;

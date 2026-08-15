@@ -25,13 +25,13 @@ pub(crate) fn temp_store() -> Store {
     store
 }
 
+/// 临时目录名的唯一后缀。用进程内原子计数器而非纳秒时间戳：并行测试可能
+/// 在同一纳秒调用 `temp_store()`（Windows 计时粒度下更常见），撞名后两个
+/// 测试共享同一 `test.db`，触发 SQLite "database is locked" 的偶发失败。
 pub(crate) fn uuid_like() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{nanos}")
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed).to_string()
 }
 
 pub(crate) fn seed_clip(conn: &rusqlite::Connection, clip_type: &str, preview: &str, text: &str) {

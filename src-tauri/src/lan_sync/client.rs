@@ -29,34 +29,60 @@ async fn handshake(
     };
 
     let mut conn = Connection::new(stream);
-    // v4：先等 host 的挑战。等不到 = 对方是 v3 老版本（只等不答）或不可达。
-    let (host_device_name, host_public) = match tokio::time::timeout(
+    // v4：先等 host 的挑战。按真实原因分流报错——此前所有非挑战结果一律
+    // 误报「对方版本过旧」，导致「B 断开后 A 重连被 RST」也提示升级版本。
+    // - 对端关闭/重置连接：host 恰好断开或退出，报连接错误；
+    // - 超时：v3 老 host 只等不答（真正的版本过旧）或网络不通；
+    // - 挑战版本不符：确定的版本过旧。
+    let (host_device_name, host_pubkey) = match tokio::time::timeout(
         Duration::from_secs(CHALLENGE_WAIT_TIMEOUT_SECS),
         conn.read_message(),
     )
     .await
     {
-        Ok(Ok((LanMessage::PairChallenge { version, host_device_name, host_pubkey }, _)))
-            if version == LAN_PROTOCOL_VERSION =>
-        {
-            match base64::engine::general_purpose::STANDARD
-                .decode(&host_pubkey.unwrap_or_default())
-                .map_err(|_| ())
-                .and_then(|v| <[u8; 32]>::try_from(v).map_err(|_| ()))
-            {
-                Ok(bytes) => (host_device_name, PublicKey::from(bytes)),
-                Err(_) => {
-                    manager.emit_join_failed("握手响应异常".to_string());
-                    manager.reset_to_idle("握手异常".to_string());
-                    return;
-                }
-            }
-        }
-        _ => {
-            if cfg!(test) { eprintln!("[client] challenge wait timed out or malformed"); }
-            manager.emit_join_failed("对方版本过旧，请升级 iPaste 后重试".to_string());
-            manager.reset_to_idle("版本不兼容".to_string());
+        // 连接被对端关闭/重置（EOF / RST / 畸形帧）：不是版本问题。
+        Ok(Err(reason)) => {
+            if cfg!(test) { eprintln!("[client] challenge read failed: {reason}"); }
+            manager.emit_join_failed(format!("对方已断开或无法建立连接：{reason}"));
+            manager.reset_to_idle("连接已断开".to_string());
             return;
+        }
+        // 超时：v3 老 host 只等不答，也可能是对端网络不可达。
+        Err(_elapsed) => {
+            if cfg!(test) { eprintln!("[client] challenge wait timed out"); }
+            manager.emit_join_failed("等待对方响应超时：对方版本可能过旧，请确认双方均为最新版 iPaste".to_string());
+            manager.reset_to_idle("等待挑战超时".to_string());
+            return;
+        }
+        Ok(Ok((LanMessage::PairChallenge { version, host_device_name, host_pubkey }, _))) => {
+            if version != LAN_PROTOCOL_VERSION {
+                if cfg!(test) { eprintln!("[client] challenge version {version} != {LAN_PROTOCOL_VERSION}"); }
+                manager.emit_join_failed("对方版本过旧，请升级 iPaste 后重试".to_string());
+                manager.reset_to_idle("版本不兼容".to_string());
+                return;
+            }
+            (host_device_name, host_pubkey)
+        }
+        // 挑战阶段不应出现的帧。
+        Ok(Ok((other, _))) => {
+            if cfg!(test) { eprintln!("[client] unexpected frame during challenge wait: {other:?}"); }
+            manager.emit_join_failed("握手响应异常".to_string());
+            manager.reset_to_idle("握手异常".to_string());
+            return;
+        }
+    };
+    let (host_device_name, host_public) = {
+        match base64::engine::general_purpose::STANDARD
+            .decode(&host_pubkey.unwrap_or_default())
+            .map_err(|_| ())
+            .and_then(|v| <[u8; 32]>::try_from(v).map_err(|_| ()))
+        {
+            Ok(bytes) => (host_device_name, PublicKey::from(bytes)),
+            Err(_) => {
+                manager.emit_join_failed("握手响应异常".to_string());
+                manager.reset_to_idle("握手异常".to_string());
+                return;
+            }
         }
     };
 
@@ -137,7 +163,12 @@ pub(crate) async fn join_by_address(
     let channel_id = crate::lan_sync::next_control_channel_id();
     if cfg!(test) { eprintln!("[client] creating control channel #{channel_id}"); }
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
-    manager.set_joining(code.clone(), control_tx, control_rx, channel_id);
+    // 原子守门失败 = 已有 join/会话进行中（并发 join 微竞态）：静默退出，
+    // 不 emit、不 reset，避免覆写正在进行中的会话状态。
+    if !manager.try_set_joining(code.clone(), control_tx, control_rx, channel_id) {
+        if cfg!(test) { eprintln!("[client] concurrent join rejected by gate"); }
+        return;
+    }
 
     let stream = match tokio::time::timeout(
         Duration::from_secs(5),

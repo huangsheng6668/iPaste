@@ -41,6 +41,37 @@ struct NoopEventSink;
 impl LanEventSink for NoopEventSink {
     fn emit(&self, _event: &str, _payload: &serde_json::Value) {}
 }
+
+/// 测试事件出口：把 (event, payload) 记入共享 Vec，供集成测试断言 emit 内容
+/// （如 join-failed 的具体提示文案——「对方版本过旧」曾被误报，需要按文案回归）。
+pub(crate) struct CapturingEventSink {
+    pub(crate) events: Mutex<Vec<(String, serde_json::Value)>>,
+}
+
+impl LanEventSink for CapturingEventSink {
+    fn emit(&self, event: &str, payload: &serde_json::Value) {
+        self.events.lock().expect("capture sink poisoned").push((event.to_string(), payload.clone()));
+    }
+}
+
+impl CapturingEventSink {
+    /// 取所有 `lan-join-failed` 事件的 reason 文案。
+    pub(crate) fn join_failed_reasons(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .expect("capture sink poisoned")
+            .iter()
+            .filter(|(event, _)| event == "ipaste://lan-join-failed")
+            .map(|(_, payload)| {
+                payload
+                    .get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect()
+    }
+}
 use crate::lan_sync::protocol::*;
 use crate::models::*;
 
@@ -178,6 +209,9 @@ struct LanInner {
     /// Host 的 accept 任务句柄；Task 6 的 disconnect 命令负责 abort 它以释放端口。
     /// `Option` 让 `#[derive(Default)]` 继续成立。
     host_tasks: Option<tokio::task::JoinHandle<()>>,
+    /// Guest 的 join 任务句柄；`reset_to_idle` 时 abort——消灭「用户已断开、
+    /// 残留握手任务继续跑完再弹 join 失败」的迟到错误事件。
+    join_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// 诊断用：为每个新建的控制通道分配递增编号（临时调试）。
@@ -214,6 +248,19 @@ impl LanSessionManager {
             inner: Mutex::new(LanInner::default()),
             pair_guard: PairGuard::new(),
         }
+    }
+
+    /// 测试专用构造：事件写入共享捕获器，供断言 emit 的提示文案。
+    pub(crate) fn new_capturing_for_test() -> (Arc<Self>, Arc<CapturingEventSink>) {
+        let sink = Arc::new(CapturingEventSink { events: Mutex::new(Vec::new()) });
+        (
+            Arc::new(Self {
+                sink: sink.clone(),
+                inner: Mutex::new(LanInner::default()),
+                pair_guard: PairGuard::new(),
+            }),
+            sink,
+        )
     }
 
     /// 统一的事件出口（测试时为空操作）。
@@ -273,15 +320,21 @@ impl LanSessionManager {
         Some(rx)
     }
 
-    pub(crate) fn set_joining(
+    /// 原子加入门：仅 Idle 态允许进入 join 流程。单次 lock 内完成「Idle 检查 +
+    /// 置 WaitingPair(guest) + 登记控制通道」，杜绝并发 join（双击/并发命令）
+    /// 互相覆写控制通道的竞态。非 Idle 返回 false，调用方应静默退出。
+    pub(crate) fn try_set_joining(
         &self,
         code: String,
         control_tx: mpsc::Sender<ControlMsg>,
         control_rx: mpsc::Receiver<ControlMsg>,
         channel_id: u64,
-    ) {
-        if cfg!(test) { eprintln!("[mgr] set_joining storing control channel #{channel_id}"); }
+    ) -> bool {
+        if cfg!(test) { eprintln!("[mgr] try_set_joining storing control channel #{channel_id}"); }
         let mut inner = self.inner.lock().expect("lan inner poisoned");
+        if !matches!(inner.status, LanStatus::Idle) {
+            return false;
+        }
         inner.role = Some(LanRole::Guest);
         inner.status = LanStatus::WaitingPair;
         inner.code = Some(code);
@@ -289,6 +342,7 @@ impl LanSessionManager {
         inner.control_rx = Some(control_rx);
         inner.control_channel_id = Some(channel_id);
         inner.pair_decision_tx = None;
+        true
     }
 
     pub(crate) fn set_connected(&self, peer_device_name: String) {
@@ -343,6 +397,20 @@ impl LanSessionManager {
         }
     }
 
+    /// 登记 guest 的 join 任务句柄（`lan_join_by_address` spawn 后调用），
+    /// 供 `reset_to_idle` / 断开时 abort。前任句柄仍存活时不顶替——那只会
+    /// 出现在并发 join 的微竞态里（`try_set_joining` 已挡掉绝大多数），
+    /// 前任才是真正持有会话状态的任务。
+    pub(crate) fn set_join_task(&self, join: tokio::task::JoinHandle<()>) {
+        let mut inner = self.inner.lock().expect("lan inner poisoned");
+        if let Some(prev) = &inner.join_task {
+            if !prev.is_finished() {
+                return;
+            }
+        }
+        inner.join_task = Some(join);
+    }
+
     /// Task 6 的 create_session 守门：已有进行中的会话时拒绝新建。
     /// WaitingPair 也算进行中（host 正在询问用户 / guest 正在等回应）。
     pub(crate) fn status_is_connected_or_hosting(&self) -> bool {
@@ -383,6 +451,18 @@ impl LanSessionManager {
             // second time.)
             if let Some(accept) = inner.host_tasks.take() {
                 accept.abort();
+            }
+            // Abort in-flight guest join task. Self-abort is safe: every join-task
+            // code path that calls reset_to_idle returns immediately afterwards
+            // without another .await (join failure arms `return`; session end
+            // breaks out of the loop and only calls the non-async
+            // `read_task.abort()`), so the cancellation flag never fires on the
+            // task itself. External callers (lan_disconnect) get the task
+            // cancelled at its next await point — killing the zombie handshake
+            // that used to emit a spurious lan-join-failed AFTER the user
+            // already disconnected.
+            if let Some(join) = inner.join_task.take() {
+                join.abort();
             }
         }
         self.emit("ipaste://lan-disconnected", LanDisconnected { reason });

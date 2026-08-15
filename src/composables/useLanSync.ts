@@ -134,6 +134,9 @@ export function useLanSync() {
   }
 
   async function disconnect() {
+    // 主动断开时清掉旧错误（如上一次 join 失败的提示），避免陈旧错误
+    // 挂在面板上被误认为是本次断开引出的新问题。
+    error.value = null;
     try { await ipasteApi.lanDisconnect(); } catch (e) { error.value = String(e); }
   }
 
@@ -145,7 +148,8 @@ export function useLanSync() {
         pendingPeerName.value = (e.payload as { deviceName?: string })?.deviceName ?? "";
         notice.value = "pair-request";
       }],
-      ["ipaste://lan-session-ready", () => refresh()],
+      // 连接成功清掉旧错误（期间可能有「已有进行中的会话」等守门报错残留）。
+      ["ipaste://lan-session-ready", () => { error.value = null; refresh(); }],
       ["ipaste://lan-disconnected", () => { notice.value = "disconnected"; refresh(); }],
       ["ipaste://lan-clip-received", () => {
         notice.value = "clip-received";

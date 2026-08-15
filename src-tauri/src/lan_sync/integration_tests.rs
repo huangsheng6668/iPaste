@@ -1219,3 +1219,195 @@ async fn malformed_pubkey_frame_does_not_stop_hosting() {
         .expect("host must drop the malformed-pubkey peer promptly");
     assert!(attacked.is_err(), "attacker must be dropped, not left hanging or replied to");
 }
+
+/// 回归（用户报告）：对端 accept 后立即关闭连接（模拟 host 断开/退出时的 EOF/RST）。
+/// guest 不得误报「对方版本过旧」——修复前所有非挑战结果一律报成版本过旧，
+/// 实际双方版本相同。应报连接类原因并回到 Idle。
+#[tokio::test(flavor = "multi_thread")]
+async fn peer_close_during_challenge_wait_reports_connection_error_not_version() {
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let closing = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        drop(stream); // accept 后立刻关闭 → guest 的挑战读取得到 EOF
+    });
+
+    let (guest_manager, sink) = LanSessionManager::new_capturing_for_test();
+    let store = temp_store();
+    join_by_address(
+        guest_manager.clone(),
+        store,
+        format!("127.0.0.1:{port}"),
+        "TESTCD".to_string(),
+    )
+    .await;
+
+    assert_eq!(guest_manager.snapshot().status, LanStatus::Idle);
+    let reasons = sink.join_failed_reasons();
+    assert_eq!(reasons.len(), 1, "应恰好 emit 一次 join-failed：{reasons:?}");
+    assert!(
+        !reasons[0].contains("版本过旧"),
+        "对端关闭连接不得误报版本过旧：{}",
+        reasons[0]
+    );
+    assert!(reasons[0].contains("连接"), "应提示连接类原因：{}", reasons[0]);
+    closing.abort();
+}
+
+/// host 静默（v3 只等不答）触发真超时：提示应指向「版本过旧」并说明是超时。
+#[tokio::test(flavor = "multi_thread")]
+async fn challenge_timeout_message_mentions_version_and_timeout() {
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let silent = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    });
+
+    let (guest_manager, sink) = LanSessionManager::new_capturing_for_test();
+    let store = temp_store();
+    join_by_address(
+        guest_manager.clone(),
+        store,
+        format!("127.0.0.1:{port}"),
+        "TESTCD".to_string(),
+    )
+    .await;
+
+    assert_eq!(guest_manager.snapshot().status, LanStatus::Idle);
+    let reasons = sink.join_failed_reasons();
+    assert_eq!(reasons.len(), 1, "应恰好 emit 一次 join-failed：{reasons:?}");
+    assert!(reasons[0].contains("版本"), "超时仍应提示可能版本过旧：{}", reasons[0]);
+    assert!(reasons[0].contains("超时"), "应说明是等待超时：{}", reasons[0]);
+    silent.abort();
+}
+
+/// 挑战帧版本不符（对端真跑老协议）：确定报「对方版本过旧」。
+#[tokio::test(flavor = "multi_thread")]
+async fn old_version_challenge_reports_version_too_old() {
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let old_host = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut conn = Connection::new(stream);
+        conn.write_message(
+            &LanMessage::PairChallenge {
+                version: 3,
+                host_device_name: "old-host".into(),
+                host_pubkey: Some("QUJD".into()),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        // 保持连接打开，让 guest 走「版本不符」分支而非「连接断开」
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    });
+
+    let (guest_manager, sink) = LanSessionManager::new_capturing_for_test();
+    let store = temp_store();
+    join_by_address(
+        guest_manager.clone(),
+        store,
+        format!("127.0.0.1:{port}"),
+        "TESTCD".to_string(),
+    )
+    .await;
+
+    assert_eq!(guest_manager.snapshot().status, LanStatus::Idle);
+    let reasons = sink.join_failed_reasons();
+    assert_eq!(reasons.len(), 1, "应恰好 emit 一次 join-failed：{reasons:?}");
+    assert!(reasons[0].contains("版本过旧"), "版本不符应明确报版本过旧：{}", reasons[0]);
+    old_host.abort();
+}
+
+/// reset_to_idle 必须中止已登记的 join 任务（lan_disconnect 的 WaitingPair 分支
+/// 走此路径）：用户断开后，残留握手任务不得再跑完并覆写状态。
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_to_idle_aborts_registered_join_task() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    use crate::lan_sync::LanSessionManager;
+
+    let manager = LanSessionManager::new_for_test();
+    let finished = Arc::new(AtomicBool::new(false));
+    let flag = finished.clone();
+    let zombie = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        flag.store(true, Ordering::SeqCst);
+    });
+    manager.set_join_task(zombie);
+    manager.reset_to_idle("test".to_string());
+    // 若未被 abort，任务 500ms 后置位标志；被 abort 则永远不会。
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    assert!(
+        !finished.load(Ordering::SeqCst),
+        "登记的 join 任务应被 abort，不得继续运行"
+    );
+}
+
+/// 端到端时序回归（用户报告的「A 断开后才弹错」）：join 等待挑战期间用户断开
+/// （reset_to_idle）——残留 join 任务应被 abort，之后不得再 emit lan-join-failed。
+#[tokio::test(flavor = "multi_thread")]
+async fn disconnect_during_join_aborts_task_without_late_failure_event() {
+    use crate::lan_sync::client::join_by_address;
+    use crate::lan_sync::{LanSessionManager, LanStatus};
+    use crate::store::test_support::temp_store;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let silent = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    });
+
+    let (manager, sink) = LanSessionManager::new_capturing_for_test();
+    let store = temp_store();
+    let join = tokio::spawn(join_by_address(
+        manager.clone(),
+        store,
+        format!("127.0.0.1:{port}"),
+        "TESTCD".to_string(),
+    ));
+    manager.set_join_task(join);
+    // 等 join 任务进入 WaitingPair（try_set_joining 已生效），再等连接建立进入挑战等待
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "join 任务应及时进入 WaitingPair，实际 {:?}",
+            manager.snapshot().status
+        );
+        if matches!(manager.snapshot().status, LanStatus::WaitingPair) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // 模拟 lan_disconnect 的 WaitingPair 分支：abort join 任务 + reset
+    manager.reset_to_idle("已断开".to_string());
+
+    // 超过测试期挑战超时（2s）后：没有迟到的 join-failed（若任务未被 abort，
+    // 它会在 ~2.4s 时 emit join-failed，下面的断言即失败）
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert!(
+        sink.join_failed_reasons().is_empty(),
+        "断开后不得再 emit join-failed，实际：{:?}",
+        sink.join_failed_reasons()
+    );
+    silent.abort();
+}

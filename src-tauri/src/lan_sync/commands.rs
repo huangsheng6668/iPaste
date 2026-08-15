@@ -59,7 +59,21 @@ pub(crate) async fn lan_join_by_address(
     code: String,
 ) -> Result<(), String> {
     let manager = app.lan_manager();
-    join_by_address(Arc::clone(&manager), state.store.clone(), address, code).await;
+    // 与 lan_create_session 同款守门：已有进行中的会话（含 WaitingPair）则拒绝，
+    // 防止并发 join 互相覆写控制通道。
+    if manager.status_is_connected_or_hosting() {
+        return Err("已有进行中的会话".to_string());
+    }
+    // 握手与会话循环放后台任务执行（不随命令返回而结束）；句柄存入 manager，
+    // 断开/reset 时 abort——消灭「用户已断开、残留握手任务继续跑完再弹
+    // join 失败」的迟到错误事件。
+    let join = tokio::spawn(join_by_address(
+        Arc::clone(&manager),
+        state.store.clone(),
+        address,
+        code,
+    ));
+    manager.set_join_task(join);
     Ok(())
 }
 
@@ -206,7 +220,8 @@ pub(crate) async fn lan_disconnect(app: AppHandle) -> Result<(), String> {
         LanStatus::Hosting | LanStatus::WaitingPair => {
             // Host 侧：abort accept 任务以释放端口，再 reset。
             // Guest 侧的 WaitingPair：abort_host_tasks 是 no-op（host_tasks=None）；
-            // 此时可能有一个 in-flight 握手任务会后续覆写状态——已知 MVP 限制。
+            // reset_to_idle 会 abort 在途的 join 任务（manager.join_task），
+            // 残留握手任务不会再覆写状态或弹迟到的 join-failed。
             manager.abort_host_tasks();
             manager.reset_to_idle("已断开".to_string());
         }
