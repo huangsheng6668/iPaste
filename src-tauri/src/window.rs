@@ -598,51 +598,98 @@ fn configure_main_window_activation(
 ) {
 }
 
+/// 辅助窗口（设置/放大/LAN）的创建与显示配置。
+/// 三个窗口原各有一份逐行同构的「取显示器→get-or-create→定位→show→再定位→focus」，
+/// 现收敛为一份泛化实现。
+struct AuxiliaryWindowConfig {
+    label: String,
+    url: String,
+    title: String,
+    geometry: WindowGeometry,
+    decorations: bool,
+    always_on_top: bool,
+    near_main_window: bool,
+}
+
+fn show_auxiliary_window(
+    app: &tauri::AppHandle,
+    config: AuxiliaryWindowConfig,
+) -> Result<(), String> {
+    let main_monitor = app
+        .get_webview_window(MAIN_WINDOW)
+        .and_then(|window| window.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let window = if let Some(window) = app.get_webview_window(&config.label) {
+        window
+    } else {
+        let mut builder = WebviewWindowBuilder::new(
+            app,
+            &config.label,
+            WebviewUrl::App(config.url.as_str().into()),
+        )
+        .title(&config.title)
+        .inner_size(config.geometry.width, config.geometry.height)
+        .min_inner_size(config.geometry.min_width, config.geometry.min_height)
+        .resizable(true)
+        .visible(false);
+        if !config.decorations {
+            builder = builder.decorations(false);
+        }
+        if config.always_on_top {
+            builder = builder.always_on_top(true);
+        }
+        builder.build().map_err(|error| error.to_string())?
+    };
+
+    position_auxiliary_window(app, &window, &main_monitor, &config)?;
+    window.show().map_err(|error| error.to_string())?;
+    position_auxiliary_window(app, &window, &main_monitor, &config)?;
+    if config.always_on_top {
+        window
+            .set_always_on_top(true)
+            .map_err(|error| error.to_string())?;
+    }
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn position_auxiliary_window(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    main_monitor: &Option<tauri::Monitor>,
+    config: &AuxiliaryWindowConfig,
+) -> Result<(), String> {
+    if config.near_main_window {
+        position_clip_viewer_window(app, window)?;
+        return Ok(());
+    }
+    if let Some(monitor) = main_monitor {
+        position_window_centered_on_monitor(window, monitor, config.geometry)?;
+    } else {
+        window.center().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 pub(crate) fn show_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     let language = app
         .try_state::<AppState>()
         .and_then(|state| state.store.settings().ok())
         .map(|settings| settings.language)
         .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
-    let main_monitor = app
-        .get_webview_window(MAIN_WINDOW)
-        .and_then(|window| window.current_monitor().ok().flatten())
-        .or_else(|| app.primary_monitor().ok().flatten());
     let _ = hide_main_window(app);
-    let window = if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
-        window
-    } else {
-        WebviewWindowBuilder::new(
-            app,
-            SETTINGS_WINDOW,
-            WebviewUrl::App("index.html?window=settings".into()),
-        )
-        .title(localized_text(&language, "settings_title"))
-        .inner_size(
-            SETTINGS_WINDOW_GEOMETRY.width,
-            SETTINGS_WINDOW_GEOMETRY.height,
-        )
-        .min_inner_size(
-            SETTINGS_WINDOW_GEOMETRY.min_width,
-            SETTINGS_WINDOW_GEOMETRY.min_height,
-        )
-        .resizable(true)
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())?
-    };
-
-    if let Some(monitor) = &main_monitor {
-        position_window_centered_on_monitor(&window, &monitor, SETTINGS_WINDOW_GEOMETRY)?;
-    } else {
-        window.center().map_err(|error| error.to_string())?;
-    }
-    window.show().map_err(|error| error.to_string())?;
-    if let Some(monitor) = &main_monitor {
-        position_window_centered_on_monitor(&window, &monitor, SETTINGS_WINDOW_GEOMETRY)?;
-    }
-    window.set_focus().map_err(|error| error.to_string())?;
-    Ok(())
+    show_auxiliary_window(
+        app,
+        AuxiliaryWindowConfig {
+            label: SETTINGS_WINDOW.to_string(),
+            url: "index.html?window=settings".to_string(),
+            title: localized_text(&language, "settings_title").to_string(),
+            geometry: SETTINGS_WINDOW_GEOMETRY,
+            decorations: true,
+            always_on_top: false,
+            near_main_window: false,
+        },
+    )
 }
 
 pub(crate) fn show_clip_viewer_window(
@@ -654,80 +701,37 @@ pub(crate) fn show_clip_viewer_window(
         return Err("无效的放大窗口标签".to_string());
     }
 
-    let url = format!("index.html?window=clip-viewer&label={}", percent_encode_component(&label));
-    let window = if let Some(window) = app.get_webview_window(&label) {
-        window
-    } else {
-        WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
-            .title(title)
-            .inner_size(
-                CLIP_VIEWER_WINDOW_GEOMETRY.width,
-                CLIP_VIEWER_WINDOW_GEOMETRY.height,
-            )
-            .min_inner_size(
-                CLIP_VIEWER_WINDOW_GEOMETRY.min_width,
-                CLIP_VIEWER_WINDOW_GEOMETRY.min_height,
-            )
-            .decorations(false)
-            .resizable(true)
-            .always_on_top(true)
-            .visible(false)
-            .build()
-            .map_err(|error| error.to_string())?
-    };
-
-    position_clip_viewer_window(app, &window)?;
-    window
-        .set_always_on_top(true)
-        .map_err(|error| error.to_string())?;
-    window.show().map_err(|error| error.to_string())?;
-    position_clip_viewer_window(app, &window)?;
-    window.set_focus().map_err(|error| error.to_string())?;
-    Ok(())
+    let url = format!(
+        "index.html?window=clip-viewer&label={}",
+        percent_encode_component(&label)
+    );
+    show_auxiliary_window(
+        app,
+        AuxiliaryWindowConfig {
+            label,
+            url,
+            title,
+            geometry: CLIP_VIEWER_WINDOW_GEOMETRY,
+            decorations: false,
+            always_on_top: true,
+            near_main_window: true,
+        },
+    )
 }
 
 pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String> {
-    let main_monitor = app
-        .get_webview_window(MAIN_WINDOW)
-        .and_then(|window| window.current_monitor().ok().flatten())
-        .or_else(|| app.primary_monitor().ok().flatten());
-    let window = if let Some(window) = app.get_webview_window(LAN_SYNC_WINDOW) {
-        window
-    } else {
-        WebviewWindowBuilder::new(
-            app,
-            LAN_SYNC_WINDOW,
-            WebviewUrl::App("index.html?window=lan-sync".into()),
-        )
-        .title("iPaste · Lan Sync")
-        .inner_size(
-            LAN_SYNC_WINDOW_GEOMETRY.width,
-            LAN_SYNC_WINDOW_GEOMETRY.height,
-        )
-        .min_inner_size(
-            LAN_SYNC_WINDOW_GEOMETRY.min_width,
-            LAN_SYNC_WINDOW_GEOMETRY.min_height,
-        )
-        .decorations(false)
-        .resizable(true)
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())?
-    };
-    if let Some(monitor) = &main_monitor {
-        position_window_centered_on_monitor(&window, monitor, LAN_SYNC_WINDOW_GEOMETRY)?;
-    } else {
-        window.center().map_err(|error| error.to_string())?;
-    }
-    window.show().map_err(|error| error.to_string())?;
-    if let Some(monitor) = &main_monitor {
-        position_window_centered_on_monitor(&window, monitor, LAN_SYNC_WINDOW_GEOMETRY)?;
-    }
-    window
-        .set_always_on_top(true)
-        .map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())?;
-    Ok(())
+    show_auxiliary_window(
+        app,
+        AuxiliaryWindowConfig {
+            label: LAN_SYNC_WINDOW.to_string(),
+            url: "index.html?window=lan-sync".to_string(),
+            title: "iPaste · Lan Sync".to_string(),
+            geometry: LAN_SYNC_WINDOW_GEOMETRY,
+            decorations: false,
+            always_on_top: true,
+            near_main_window: false,
+        },
+    )
 }
 
 fn position_window_near_cursor(
