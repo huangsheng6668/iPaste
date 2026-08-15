@@ -5,13 +5,53 @@ use crate::models::*;
 use crate::util::*;
 use super::Store;
 use crate::{
-    cloud::{
-        ensure_all_categories_exist, ensure_all_category_items_exist, ensure_category_exists,
-        ensure_unique_ids,
-    },
+    cloud::{ensure_category_exists, ensure_unique_ids},
     store::rows::{collect_rows, map_category, map_category_item, map_clip},
     util::{clean_color, new_id, now},
 };
+
+pub(crate) fn ensure_all_categories_exist(conn: &Connection, category_ids: &[String]) -> Result<(), String> {
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM categories", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if count as usize != category_ids.len() {
+        return Err("分类顺序需要包含全部分类".to_string());
+    }
+
+    for id in category_ids {
+        ensure_category_exists(conn, id)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_all_category_items_exist(
+    conn: &Connection,
+    category_id: &str,
+    item_ids: &[String],
+) -> Result<(), String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM category_items WHERE category_id = ?1",
+            params![category_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if count as usize != item_ids.len() {
+        return Err("条目顺序需要包含该分类下的全部条目".to_string());
+    }
+
+    for id in item_ids {
+        conn.query_row(
+            "SELECT id FROM category_items WHERE id = ?1 AND category_id = ?2",
+            params![id, category_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "排序列表包含不属于该分类的条目".to_string())?;
+    }
+    Ok(())
+}
 
 impl Store {
     pub(crate) fn list_categories(&self) -> Result<Vec<Category>, String> {

@@ -42,21 +42,18 @@ async fn handshake(
     {
         // 连接被对端关闭/重置（EOF / RST / 畸形帧）：不是版本问题。
         Ok(Err(reason)) => {
-            if cfg!(test) { eprintln!("[client] challenge read failed: {reason}"); }
             manager.emit_join_failed(format!("对方已断开或无法建立连接：{reason}"));
             manager.reset_to_idle("连接已断开".to_string());
             return;
         }
         // 超时：v3 老 host 只等不答，也可能是对端网络不可达。
         Err(_elapsed) => {
-            if cfg!(test) { eprintln!("[client] challenge wait timed out"); }
             manager.emit_join_failed("等待对方响应超时：对方版本可能过旧，请确认双方均为最新版 iPaste".to_string());
             manager.reset_to_idle("等待挑战超时".to_string());
             return;
         }
         Ok(Ok((LanMessage::PairChallenge { version, host_device_name, host_pubkey }, _))) => {
             if version != LAN_PROTOCOL_VERSION {
-                if cfg!(test) { eprintln!("[client] challenge version {version} != {LAN_PROTOCOL_VERSION}"); }
                 manager.emit_join_failed("对方版本过旧，请升级 iPaste 后重试".to_string());
                 manager.reset_to_idle("版本不兼容".to_string());
                 return;
@@ -64,8 +61,7 @@ async fn handshake(
             (host_device_name, host_pubkey)
         }
         // 挑战阶段不应出现的帧。
-        Ok(Ok((other, _))) => {
-            if cfg!(test) { eprintln!("[client] unexpected frame during challenge wait: {other:?}"); }
+        Ok(Ok(..)) => {
             manager.emit_join_failed("握手响应异常".to_string());
             manager.reset_to_idle("握手异常".to_string());
             return;
@@ -110,7 +106,6 @@ async fn handshake(
     let (reply, _payload) = match conn.read_message().await {
         Ok(v) => v,
         Err(e) => {
-            if cfg!(test) { eprintln!("[client] reply read failed: {e}"); }
             manager.emit_join_failed(e);
             manager.reset_to_idle("连接已断开".to_string());
             return;
@@ -160,13 +155,10 @@ pub(crate) async fn join_by_address(
     addr: String,
     code: String,
 ) {
-    let channel_id = crate::lan_sync::next_control_channel_id();
-    if cfg!(test) { eprintln!("[client] creating control channel #{channel_id}"); }
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
     // 原子守门失败 = 已有 join/会话进行中（并发 join 微竞态）：静默退出，
     // 不 emit、不 reset，避免覆写正在进行中的会话状态。
-    if !manager.try_set_joining(code.clone(), control_tx, control_rx, channel_id) {
-        if cfg!(test) { eprintln!("[client] concurrent join rejected by gate"); }
+    if !manager.try_set_joining(code.clone(), control_tx, control_rx) {
         return;
     }
 
@@ -178,12 +170,10 @@ pub(crate) async fn join_by_address(
     {
         Ok(Ok(s)) => s,
         _ => {
-            if cfg!(test) { eprintln!("[client] connect failed/timed out"); }
             manager.emit_join_failed("无法连接到对方".to_string());
             manager.reset_to_idle("连接失败".to_string());
             return;
         }
     };
-    if cfg!(test) { eprintln!("[client] connected, starting handshake"); }
     handshake(stream, &manager, &store, &code).await;
 }

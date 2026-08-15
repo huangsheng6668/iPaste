@@ -47,10 +47,8 @@ pub(crate) async fn start_host_on(
     let listen_addr = local_ip_with_port(tcp_port);
 
     // 2. 注册到 manager（control_rx 也存进去，握手通过后由 handle_guest_with_challenge 取出）
-    let channel_id = crate::lan_sync::next_control_channel_id();
-    if cfg!(test) { eprintln!("[server] creating control channel #{channel_id}"); }
     let (control_tx, control_rx) = mpsc::channel::<ControlMsg>(16);
-    manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx, channel_id);
+    manager.set_hosting(code.clone(), listen_addr.clone(), control_tx, control_rx);
 
     // 3. accept 循环：并发限额 + 握手读取超时 + 按 IP 清理防爆破记录
     let sem = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_HANDSHAKES));
@@ -60,13 +58,10 @@ pub(crate) async fn start_host_on(
         let expected_code = code.clone();
         let sem = sem.clone();
         tokio::spawn(async move {
-            if cfg!(test) { eprintln!("[server] accept loop task started"); }
             #[allow(clippy::never_loop)]
             loop {
-                if cfg!(test) { eprintln!("[server] accept loop iteration"); }
                 let Ok((stream, peer)) = listener.accept().await else { continue };
                 let ip = peer.ip();
-                if cfg!(test) { eprintln!("[server] accepted connection from {ip}"); }
                 // 并发已满：直接丢弃新连接（防资源耗尽）
                 let Ok(permit) = sem.clone().try_acquire_owned() else {
                     drop(stream);
@@ -75,11 +70,8 @@ pub(crate) async fn start_host_on(
                 let manager = manager.clone();
                 let store = store.clone();
                 let expected_code = expected_code.clone();
-                if cfg!(test) { eprintln!("[server] before prune"); }
                 manager.pair_guard().prune(std::time::Instant::now());
-                if cfg!(test) { eprintln!("[server] after prune, spawning handler"); }
                 tokio::spawn(async move {
-                    if cfg!(test) { eprintln!("[server] handler task started"); }
                     let _permit = permit; // 任务结束自动释放额度
                     let mut conn = Connection::new(stream);
                     // v4：host 先发言——生成临时密钥对并立即下发挑战。

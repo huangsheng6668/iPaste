@@ -41,9 +41,7 @@ impl Connection {
     }
 
     pub(crate) async fn read_message(&mut self) -> Result<(LanMessage, Option<Vec<u8>>), String> {
-        if cfg!(test) { eprintln!("[conn] read_message: reading header_len"); }
         let header_len = self.read_u32().await? as usize;
-        if cfg!(test) { eprintln!("[conn] read_message: header_len={header_len}"); }
         if header_len > LAN_MAX_PAYLOAD {
             return Err("帧头超限".to_string());
         }
@@ -82,7 +80,6 @@ impl Connection {
         payload: Option<&[u8]>,
     ) -> Result<(), String> {
         let header = serde_json::to_vec(msg).map_err(|e| e.to_string())?;
-        if cfg!(test) { eprintln!("[conn] write_message: writing header len {}", header.len()); }
         self.stream
             .write_all(&(header.len() as u32).to_le_bytes())
             .await
@@ -91,7 +88,6 @@ impl Connection {
             .write_all(&header)
             .await
             .map_err(|e| e.to_string())?;
-        if cfg!(test) { eprintln!("[conn] write_message: header written"); }
         if let Some(data) = payload {
             self.stream
                 .write_all(&(data.len() as u32).to_le_bytes())
@@ -456,7 +452,6 @@ pub(crate) async fn run_session_loop(
     peer_device_name: String,
     mut control_rx: mpsc::Receiver<ControlMsg>,
 ) {
-    if cfg!(test) { eprintln!("[session {:?}] session loop entered for peer {peer_device_name}", manager.snapshot().role); }
     manager.set_connected(peer_device_name);
 
     // 拆成读/写两半：读半交给独立读任务；写半经 Mutex 在读任务与主循环间共享。

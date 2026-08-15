@@ -1,7 +1,44 @@
+use std::sync::Mutex;
+
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::events::EVENT_LAN_JOIN_FAILED;
 use crate::lan_sync::protocol::*;
 use crate::lan_sync::session::{run_session_loop, Connection};
+use crate::lan_sync::LanEventSink;
+
+/// 测试事件出口：把 (event, payload) 记入共享 Vec，供集成测试断言 emit 内容
+/// （如 join-failed 的具体提示文案——「对方版本过旧」曾被误报，需要按文案回归）。
+/// 与其唯一消费者（本文件）同住：`LanSessionManager::new_capturing_for_test`
+/// 构造它并接入 manager。
+pub(crate) struct CapturingEventSink {
+    pub(crate) events: Mutex<Vec<(String, serde_json::Value)>>,
+}
+
+impl LanEventSink for CapturingEventSink {
+    fn emit(&self, event: &str, payload: &serde_json::Value) {
+        self.events.lock().expect("capture sink poisoned").push((event.to_string(), payload.clone()));
+    }
+}
+
+impl CapturingEventSink {
+    /// 取所有 `lan-join-failed` 事件的 reason 文案。
+    pub(crate) fn join_failed_reasons(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .expect("capture sink poisoned")
+            .iter()
+            .filter(|(event, _)| event == EVENT_LAN_JOIN_FAILED)
+            .map(|(_, payload)| {
+                payload
+                    .get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect()
+    }
+}
 
 #[tokio::test]
 async fn full_handshake_push_request_disconnect_roundtrip() {
@@ -374,7 +411,7 @@ async fn manager_control_channel_roundtrip_in_isolation() {
 
     let mgr = Arc::new(LanSessionManager::new_for_test());
     let (tx, rx) = mpsc::channel::<ControlMsg>(16);
-    mgr.set_hosting("CODE".into(), "127.0.0.1:1".into(), tx, rx, 42);
+    mgr.set_hosting("CODE".into(), "127.0.0.1:1".into(), tx, rx);
 
     let Some(mut rx) = mgr.take_control_rx() else { panic!("rx missing"); };
     let recv_task = tokio::spawn(async move { rx.recv().await });
@@ -650,7 +687,7 @@ async fn two_direct_session_loops_guest_sends_host_receives() {
     let (host_ctx, host_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
     let (guest_ctx, guest_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
     // 模拟全链路：host 的 control channel 经 manager 存取（set_hosting → take_control_rx）
-    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx, 1);
+    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx);
 
     let host_mgr = host_manager.clone();
     let host_store = store.clone();
@@ -1082,7 +1119,7 @@ async fn oversized_category_name_frame_is_rejected_and_session_survives() {
 
     let (host_ctx, host_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
     let (guest_ctx, guest_crx) = tokio::sync::mpsc::channel::<ControlMsg>(16);
-    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx, 1);
+    host_manager.set_hosting("CODE".into(), "127.0.0.1:1".into(), host_ctx, host_crx);
 
     let host_mgr = host_manager.clone();
     let host_store = store.clone();

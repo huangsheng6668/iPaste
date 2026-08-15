@@ -7,7 +7,11 @@ use super::Store;
 use crate::{
     DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_LANGUAGE, DEFAULT_OCR_MODE,
     DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_OPEN_BEHAVIOR, DEFAULT_RETENTION_DAYS, DEFAULT_SHORTCUT,
-    APPEND_COPY_TIMEOUT_OPTIONS, CLIP_PAGE_SIZE, RETENTION_OPTIONS,
+    CLIP_PAGE_SIZE,
+    util::{
+        clean_append_copy_timeout_minutes, clean_panel_layout, clean_panel_open_behavior,
+        clean_retention_days,
+    },
 };
 
 impl Store {
@@ -39,7 +43,7 @@ impl Store {
             .optional()
             .map_err(|error| error.to_string())?
             .and_then(|value| value.parse::<i64>().ok())
-            .filter(|value| RETENTION_OPTIONS.contains(value))
+            .and_then(|value| clean_retention_days(value).ok())
             .unwrap_or(DEFAULT_RETENTION_DAYS);
         let append_copy_timeout_minutes = conn
             .query_row(
@@ -50,15 +54,15 @@ impl Store {
             .optional()
             .map_err(|error| error.to_string())?
             .and_then(|value| value.parse::<i64>().ok())
-            .filter(|value| APPEND_COPY_TIMEOUT_OPTIONS.contains(value))
+            .and_then(|value| clean_append_copy_timeout_minutes(value).ok())
             .unwrap_or(DEFAULT_APPEND_COPY_TIMEOUT_MINUTES);
         let panel_open_behavior = self
             .setting_value_with_conn(conn, "panel_open_behavior")?
-            .filter(|value| value == "history" || value == "last_selected")
+            .and_then(|value| clean_panel_open_behavior(value).ok())
             .unwrap_or_else(|| DEFAULT_PANEL_OPEN_BEHAVIOR.to_string());
         let panel_layout = self
             .setting_value_with_conn(conn, "panel_layout")?
-            .filter(|value| value == "top" || value == "side")
+            .and_then(|value| clean_panel_layout(value).ok())
             .unwrap_or_else(|| DEFAULT_PANEL_LAYOUT.to_string());
         let ocr_mode = self
             .setting_value_with_conn(conn, "ocr_mode")?
