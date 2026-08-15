@@ -51,6 +51,12 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      - name: Generate TS bindings
+        run: cargo test --manifest-path src-tauri/Cargo.toml export_bindings
+
+      - name: Check generated bindings freshness
+        run: git diff --exit-code -- src/types/generated
+
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
