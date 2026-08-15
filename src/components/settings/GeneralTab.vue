@@ -3,12 +3,12 @@ import { computed } from "vue";
 import { AlertCircle, AppWindow, CheckCircle2, ClipboardPlus, Database, History, LoaderCircle, Power, SlidersHorizontal, Sparkles, Tags, Trash2 } from "lucide-vue-next";
 import LanguageSelect from "../LanguageSelect.vue";
 import { languageOptions, t } from "../../i18n";
+import { isTauri } from "../../lib/env";
 import { useIpasteStore } from "../../stores/ipasteStore";
 import { useClearHistory } from "../../composables/useClearHistory";
 import { useAutostart } from "../../composables/useAutostart";
 import type { Language, PanelLayout, PanelOpenBehavior } from "../../types";
 
-const isTauri = "__TAURI_INTERNALS__" in window;
 const store = useIpasteStore();
 const {
   isClearingHistory,

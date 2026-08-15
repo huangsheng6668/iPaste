@@ -4,7 +4,9 @@ import { computed, ref } from "vue";
 import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
-import { errorMessage } from "../lib/appError";
+import { errorMessage, isCommandMissing } from "../lib/appError";
+import { contextItemKey, originalClipId } from "../lib/clipKeys";
+import { isTauri } from "../lib/env";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import { filterAutomations } from "./lib/automationFilter";
 import {
@@ -13,6 +15,7 @@ import {
   orderCategoriesByIds,
   orderCategoryItemsByIds,
 } from "./lib/ordering";
+import { clampIndex, indexForKey, moveIndex } from "./lib/selection";
 import {
   DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
   DEFAULT_LANGUAGE,
@@ -22,7 +25,6 @@ import {
   cleanAppendCopyTimeoutMinutes,
   cleanOcrMode,
   cleanPanelLayout,
-  isSettingsCommandMissing,
 } from "./lib/settings";
 import type {
   AppSettings,
@@ -50,7 +52,6 @@ import type {
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const CLIP_PAGE_SIZE = 20;
-const isTauri = "__TAURI_INTERNALS__" in window;
 
 export const useIpasteStore = defineStore("ipaste", () => {
   const clips = ref<ClipItem[]>([]);
@@ -382,17 +383,17 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (itemIds.length !== targetItems.length) return;
 
     const previous = categoryItems.value;
-    const selectedItemId = selectedItem.value?.collection === "category" ? selectedItem.value.id : null;
+    const selectedItemKey = selectedItem.value?.collection === "category" ? contextItemKey(selectedItem.value) : null;
     categoryItems.value = orderCategoryItemsByIds(previous, categoryId, itemIds);
-    restoreCategorySelection(selectedItemId);
+    restoreCategorySelection(selectedItemKey);
 
     try {
       categoryItems.value = await ipasteApi.reorderCategoryItems(categoryId, itemIds);
-      restoreCategorySelection(selectedItemId);
+      restoreCategorySelection(selectedItemKey);
       syncCloudInBackground();
     } catch (unknownError) {
       categoryItems.value = previous;
-      restoreCategorySelection(selectedItemId);
+      restoreCategorySelection(selectedItemKey);
       error.value = errorMessage(unknownError);
       throw unknownError;
     }
@@ -469,7 +470,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateAppendCopyTimeout(nextMinutes);
       applySettings(settings);
     } catch (unknownError) {
-      if (isSettingsCommandMissing(unknownError, "update_append_copy_timeout")) return;
+      if (isCommandMissing(unknownError, "update_append_copy_timeout")) return;
       error.value = errorMessage(unknownError);
       throw unknownError;
     }
@@ -493,7 +494,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updatePanelLayout(nextLayout);
       applySettings(settings);
     } catch (unknownError) {
-      if (isSettingsCommandMissing(unknownError, "update_panel_layout")) return;
+      if (isCommandMissing(unknownError, "update_panel_layout")) return;
       error.value = errorMessage(unknownError);
       throw unknownError;
     }
@@ -507,7 +508,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateOcrMode(nextMode);
       applySettings(settings);
     } catch (unknownError) {
-      if (isSettingsCommandMissing(unknownError, "update_ocr_mode")) return;
+      if (isCommandMissing(unknownError, "update_ocr_mode")) return;
       error.value = errorMessage(unknownError);
       throw unknownError;
     }
@@ -522,7 +523,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const settings = await ipasteApi.updateLanguage(nextLanguage);
       applySettings(settings);
     } catch (unknownError) {
-      if (isSettingsCommandMissing(unknownError, "update_language")) return;
+      if (isCommandMissing(unknownError, "update_language")) return;
       error.value = errorMessage(unknownError);
       throw unknownError;
     }
@@ -633,9 +634,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   function moveSelection(delta: number) {
-    if (!visibleItems.value.length) return;
-    const next = selectedIndex.value + delta;
-    selectedIndex.value = Math.min(Math.max(next, 0), visibleItems.value.length - 1);
+    selectedIndex.value = moveIndex(selectedIndex.value, delta, visibleItems.value.length);
   }
 
   function setSelectedIndex(index: number) {
@@ -643,12 +642,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   function clampSelection() {
-    if (!visibleItems.value.length) {
-      selectedIndex.value = 0;
-      return;
-    }
-
-    selectedIndex.value = Math.min(selectedIndex.value, visibleItems.value.length - 1);
+    selectedIndex.value = clampIndex(selectedIndex.value, visibleItems.value.length);
   }
 
   function upsertClip(clip: ClipItem, totalCount?: number, wasInserted = false) {
@@ -696,17 +690,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
     );
   }
 
-  function originalClipId(item: ClipViewItem) {
-    return item.collection === "history" ? item.id : item.clipSnapshotId;
-  }
-
-  function restoreCategorySelection(itemId: string | null) {
-    if (!itemId) {
-      clampSelection();
-      return;
-    }
-
-    const index = visibleItems.value.findIndex((item) => item.collection === "category" && item.id === itemId);
+  function restoreCategorySelection(itemKey: string | null) {
+    const index = itemKey ? indexForKey(visibleItems.value, contextItemKey, itemKey) : -1;
     if (index >= 0) {
       selectedIndex.value = index;
       return;

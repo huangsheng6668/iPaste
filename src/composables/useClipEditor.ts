@@ -4,11 +4,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { clipMetricText, textStats } from "../lib/format";
 import { errorMessage } from "../lib/appError";
+import { isTauri } from "../lib/env";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { ClipUpdatedEvent, ClipViewItem, ClipViewerPayload } from "../types";
 import type { useImageOcr } from "./useImageOcr";
-
-const isTauri = "__TAURI_INTERNALS__" in window;
 
 type SelectionAction = {
   left: number;

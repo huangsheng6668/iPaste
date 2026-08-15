@@ -17,6 +17,7 @@ import UpdateDialog from "./components/UpdateDialog.vue";
 import { useUpdater } from "./composables/useUpdater";
 import { t } from "./i18n";
 import { clipImageSrc } from "./lib/clipMedia";
+import { isTauri } from "./lib/env";
 import { categoryDisplayName, clipMetricText, formatShortcut, formatTime, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
@@ -63,7 +64,6 @@ const draggingItemKey = ref<string | null>(null);
 const itemDropTargetKey = ref<string | null>(null);
 const itemDropSide = ref<"before" | "after" | null>(null);
 const itemDragOffset = ref({ x: 0, y: 0 });
-const isTauri = "__TAURI_INTERNALS__" in window;
 let itemDragState: {
   key: string;
   id: string;

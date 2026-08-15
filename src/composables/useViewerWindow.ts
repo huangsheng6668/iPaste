@@ -2,8 +2,7 @@ import { onMounted, onUnmounted, ref, type ComputedRef, type Ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
-
-const isTauri = "__TAURI_INTERNALS__" in window;
+import { isTauri } from "../lib/env";
 
 type WindowOptions = {
   error: Ref<string | null>;

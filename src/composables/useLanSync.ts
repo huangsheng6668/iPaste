@@ -2,11 +2,10 @@ import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ipasteApi } from "../lib/ipasteApi";
 import { appErrorCode, appErrorParams, errorMessage } from "../lib/appError";
+import { isTauri } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { LanCategoryReceivedEvent, LanCategorySentEvent, LanClipSource, LanSessionInfo, PortConflict } from "../types";
-
-const isTauri = "__TAURI_INTERNALS__" in window;
 
 export function useLanSync() {
   const info = reactive<LanSessionInfo>({

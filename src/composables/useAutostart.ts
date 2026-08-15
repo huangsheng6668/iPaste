@@ -1,8 +1,7 @@
 import { onMounted, ref } from "vue";
 import { ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
-
-const isTauri = "__TAURI_INTERNALS__" in window;
+import { isTauri } from "../lib/env";
 
 export function useAutostart() {
   const autostartEnabled = ref(false);

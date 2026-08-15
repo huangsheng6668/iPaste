@@ -6,7 +6,6 @@ import {
   cleanAppendCopyTimeoutMinutes,
   cleanPanelLayout,
   cleanOcrMode,
-  isSettingsCommandMissing,
 } from "./settings";
 
 describe("cleanAppendCopyTimeoutMinutes", () => {
@@ -44,23 +43,5 @@ describe("cleanOcrMode", () => {
     expect(cleanOcrMode("fast")).toBe(DEFAULT_OCR_MODE);
     expect(cleanOcrMode("ultra")).toBe(DEFAULT_OCR_MODE);
     expect(cleanOcrMode(undefined)).toBe(DEFAULT_OCR_MODE);
-  });
-});
-
-describe("isSettingsCommandMissing", () => {
-  it("returns true when the message contains both the command and 'not found'", () => {
-    expect(isSettingsCommandMissing("update_language command not found", "update_language")).toBe(true);
-  });
-
-  it("returns false when the command is missing", () => {
-    expect(isSettingsCommandMissing("some other command not found", "update_language")).toBe(false);
-  });
-
-  it("returns false when 'not found' is missing", () => {
-    expect(isSettingsCommandMissing("update_language failed with status 500", "update_language")).toBe(false);
-  });
-
-  it("stringifies non-string errors", () => {
-    expect(isSettingsCommandMissing(new Error("update_language not found"), "update_language")).toBe(true);
   });
 });

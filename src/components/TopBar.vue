@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClipboardPlus, Download, Search, Settings, Wifi, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import { isTauri } from "../lib/env";
 
 const logoUrl = new URL("../../src-tauri/icons/32x32.png", import.meta.url).href;
 
@@ -25,7 +26,6 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const isTauri = "__TAURI_INTERNALS__" in window;
 let dragReleaseTimer: number | null = null;
 
 async function startWindowDrag(event: MouseEvent) {

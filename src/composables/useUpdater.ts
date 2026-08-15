@@ -3,6 +3,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 import { relaunch } from "@tauri-apps/plugin-process";
 import { t } from "../i18n";
 import { errorMessage } from "../lib/appError";
+import { isTauri } from "../lib/env";
 
 export type UpdateStatus = "idle" | "checking" | "noUpdate" | "available" | "downloading" | "ready" | "error";
 export type UpdateErrorPhase = "check" | "install" | "relaunch";
@@ -12,7 +13,6 @@ type CheckForUpdateOptions = {
   openDialog?: boolean;
 };
 
-const isTauri = "__TAURI_INTERNALS__" in window;
 const UPDATE_CHECK_TIMEOUT_MS = 8_000;
 
 export function useUpdater() {

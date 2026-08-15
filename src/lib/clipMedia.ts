@@ -1,7 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { isTauri } from "./env";
 import type { ClipViewItem } from "../types";
-
-const isTauri = "__TAURI_INTERNALS__" in window;
 
 export function clipImageSrc(item: ClipViewItem) {
   if (item.clipType !== "image") return "";

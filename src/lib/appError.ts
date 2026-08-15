@@ -22,3 +22,9 @@ export function errorMessage(value: unknown): string {
   if (typeof value === "string") return value;
   return String(value);
 }
+
+/** Tauri「命令不存在」错误判定（老版本二进制无新命令时用于降级回退）。 */
+export function isCommandMissing(error: unknown, command: string): boolean {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes(command.toLowerCase()) && (message.includes("command") || message.includes("not found"));
+}

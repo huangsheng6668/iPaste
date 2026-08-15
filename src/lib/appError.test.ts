@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appErrorCode, appErrorParams, errorMessage, isAppError } from "./appError";
+import { appErrorCode, appErrorParams, errorMessage, isAppError, isCommandMissing } from "./appError";
 
 describe("isAppError", () => {
   it("accepts the serialized AppError shape", () => {
@@ -43,5 +43,23 @@ describe("errorMessage", () => {
   it("stringifies anything else", () => {
     expect(errorMessage(undefined)).toBe("undefined");
     expect(errorMessage(42)).toBe("42");
+  });
+});
+
+describe("isCommandMissing", () => {
+  it("returns true when the message contains both the command and 'not found'", () => {
+    expect(isCommandMissing("update_language command not found", "update_language")).toBe(true);
+  });
+
+  it("returns false when the command is missing", () => {
+    expect(isCommandMissing("some other command not found", "update_language")).toBe(false);
+  });
+
+  it("returns false when 'not found' is missing", () => {
+    expect(isCommandMissing("update_language failed with status 500", "update_language")).toBe(false);
+  });
+
+  it("stringifies non-string errors", () => {
+    expect(isCommandMissing(new Error("update_language not found"), "update_language")).toBe(true);
   });
 });

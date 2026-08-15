@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import appPackage from "../../package.json";
-import { errorMessage } from "./appError";
+import { isCommandMissing } from "./appError";
 import type {
   AppInfo,
   AppSettings,
@@ -27,8 +27,8 @@ import type {
   SearchResult,
 } from "../types";
 import { clipMatchesSearch } from "./clipSearch";
+import { isTauri } from "./env";
 
-const isTauri = "__TAURI_INTERNALS__" in window;
 let mockAutomations: AutomationAction[] = [];
 const fallbackAppInfo: AppInfo = {
   version: appPackage.version,
@@ -281,7 +281,7 @@ export const ipasteApi = {
     try {
       return await invoke<CategoryWithItem>("create_category_with_clip", { name, color, clipId });
     } catch (unknownError) {
-      if (!isMissingCommandError(unknownError, "create_category_with_clip")) throw unknownError;
+      if (!isCommandMissing(unknownError, "create_category_with_clip")) throw unknownError;
 
       const category = await invoke<Category>("create_category", { name, color });
       const item = await invoke<CategoryItem>("add_clip_to_category", { clipId, categoryId: category.id });
@@ -595,11 +595,6 @@ export const ipasteApi = {
     return invoke<AutomationRunDetail>("get_automation_run", { runId });
   },
 };
-
-function isMissingCommandError(error: unknown, command: string) {
-  const message = errorMessage(error).toLowerCase();
-  return message.includes(command.toLowerCase()) && message.includes("command");
-}
 
 export function clipViewerStorageKey(label: string) {
   return `ipaste.clipViewer.${label}`;

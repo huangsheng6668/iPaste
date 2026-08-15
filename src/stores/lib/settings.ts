@@ -1,4 +1,3 @@
-import { errorMessage } from "../../lib/appError";
 import type { Language, OcrMode, PanelLayout } from "../../types";
 
 export const DEFAULT_RETENTION_DAYS = 30;
@@ -21,9 +20,4 @@ export function cleanPanelLayout(layout: unknown): PanelLayout {
 
 export function cleanOcrMode(mode: unknown): OcrMode {
   return mode === "best" ? "best" : DEFAULT_OCR_MODE;
-}
-
-export function isSettingsCommandMissing(err: unknown, command: string): boolean {
-  const message = errorMessage(err);
-  return message.includes(command) && message.includes("not found");
 }
