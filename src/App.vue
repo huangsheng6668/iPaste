@@ -10,6 +10,7 @@ import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
+import ErrorToast from "./components/ErrorToast.vue";
 import LanSyncPanel from "./components/LanSyncPanel.vue";
 import QuickPreviewPanel from "./components/QuickPreviewPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
@@ -686,6 +687,8 @@ async function focusEditingClipName() {
         </section>
       </section>
     </section>
+
+    <ErrorToast />
 
     <ClipContextMenu
       v-if="contextMenu"
