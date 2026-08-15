@@ -34,3 +34,6 @@ key/*.key
 .reasonix/
 .zcode/
 .codegraph/
+
+# Isolated development worktrees
+/.worktrees/
