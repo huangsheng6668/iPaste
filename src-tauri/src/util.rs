@@ -8,6 +8,7 @@ use std::io::Read;
 use chrono::{SecondsFormat, Utc};
 use sha2::{Digest, Sha256};
 use tauri_plugin_global_shortcut::Shortcut;
+use uuid::Uuid;
 
 use crate::{
     APPEND_COPY_TIMEOUT_OPTIONS, DISABLE_APPEND_COPY_LABEL, ENABLE_APPEND_COPY_LABEL,
@@ -289,6 +290,29 @@ pub(crate) fn file_sha256(path: &PathBuf) -> Result<String, String> {
 
 pub(crate) fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+pub(crate) fn clean_color(color: String) -> String {
+    let color = color.trim();
+    if color.starts_with('#')
+        && (color.len() == 7 || color.len() == 4)
+        && color[1..].chars().all(|char| char.is_ascii_hexdigit())
+    {
+        color.to_string()
+    } else {
+        "#0D9488".to_string()
+    }
+}
+
+pub(crate) fn safe_filename(value: &str) -> String {
+    value
+        .chars()
+        .filter(|char| char.is_ascii_alphanumeric() || matches!(char, '-' | '_'))
+        .collect::<String>()
+}
+
+pub(crate) fn new_id() -> String {
+    Uuid::new_v4().to_string()
 }
 
 #[cfg(test)]

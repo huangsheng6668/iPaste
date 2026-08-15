@@ -8,7 +8,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::*;
 use crate::util::*;
 use super::Store;
-use crate::{collect_rows, image_bytes_from_data_url, map_clip, new_id, now, safe_filename, IMAGE_DIR};
+use crate::{
+    clipboard::image_bytes_from_data_url, store::rows::{collect_rows, map_clip},
+    util::{new_id, now, safe_filename}, IMAGE_DIR,
+};
 
 impl Store {
     pub(crate) fn insert_captured_item(

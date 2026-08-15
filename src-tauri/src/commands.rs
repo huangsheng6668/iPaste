@@ -18,7 +18,7 @@ use crate::shortcut::*;
 use crate::tray::*;
 use crate::util::*;
 use crate::window::*;
-use crate::{test_cloud_connection, CLIP_PAGE_SIZE};
+use crate::{cloud::test_cloud_connection, CLIP_PAGE_SIZE};
 #[tauri::command]
 pub(crate) fn get_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
     state.store.prune_expired()?;

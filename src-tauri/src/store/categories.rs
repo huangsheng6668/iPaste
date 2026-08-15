@@ -5,9 +5,12 @@ use crate::models::*;
 use crate::util::*;
 use super::Store;
 use crate::{
-    clean_color, collect_rows, ensure_all_categories_exist, ensure_all_category_items_exist,
-    ensure_category_exists, ensure_unique_ids, map_category, map_category_item, map_clip, new_id,
-    now,
+    cloud::{
+        ensure_all_categories_exist, ensure_all_category_items_exist, ensure_category_exists,
+        ensure_unique_ids,
+    },
+    store::rows::{collect_rows, map_category, map_category_item, map_clip},
+    util::{clean_color, new_id, now},
 };
 
 impl Store {
@@ -991,7 +994,7 @@ mod tests {
         conn.execute(
             "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
              VALUES (?1, ?2, 'snap-old', 'text', 'old-hash', NULL, 'old', 'old', 5, '2024-01-01', '2024-01-01', 'local', 0)",
-            rusqlite::params![crate::new_id(), cat_id],
+            rusqlite::params![crate::util::new_id(), cat_id],
         )
         .unwrap();
 
@@ -1146,7 +1149,7 @@ mod tests {
         let conn = store.connect().unwrap();
 
         // 手工插入一条已知 id 的历史 clip。
-        let clip_id = crate::new_id();
+        let clip_id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
         let text = "api-key-123";
         let hash = crate::util::hash_text(text);
@@ -1157,7 +1160,7 @@ mod tests {
         )
         .unwrap();
         let cat_id = create_category(&conn, "api_key", "#3B82F6", 0);
-        let item_id = crate::new_id();
+        let item_id = crate::util::new_id();
         conn.execute(
             "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
              VALUES (?1, ?2, 'orphan-snapshot-id', 'text', ?3, NULL, ?4, ?4, 0, ?5, ?5, 'local', 0)",
@@ -1196,7 +1199,7 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
 
-        let clip_id = crate::new_id();
+        let clip_id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
         let hash = crate::util::hash_text("multi-cat");
         conn.execute(
@@ -1210,8 +1213,8 @@ mod tests {
         let cat_b = create_category(&conn, "newer", "#222222", 1);
         // 两条 category_items 指向同一内容 hash，updated_at 明确一旧一新。
         for (item_id, cat_id, updated) in [
-            (crate::new_id(), &cat_a, "2024-01-01T00:00:00Z"),
-            (crate::new_id(), &cat_b, "2025-01-01T00:00:00Z"),
+            (crate::util::new_id(), &cat_a, "2024-01-01T00:00:00Z"),
+            (crate::util::new_id(), &cat_b, "2025-01-01T00:00:00Z"),
         ] {
             conn.execute(
                 "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)

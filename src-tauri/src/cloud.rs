@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::models::*;
+use crate::models::HealthPayload;
 
 pub(crate) fn ensure_unique_ids(ids: &[String]) -> Result<(), String> {
     let mut seen = HashSet::new();
@@ -139,4 +140,19 @@ pub(crate) fn cloud_status_message(status: StatusCode) -> String {
         }
         _ => format!("云同步请求失败：{}", status.as_u16()),
     }
+}
+
+const CLOUD_SYNC_TYPES: [&str; 4] = ["text", "link", "color", "html"];
+
+pub(crate) fn test_cloud_connection(api_address: &str, api_key: &str) -> Result<(), String> {
+    let payload: HealthPayload = cloud_get(api_address, api_key, "/api/health")?;
+    if payload.service.as_deref() == Some("ipaste-cloud") {
+        Ok(())
+    } else {
+        Err("云同步服务响应不正确".to_string())
+    }
+}
+
+pub(crate) fn is_syncable_clip_type(clip_type: &str) -> bool {
+    CLOUD_SYNC_TYPES.contains(&clip_type)
 }

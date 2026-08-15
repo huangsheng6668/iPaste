@@ -3,7 +3,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{AutomationAction, AutomationInput, AutomationRunDetail, AutomationRunSummary};
 use crate::{
-    map_automation, map_automation_run_detail, map_automation_run_summary, new_id,
+    store::rows::{map_automation, map_automation_run_detail, map_automation_run_summary},
+    util::new_id,
 };
 
 use super::Store;

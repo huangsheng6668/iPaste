@@ -5,7 +5,9 @@ use crate::models::*;
 use crate::util::*;
 use super::Store;
 use crate::{
-    cloud_post, collect_rows, is_syncable_clip_type, map_category_item, now, test_cloud_connection,
+    cloud::{cloud_post, is_syncable_clip_type, test_cloud_connection},
+    store::rows::{collect_rows, map_category_item},
+    util::now,
 };
 
 impl Store {

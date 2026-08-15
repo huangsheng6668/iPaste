@@ -25,7 +25,7 @@ use crate::lan_sync::*;
 use crate::models::*;
 use crate::events::*;
 use crate::error::AppError;
-use crate::Store;
+use crate::store::Store;
 
 #[tauri::command]
 pub(crate) async fn lan_create_session(
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn build_send_payload_image_reads_file_and_encodes_data_url() {
         // 建一个临时 png 文件模拟 DB 里图片条目的 text（文件路径）。
-        let dir = std::env::temp_dir().join(format!("ipaste-send-payload-{}", crate::new_id()));
+        let dir = std::env::temp_dir().join(format!("ipaste-send-payload-{}", crate::util::new_id()));
         std::fs::create_dir_all(&dir).unwrap();
         let png_path = dir.join("img.png");
         // 1x1 透明 png 的最小字节
@@ -388,7 +388,7 @@ mod tests {
         let conn = store.connect().unwrap();
 
         // 手工插入一条已知 id 的历史 clip，并把 category_items.clip_snapshot_id 指向它。
-        let clip_id = crate::new_id();
+        let clip_id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
@@ -407,7 +407,7 @@ mod tests {
             "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
              VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
             rusqlite::params![
-                crate::new_id(),
+                crate::util::new_id(),
                 cat_id,
                 clip_id,
                 crate::util::hash_text("sk-api-key-123"),
@@ -435,7 +435,7 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
 
-        let clip_id = crate::new_id();
+        let clip_id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
@@ -462,7 +462,7 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
         let cat_id = create_category(&conn, "api_key", "#3B82F6", 0);
-        let item_id = crate::new_id();
+        let item_id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
@@ -517,7 +517,7 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
 
-        let clip_id = crate::new_id();
+        let clip_id = crate::util::new_id();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
@@ -530,7 +530,7 @@ mod tests {
             "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)
              VALUES (?1, ?2, ?3, 'text', ?4, NULL, ?5, ?5, 0, ?6, ?6, 'local', 0)",
             rusqlite::params![
-                crate::new_id(),
+                crate::util::new_id(),
                 cat_id,
                 clip_id,
                 crate::util::hash_text("token"),

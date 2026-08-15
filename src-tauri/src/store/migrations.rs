@@ -5,9 +5,41 @@ use rusqlite::{params, Connection};
 use crate::util::*;
 use super::Store;
 use crate::{
-    add_column_if_missing, image_bytes_from_data_url, new_id, table_column_names,
-    DEFAULT_CLIPBOARD_SEEDS,
+    clipboard::image_bytes_from_data_url, util::new_id, DEFAULT_CLIPBOARD_SEEDS,
 };
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    let exists = table_column_names(conn, table)?
+        .iter()
+        .any(|name| name == column);
+
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn table_column_names(conn: &Connection, table: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| error.to_string())?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    columns
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| error.to_string())
+}
 
 impl Store {
     pub(super) fn migrate(&self, conn: &Connection) -> Result<(), String> {

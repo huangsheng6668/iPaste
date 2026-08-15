@@ -39,7 +39,7 @@ pub(crate) fn seed_clip(conn: &rusqlite::Connection, clip_type: &str, preview: &
         "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
          VALUES (?1, ?2, ?3, NULL, ?4, ?5, 'test', ?6, 0, 0)",
         rusqlite::params![
-            crate::new_id(),
+            crate::util::new_id(),
             clip_type,
             crate::util::hash_text(text),
             preview,
@@ -56,7 +56,7 @@ pub(crate) fn create_category(
     color: &str,
     sort_order: i64,
 ) -> String {
-    let id = crate::new_id();
+    let id = crate::util::new_id();
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
         "INSERT INTO categories (id, name, color, sort_order, created_at, updated_at)
@@ -74,7 +74,7 @@ pub(crate) fn seed_category_item(
     preview: &str,
     text: &str,
 ) {
-    let id = crate::new_id();
+    let id = crate::util::new_id();
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
         "INSERT INTO category_items (id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned)

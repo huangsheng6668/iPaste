@@ -9,6 +9,7 @@ mod categories;
 mod sync;
 mod automations;
 mod secrets;
+pub(crate) mod rows;
 
 #[cfg(test)]
 pub(crate) mod test_support;

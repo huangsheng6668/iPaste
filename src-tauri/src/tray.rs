@@ -13,7 +13,8 @@ use tauri::{
 use crate::events::*;
 use crate::models::*;
 use crate::util::*;
-use crate::{new_id, show_main_window, DEFAULT_LANGUAGE};
+use crate::window::show_settings_window;
+use crate::{util::new_id, window::show_main_window, DEFAULT_LANGUAGE};
 pub(crate) fn update_pause_capture_menu_label(state: &AppState, is_listening: bool) {
     let language = state
         .store
@@ -223,5 +224,38 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
             "resume_capture"
         },
     ));
+}
+
+pub(crate) fn handle_show_menu(app: &tauri::AppHandle) {
+    let _ = show_main_window(app, MainWindowActivation::Activate);
+}
+
+pub(crate) fn handle_settings_menu(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _ = show_settings_window(&app);
+    });
+}
+
+pub(crate) fn handle_append_copy_menu(app: &tauri::AppHandle, state: &AppState) {
+    let enabled = state
+        .append_copy_state
+        .lock()
+        .map(|value| !value.is_enabled)
+        .unwrap_or(true);
+    let _ = set_append_copy_enabled_inner(app, state, enabled);
+}
+
+pub(crate) fn handle_pause_capture_menu(app: &tauri::AppHandle, state: &AppState) {
+    if let Ok(mut listening) = state.is_listening.lock() {
+        *listening = !*listening;
+        update_pause_capture_menu_label(state, *listening);
+        let _ = app.emit(
+            EVENT_LISTENING_CHANGED,
+            ListeningChanged {
+                is_listening: *listening,
+            },
+        );
+    }
 }
 

@@ -25,11 +25,14 @@ use crate::events::*;
 use crate::models::*;
 use crate::util::*;
 use crate::{
-    current_main_window_activation, remember_main_window_activation, remember_target_app_for_paste,
+    paste::{
+        current_main_window_activation, remember_main_window_activation,
+        remember_target_app_for_paste,
+    },
     DEFAULT_LANGUAGE,
 };
 #[cfg(target_os = "macos")]
-use crate::run_on_main_thread_for_paste;
+use crate::paste::run_on_main_thread_for_paste;
 
 pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) const SETTINGS_WINDOW: &str = "settings";
