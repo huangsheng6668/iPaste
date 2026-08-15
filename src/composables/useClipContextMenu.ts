@@ -9,6 +9,8 @@ type IpasteStore = ReturnType<typeof useIpasteStore>;
 
 type ClipContextMenuOptions = {
   onStartRename: (item: ClipViewItem) => void | Promise<void>;
+  /** 菜单动作执行前的全量浮层关闭（quick preview、分类栏）；缺省回落到菜单自身 close()。 */
+  onFullClose?: () => void;
 };
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
@@ -40,21 +42,21 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
 
   async function pasteContextItem() {
     const item = contextMenu.value?.item;
-    close();
+    fullClose();
     if (!item) return;
     await store.applyItem(item);
   }
 
   async function copyContextItem() {
     const item = contextMenu.value?.item;
-    close();
+    fullClose();
     if (!item) return;
     await store.copyItem(item);
   }
 
   async function renameContextItem() {
     const item = contextMenu.value?.item;
-    close();
+    fullClose();
     if (!item) return;
 
     await options.onStartRename(item);
@@ -63,7 +65,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
   async function addContextItemToCategory(categoryId: string) {
     const item = contextMenu.value?.item;
     if (!item) return;
-    close();
+    fullClose();
     await addItemToCategory(item, categoryId);
   }
 
@@ -82,7 +84,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
       return;
     }
 
-    close();
+    fullClose();
     if (item.collection === "history") {
       await store.deleteClip(item.id);
       return;
@@ -111,7 +113,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
     const item = contextMenu.value?.item;
     if (!item) return;
 
-    close();
+    fullClose();
     const clipId = originalClipId(item);
     const color = CATEGORY_COLORS[store.categories.length % CATEGORY_COLORS.length];
     const { category, item: categoryItem } = await ipasteApi.createCategoryWithClip(t("category.newCategory"), color, clipId);
@@ -158,6 +160,14 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
     pendingDeleteContextKey.value = null;
     pendingDeleteByKey.value = null;
     closeMoveSubmenu();
+  }
+
+  function fullClose() {
+    if (options.onFullClose) {
+      options.onFullClose();
+      return;
+    }
+    close();
   }
 
   return {

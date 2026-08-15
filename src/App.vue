@@ -19,6 +19,8 @@ import { useUpdater } from "./composables/useUpdater";
 import { useAppEvents } from "./composables/useAppEvents";
 import { useAutomationFlow } from "./composables/useAutomationFlow";
 import { useClipContextMenu } from "./composables/useClipContextMenu";
+import { useClipListScroll } from "./composables/useClipListScroll";
+import { usePanelKeyboard } from "./composables/usePanelKeyboard";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
@@ -37,10 +39,8 @@ const isLanSyncWindow = new URLSearchParams(window.location.search).get("window"
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const isPreservingCurrentApp = ref(false);
 const categoryRailElement = ref<InstanceType<typeof CategoryRail> | null>(null);
-const clipListElement = ref<HTMLElement | null>(null);
 const editingClipKey = ref<string | null>(null);
 const editingClipName = ref("");
-const isClipListScrolling = ref(false);
 const draggingItemKey = ref<string | null>(null);
 const itemDropTargetKey = ref<string | null>(null);
 const itemDropSide = ref<"before" | "after" | null>(null);
@@ -59,13 +59,10 @@ let itemDragState: {
 } | null = null;
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
-let clipListScrollTimer: number | null = null;
-let selectionScrollFrame: number | null = null;
-let searchReloadTimer: number | null = null;
 let lastUpdateCheckAt = 0;
 let suppressNextItemSelect = false;
 
-const clipMenu = useClipContextMenu(store, { onStartRename: startEditingClipName });
+const clipMenu = useClipContextMenu(store, { onStartRename: startEditingClipName, onFullClose: closeFloatingLayers });
 const {
   contextMenu,
   editingCategoryId,
@@ -80,7 +77,6 @@ const {
   renameContextItem,
   addContextItemToCategory,
   deleteContextItem,
-  deleteSelectedItem,
   createCategoryForContextItem,
   openMoveSubmenu,
   scheduleCloseMoveSubmenu,
@@ -101,11 +97,10 @@ const {
   hoverPreviewItem,
   clearHoveredPreviewItem,
   handleSelectionChange,
-  handleQuickPreviewKeyup: handleKeyup,
   clearQuickPreviewTimer,
-  isEditableTarget,
 } = quickPreview;
 
+const automationFlow = useAutomationFlow(store, hidePanelFromUi);
 const {
   automationEditorOpen,
   automationEditorAction,
@@ -128,9 +123,29 @@ const {
   exportAllAutomations,
   triggerImport,
   onImportFileSelected,
-  handleActionsKey,
   watchClosePanelRequest,
-} = useAutomationFlow(store, hidePanelFromUi);
+} = automationFlow;
+
+const panelKeyboard = usePanelKeyboard({
+  store,
+  quickPreview,
+  clipMenu,
+  automationFlow,
+  closeFloatingLayers,
+  hidePanelFromUi,
+  finishEditingCategory,
+});
+const { handleKeydown, handleKeyup } = panelKeyboard;
+
+const {
+  clipListElement,
+  isClipListScrolling,
+  showClipListScrollbar,
+  handleClipListScroll,
+  resetClipListScroll,
+  setupWatches,
+  cleanup: cleanupClipListScroll,
+} = useClipListScroll({ store });
 
 const categoryById = computed(() =>
   store.categories.reduce<Record<string, Category>>((categories, category) => {
@@ -172,6 +187,7 @@ onMounted(async () => {
   document.addEventListener("selectionchange", handleSelectionChange);
   window.addEventListener("blur", closeFloatingLayers);
   document.addEventListener("visibilitychange", handleVisibilityChange);
+  setupWatches();
 
   await store.load();
   await store.loadAutomations();
@@ -202,9 +218,7 @@ onUnmounted(() => {
   window.removeEventListener("blur", closeFloatingLayers);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   clearMoveSubmenuCloseTimer();
-  clearClipListScrollTimer();
-  clearSelectionScrollFrame();
-  clearSearchReloadTimer();
+  cleanupClipListScroll();
   clearQuickPreviewTimer();
   cleanupItemDrag();
   unlistenShortcutOpened?.();
@@ -213,22 +227,6 @@ onUnmounted(() => {
   unlistenPanelVisibilityChanged = null;
   document.body.classList.remove("ipaste-preserve-current-app");
 });
-
-watch(
-  () => store.search,
-  () => {
-    store.clampSelection();
-    if (store.selectedCategoryId === "history") {
-      scheduleSearchReload();
-    }
-  },
-);
-
-watch(
-  () => [store.selectedIndex, store.selectedCategoryId, store.search],
-  () => scheduleSelectedClipScroll(),
-  { flush: "post" },
-);
 
 watch(isPreservingCurrentApp, (preservesCurrentApp) => {
   document.body.classList.toggle("ipaste-preserve-current-app", preservesCurrentApp);
@@ -498,128 +496,6 @@ async function openClipViewer(item: ClipViewItem) {
   await ipasteApi.openClipViewer(item, originalClipId(item));
 }
 
-function handleKeydown(event: KeyboardEvent) {
-  if (event.defaultPrevented) return;
-
-  if (event.key !== "Backspace") {
-    pendingDeleteByKey.value = null;
-  }
-
-  if (quickPreview.handleQuickPreviewKeydown(event)) return;
-
-  if (handleCategoryShortcut(event)) return;
-
-  if (event.key === "Tab") {
-    event.preventDefault();
-    return;
-  }
-
-  if (isEditableTarget(event.target)) return;
-
-  if (contextMenu.value) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeFloatingLayers();
-    }
-    return;
-  }
-
-  if (event.key === "Backspace") {
-    event.preventDefault();
-    const item = store.visibleItems[store.selectedIndex];
-    if (!item) return;
-
-    const key = contextItemKey(item);
-    if (pendingDeleteByKey.value === key) {
-      void deleteSelectedItem(item);
-      return;
-    }
-
-    pendingDeleteByKey.value = key;
-    return;
-  }
-
-  if (handlePanelKey(event.key)) {
-    event.preventDefault();
-    return;
-  }
-
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
-    event.preventDefault();
-    focusSearch();
-  }
-}
-
-function handlePanelKey(key: string) {
-  if (store.selectedCategoryId === "actions") {
-    return handleActionsKey(key);
-  }
-  if (contextMenu.value) {
-    if (key === "Escape") {
-      closeFloatingLayers();
-      return true;
-    }
-    return false;
-  }
-
-  if (key === "ArrowDown") {
-    store.moveSelection(2);
-    return true;
-  }
-
-  if (key === "ArrowUp") {
-    store.moveSelection(-2);
-    return true;
-  }
-
-  if (key === "ArrowRight") {
-    store.moveSelection(1);
-    return true;
-  }
-
-  if (key === "ArrowLeft") {
-    store.moveSelection(-1);
-    return true;
-  }
-
-  if (key === "Enter") {
-    void store.applySelected();
-    return true;
-  }
-
-  if (key === "Escape") {
-    void hidePanelFromUi();
-    return true;
-  }
-
-  return false;
-}
-
-function handleCategoryShortcut(event: KeyboardEvent) {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey || !/^[1-9]$/.test(event.key)) {
-    return false;
-  }
-
-  event.preventDefault();
-
-  const categoryIds = ["history", ...store.categories.map((category) => category.id)];
-  const targetCategoryId = categoryIds[Number(event.key) - 1];
-  if (!targetCategoryId) return true;
-
-  closeFloatingLayers();
-  finishEditingCategory();
-  if (targetCategoryId !== store.selectedCategoryId) {
-    store.selectCategory(targetCategoryId);
-  }
-  return true;
-}
-
-function focusSearch() {
-  const input = document.querySelector<HTMLInputElement>(".search-box input");
-  input?.focus();
-  input?.select();
-}
-
 async function hidePanelFromUi() {
   blurActiveElement();
   await store.hidePanel();
@@ -677,93 +553,6 @@ async function focusEditingClipName() {
     input?.focus();
     input?.select();
   }, 40);
-}
-
-function showClipListScrollbar() {
-  clearClipListScrollTimer();
-  isClipListScrolling.value = true;
-  clipListScrollTimer = window.setTimeout(() => {
-    isClipListScrolling.value = false;
-    clipListScrollTimer = null;
-  }, 780);
-}
-
-function handleClipListScroll() {
-  showClipListScrollbar();
-
-  const list = clipListElement.value;
-  if (!list || store.selectedCategoryId !== "history" || !store.hasMoreClips) return;
-
-  const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-  if (distanceToBottom < 160) {
-    void store.loadMoreClips();
-  }
-}
-
-function clearClipListScrollTimer() {
-  if (clipListScrollTimer === null) return;
-  window.clearTimeout(clipListScrollTimer);
-  clipListScrollTimer = null;
-}
-
-function resetClipListScroll() {
-  clearClipListScrollTimer();
-  isClipListScrolling.value = false;
-
-  if (clipListElement.value) {
-    clipListElement.value.scrollTop = 0;
-  }
-}
-
-function scheduleSelectedClipScroll() {
-  clearSelectionScrollFrame();
-  selectionScrollFrame = window.requestAnimationFrame(() => {
-    selectionScrollFrame = null;
-    scrollSelectedClipIntoView();
-  });
-}
-
-function clearSelectionScrollFrame() {
-  if (selectionScrollFrame === null) return;
-  window.cancelAnimationFrame(selectionScrollFrame);
-  selectionScrollFrame = null;
-}
-
-function scheduleSearchReload() {
-  clearSearchReloadTimer();
-  searchReloadTimer = window.setTimeout(() => {
-    searchReloadTimer = null;
-    void store.reloadClips();
-  }, 160);
-}
-
-function clearSearchReloadTimer() {
-  if (searchReloadTimer === null) return;
-  window.clearTimeout(searchReloadTimer);
-  searchReloadTimer = null;
-}
-
-function scrollSelectedClipIntoView() {
-  const list = clipListElement.value;
-  const selectedCard = list?.querySelector<HTMLElement>(".clip-card-selected");
-  if (!list || !selectedCard) return;
-
-  const listRect = list.getBoundingClientRect();
-  const cardRect = selectedCard.getBoundingClientRect();
-  const edgePadding = 16;
-  const visibleTop = listRect.top + edgePadding;
-  const visibleBottom = listRect.bottom - edgePadding;
-
-  if (cardRect.top < visibleTop) {
-    list.scrollBy({ top: cardRect.top - visibleTop, behavior: "auto" });
-    showClipListScrollbar();
-    return;
-  }
-
-  if (cardRect.bottom > visibleBottom) {
-    list.scrollBy({ top: cardRect.bottom - visibleBottom, behavior: "auto" });
-    showClipListScrollbar();
-  }
 }
 </script>
 
