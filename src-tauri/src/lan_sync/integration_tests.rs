@@ -323,6 +323,7 @@ async fn secure_connection_preserves_category_fields_over_encrypted_roundtrip() 
 async fn minimal_from_std_accept_works() {
     use tokio::net::{TcpListener, TcpStream};
     let std_listener = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+    std_listener.set_nonblocking(true).unwrap();
     let listener = TcpListener::from_std(std_listener).unwrap();
     let addr = listener.local_addr().unwrap();
     eprintln!("[minimal] listening at {addr}");

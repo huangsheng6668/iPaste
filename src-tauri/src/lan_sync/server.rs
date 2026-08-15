@@ -259,6 +259,11 @@ async fn handle_guest_with_challenge(
 fn bind_tcp(port: u16) -> Result<(std::net::TcpListener, u16), String> {
     match std::net::TcpListener::bind(("0.0.0.0", port)) {
         Ok(listener) => {
+            // tokio 的 from_std 不会代为切换非阻塞；macOS kqueue 上注册阻塞 fd
+            // 会直接 panic（tokio#7172），Windows 的 IOCP 不检查所以此前未暴露。
+            listener
+                .set_nonblocking(true)
+                .map_err(|error| format!("无法切换非阻塞模式：{error}"))?;
             let actual = listener.local_addr().map_err(|error| error.to_string())?.port();
             Ok((listener, actual))
         }
