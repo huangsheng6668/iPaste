@@ -15,11 +15,13 @@ const ui = useUiStore();
       v-for="toast in ui.toasts"
       :key="toast.id"
       type="button"
-      class="pointer-events-auto flex max-w-[min(24rem,90vw)] cursor-pointer items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-left text-sm text-red-700 shadow-sm transition-all duration-150 hover:bg-red-100"
+      class="error-toast"
       :aria-label="toast.message"
       @click="ui.dismissToast(toast.id)"
     >
-      <AlertCircle class="size-4 shrink-0" />
+      <span class="error-toast-icon">
+        <AlertCircle class="size-3.5" />
+      </span>
       <span class="min-w-0 flex-1 truncate">{{ toast.message }}</span>
     </button>
   </div>

@@ -73,7 +73,7 @@ watch(
       </div>
       <button
         type="button"
-        class="flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+        class="btn-primary"
         :disabled="status === 'running'"
         @click="emit('run')"
       >

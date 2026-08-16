@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { AlertCircle, AppWindow, CheckCircle2, ClipboardPlus, Database, History, LoaderCircle, Power, SlidersHorizontal, Sparkles, Tags, Trash2 } from "lucide-vue-next";
+import { AlertCircle, AppWindow, CheckCircle2, ClipboardPlus, Database, History, LoaderCircle, MonitorSmartphone, Moon, Power, SlidersHorizontal, Sparkles, Sun, Tags, Trash2 } from "lucide-vue-next";
 import LanguageSelect from "../LanguageSelect.vue";
 import { languageOptions, t } from "../../i18n";
 import { isTauri } from "../../lib/env";
+import { setThemePreference, themePreference, type ThemePreference } from "../../lib/theme";
 import { useIpasteStore } from "../../stores/ipasteStore";
 import { useClearHistory } from "../../composables/useClearHistory";
 import { useAutostart } from "../../composables/useAutostart";
@@ -43,6 +44,12 @@ const panelOpenOptions = computed<Array<{ label: string; value: PanelOpenBehavio
 const panelLayoutOptions = computed<Array<{ label: string; value: PanelLayout }>>(() => [
   { label: t("settings.layout.top"), value: "top" },
   { label: t("settings.layout.side"), value: "side" },
+]);
+
+const themeOptions = computed<Array<{ label: string; value: ThemePreference; icon: typeof Sun }>>(() => [
+  { label: t("settings.appearance.light"), value: "light", icon: Sun },
+  { label: t("settings.appearance.dark"), value: "dark", icon: Moon },
+  { label: t("settings.appearance.system"), value: "system", icon: MonitorSmartphone },
 ]);
 
 const retentionText = computed(() => {
@@ -94,6 +101,44 @@ async function updateLanguage(language: Language) {
         :label="t('settings.language.title')"
         @update:model-value="updateLanguage"
       />
+    </section>
+
+    <section class="settings-panel items-start">
+      <div class="settings-icon settings-icon-violet">
+        <Sun class="size-5" />
+      </div>
+
+      <div class="min-w-0 flex-1">
+        <h2 class="text-sm font-semibold text-slate-950">
+          {{ t("settings.appearance.title") }}
+        </h2>
+        <p class="mt-1 text-sm text-slate-500">
+          {{ t("settings.appearance.description") }}
+        </p>
+      </div>
+
+      <div
+        class="segmented-control"
+        role="radiogroup"
+        :aria-label="t('settings.appearance.title')"
+      >
+        <button
+          v-for="option in themeOptions"
+          :key="option.value"
+          type="button"
+          class="segmented-option segmented-option-with-icon"
+          :class="{ 'segmented-option-active': themePreference === option.value }"
+          role="radio"
+          :aria-checked="themePreference === option.value"
+          @click="setThemePreference(option.value)"
+        >
+          <component
+            :is="option.icon"
+            class="size-3.5"
+          />
+          <span>{{ option.label }}</span>
+        </button>
+      </div>
     </section>
 
     <section class="settings-panel items-start">

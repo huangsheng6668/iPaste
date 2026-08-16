@@ -1,0 +1,183 @@
+/* ==========================================================================
+   iPaste design system — "Nebula"
+   --------------------------------------------------------------------------
+   Semantic tokens for the light theme, overridden under `html.dark`.
+   All custom component styles reference these tokens. Tailwind utility
+   colors are also re-aliased in dark mode so legacy utility classes in
+   components adapt automatically.
+   ========================================================================== */
+
+:root {
+  /* ---- window chrome ---- */
+  --window-radius: 0.875rem;
+
+  /* ---- radii ---- */
+  --r-xs: 0.375rem;
+  --r-sm: 0.5625rem;
+  --r-md: 0.625rem;
+  --r-lg: 0.875rem;
+  --r-xl: 1rem;
+  --r-pill: 999px;
+
+  /* ---- typography ---- */
+  --font-sans:
+    "Noto Sans SC", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  /* ---- surfaces ---- */
+  --bg-app: #f2f3f9;
+  --bg-app-grad: linear-gradient(180deg, #f6f6fc 0%, #f0f2f9 100%);
+  --aurora-a: rgba(99, 102, 241, 0.14);
+  --aurora-b: rgba(139, 92, 246, 0.11);
+  --surface: #ffffff;
+  --surface-2: rgba(255, 255, 255, 0.72);
+  --surface-glass: rgba(255, 255, 255, 0.86);
+  --surface-inset: #f5f6fb;
+  --surface-hover: #edeff7;
+  --surface-code: #f7f8fc;
+
+  /* ---- borders ---- */
+  --border: #e3e5f0;
+  --border-strong: #cdd2e2;
+  --border-soft: rgba(227, 229, 240, 0.72);
+  --border-accent: rgba(99, 102, 241, 0.38);
+
+  /* ---- text ---- */
+  --text-1: #191b28;
+  --text-2: #565b70;
+  --text-3: #8c91a9;
+
+  /* ---- accent (indigo → violet) ---- */
+  --accent: #6366f1;
+  --accent-strong: #4f46e5;
+  --accent-soft: rgba(99, 102, 241, 0.1);
+  --accent-soft-2: rgba(99, 102, 241, 0.16);
+  --accent-grad: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --on-accent: #ffffff;
+  --focus-ring: rgba(99, 102, 241, 0.22);
+
+  /* ---- status hues ---- */
+  --success: #059669;
+  --success-soft: rgba(16, 185, 129, 0.12);
+  --danger: #e11d48;
+  --danger-strong: #be123c;
+  --danger-soft: rgba(225, 29, 72, 0.09);
+  --danger-border: rgba(225, 29, 72, 0.32);
+  --warning: #d97706;
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --info: #0284c7;
+  --info-soft: rgba(14, 165, 233, 0.12);
+
+  /* ---- shadows ---- */
+  --shadow-xs: 0 1px 2px rgba(24, 26, 45, 0.05);
+  --shadow-card: 0 1px 2px rgba(24, 26, 45, 0.04), 0 0 0 1px rgba(24, 26, 45, 0.02);
+  --shadow-card-hover: 0 10px 28px rgba(76, 81, 191, 0.1), 0 2px 6px rgba(24, 26, 45, 0.05);
+  --shadow-selected: 0 0 0 3px var(--focus-ring), 0 12px 32px rgba(99, 102, 241, 0.14);
+  --shadow-pop: 0 24px 64px rgba(24, 26, 45, 0.16), 0 4px 16px rgba(24, 26, 45, 0.07);
+  --shadow-dialog: 0 32px 80px rgba(24, 26, 45, 0.22), 0 8px 24px rgba(24, 26, 45, 0.08);
+  --shadow-toast: 0 16px 40px rgba(24, 26, 45, 0.18);
+
+  /* ---- tooltip ---- */
+  --tooltip-bg: rgba(23, 26, 41, 0.94);
+  --tooltip-text: #f5f6fb;
+
+  /* ---- backdrop ---- */
+  --backdrop: rgba(15, 17, 28, 0.45);
+  --backdrop-blur: blur(10px);
+
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   Dark theme
+   -------------------------------------------------------------------------- */
+html.dark {
+  --bg-app: #0b0d15;
+  --bg-app-grad: linear-gradient(180deg, #0e1019 0%, #0a0c13 100%);
+  --aurora-a: rgba(99, 102, 241, 0.17);
+  --aurora-b: rgba(139, 92, 246, 0.14);
+  --surface: #161a26;
+  --surface-2: rgba(22, 26, 38, 0.72);
+  --surface-glass: rgba(22, 26, 38, 0.86);
+  --surface-inset: #0f121c;
+  --surface-hover: #1d2130;
+  --surface-code: #10131e;
+
+  --border: #242838;
+  --border-strong: #303650;
+  --border-soft: rgba(255, 255, 255, 0.055);
+  --border-accent: rgba(129, 140, 248, 0.5);
+
+  --text-1: #edeff8;
+  --text-2: #a7acc5;
+  --text-3: #6d7390;
+
+  --accent: #818cf8;
+  --accent-strong: #a5b4fc;
+  --accent-soft: rgba(129, 140, 248, 0.13);
+  --accent-soft-2: rgba(129, 140, 248, 0.2);
+  --accent-grad: linear-gradient(135deg, #6d75f7 0%, #a05bf5 100%);
+  --on-accent: #ffffff;
+  --focus-ring: rgba(129, 140, 248, 0.3);
+
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.13);
+  --danger: #fb7185;
+  --danger-strong: #fda4af;
+  --danger-soft: rgba(244, 63, 94, 0.13);
+  --danger-border: rgba(244, 63, 94, 0.36);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.12);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-card-hover: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-selected: 0 0 0 3px var(--focus-ring), 0 14px 36px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-dialog: 0 32px 80px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-toast: 0 16px 44px rgba(0, 0, 0, 0.55);
+
+  --tooltip-bg: rgba(13, 15, 24, 0.96);
+  --tooltip-text: #eef0f8;
+
+  --backdrop: rgba(4, 6, 12, 0.6);
+  --backdrop-blur: blur(12px);
+
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   Tailwind utility color re-alias (dark mode)
+   --------------------------------------------------------------------------
+   Tailwind v4 utilities reference theme variables (e.g. `bg-white` →
+   `var(--color-white)`), so overriding them here makes legacy utility
+   classes in components theme-aware without edits.
+   -------------------------------------------------------------------------- */
+html.dark {
+  --color-white: #161a26;
+  --color-black: #05060a;
+  --color-slate-50: #0f121c;
+  --color-slate-100: #1d2130;
+  --color-slate-200: #262b3d;
+  --color-slate-300: #343a52;
+  --color-slate-400: #6d7390;
+  --color-slate-500: #9aa0bb;
+  --color-slate-600: #b8bdd2;
+  --color-slate-700: #ccd0e0;
+  --color-slate-800: #dcdfec;
+  --color-slate-900: #ebeef7;
+  --color-slate-950: #f7f8fd;
+  --color-red-50: rgba(244, 63, 94, 0.12);
+  --color-red-100: rgba(244, 63, 94, 0.18);
+  --color-red-200: rgba(244, 63, 94, 0.32);
+  --color-red-600: #fb7185;
+  --color-red-700: #fda4af;
+  --color-teal-50: rgba(45, 212, 191, 0.12);
+  --color-teal-700: #5eead4;
+  --color-blue-600: #7ea2ff;
+  --color-emerald-600: #34d399;
+}

@@ -84,24 +84,23 @@ function onLanSync() {
       @mousedown="startWindowDrag"
     />
 
-    <label
-      class="search-box"
-    >
-      <Search class="size-4 shrink-0 text-slate-400" />
+    <label class="search-box">
+      <Search class="search-box-icon size-4 shrink-0" />
       <input
-        class="min-w-0 flex-1 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400"
+        class="min-w-0 flex-1 bg-transparent text-sm outline-none"
         :value="modelValue"
         tabindex="-1"
         :placeholder="t('topBar.searchPlaceholder')"
         spellcheck="false"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       >
+      <span
+        class="search-kbd"
+        aria-hidden="true"
+      >
+        {{ shortcut }}
+      </span>
     </label>
-
-    <div class="hidden items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-500 md:flex">
-      <Search class="size-3.5" />
-      <span>{{ shortcut }}</span>
-    </div>
 
     <button
       v-if="hasUpdate"
@@ -143,7 +142,7 @@ function onLanSync() {
     <button
       type="button"
       class="icon-button"
-      :class="{ 'bg-slate-100 text-slate-950': settingsOpen }"
+      :class="{ 'icon-button-active': settingsOpen }"
       tabindex="-1"
       :aria-label="t('topBar.openSettings')"
       :data-tooltip="t('topBar.openSettings')"

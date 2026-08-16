@@ -29,7 +29,7 @@ const displayTime = computed(() => {
 </script>
 
 <template>
-  <aside class="hidden w-60 shrink-0 border-l border-slate-200 bg-white/80 lg:block">
+  <aside class="detail-pane hidden w-60 shrink-0 border-l border-slate-200 lg:block">
     <AutomationDetailPane
       v-if="mode === 'actions'"
       :action="automationAction ?? null"
@@ -40,14 +40,14 @@ const displayTime = computed(() => {
       class="flex h-full flex-col"
     >
       <div class="border-b border-slate-200 p-4">
-        <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+        <div class="detail-pane-kicker flex items-center gap-2">
           <Info class="size-3.5" />
           {{ t("detail.title") }}
         </div>
-        <h2 class="mt-2 truncate text-base font-semibold text-slate-950">
+        <h2 class="detail-pane-title mt-2 truncate text-base font-semibold">
           {{ detailTitle }}
         </h2>
-        <p class="mt-1 text-xs text-slate-500">
+        <p class="detail-pane-time mt-1 text-xs">
           {{ formatTime(displayTime) }}
         </p>
       </div>
@@ -83,23 +83,23 @@ const displayTime = computed(() => {
 
         <pre
           v-if="!isImage"
-          class="max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-5 text-slate-800"
+          class="detail-pane-code max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-lg p-3 text-sm leading-5"
         >{{ item.text }}</pre>
 
-        <dl class="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-400">
+        <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div>
-            <dt class="text-xs text-slate-400">
+            <dt class="detail-pane-label text-xs">
               {{ t("common.size") }}
             </dt>
-            <dd class="mt-1 text-slate-500">
+            <dd class="detail-pane-value mt-1">
               {{ clipMetricText(item.clipType, item.text, item.previewText) }}
             </dd>
           </div>
           <div v-if="!isImage">
-            <dt class="text-xs text-slate-400">
+            <dt class="detail-pane-label text-xs">
               {{ t("common.lines") }}
             </dt>
-            <dd class="mt-1 text-slate-500">
+            <dd class="detail-pane-value mt-1">
               {{ lines }}
             </dd>
           </div>
@@ -109,7 +109,7 @@ const displayTime = computed(() => {
 
     <div
       v-else
-      class="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-slate-400"
+      class="detail-pane-label flex h-full flex-col items-center justify-center gap-3 px-8 text-center"
     >
       <Clipboard class="size-8" />
       <p class="text-sm">

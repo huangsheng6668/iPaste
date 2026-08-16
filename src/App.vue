@@ -507,7 +507,7 @@ async function focusEditingClipName() {
         <section class="clip-area">
           <div
             v-if="store.error"
-            class="mx-4 mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            class="error-banner"
           >
             <AlertCircle class="size-4" />
             <span class="min-w-0 flex-1 truncate">{{ store.error }}</span>
@@ -530,7 +530,7 @@ async function focusEditingClipName() {
               <div
                 v-for="index in 9"
                 :key="index"
-                class="h-40 animate-pulse rounded-lg border border-slate-200 bg-white"
+                class="skeleton-card"
               />
             </div>
 
@@ -552,18 +552,20 @@ async function focusEditingClipName() {
               />
               <div
                 v-if="!store.visibleActions.length"
-                class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center"
+                class="empty-state"
               >
-                <Zap class="size-10 text-slate-300" />
-                <h2 class="mt-3 text-base font-semibold text-slate-900">
+                <div class="empty-state-icon">
+                  <Zap class="size-7" />
+                </div>
+                <h2>
                   {{ t("automation.entry") }}
                 </h2>
-                <p class="mt-1 max-w-sm text-sm text-slate-500">
+                <p>
                   {{ t("automation.noActions") }}
                 </p>
                 <button
                   type="button"
-                  class="mt-4 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
+                  class="btn-primary mt-5"
                   @click="openAutomationEditor(null)"
                 >
                   {{ t("automation.newAction") }}
@@ -649,19 +651,21 @@ async function focusEditingClipName() {
               />
               <div
                 v-if="store.selectedCategoryId === 'history' && store.isLoadingMoreClips"
-                class="clip-grid-full h-24 animate-pulse rounded-lg border border-slate-200 bg-white"
+                class="skeleton-card skeleton-card-compact clip-grid-full"
               />
             </div>
 
             <div
               v-else
-              class="flex h-full min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white/70 text-center"
+              class="empty-state"
             >
-              <Inbox class="size-10 text-slate-300" />
-              <h2 class="mt-3 text-base font-semibold text-slate-900">
+              <div class="empty-state-icon">
+                <Inbox class="size-7" />
+              </div>
+              <h2>
                 {{ t("empty.title") }}
               </h2>
-              <p class="mt-1 max-w-sm text-sm text-slate-500">
+              <p>
                 {{ t("empty.description") }}
               </p>
             </div>
@@ -725,10 +729,10 @@ async function focusEditingClipName() {
     <Teleport to="body">
       <div
         v-if="automationDetailOpen && automationDetailAction"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40"
+        class="dialog-backdrop"
         @click.self="automationDetailOpen = false"
       >
-        <div class="flex h-[80vh] w-[520px] max-w-[90vw] flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div class="automation-detail-panel">
           <AutomationDetailPane
             :action="automationDetailAction"
             @run="runSelectedAction(automationDetailAction); automationDetailOpen = false"
@@ -736,7 +740,7 @@ async function focusEditingClipName() {
           <div class="flex justify-end border-t border-slate-200 px-4 py-2">
             <button
               type="button"
-              class="rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+              class="btn-ghost"
               @click="automationDetailOpen = false"
             >
               {{ t("common.cancel") }}

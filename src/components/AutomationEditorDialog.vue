@@ -59,81 +59,83 @@ function submit() {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40"
+      class="dialog-backdrop"
       @click.self="emit('cancel')"
     >
       <div
-        class="w-[420px] max-w-[90vw] rounded-xl bg-white p-5 shadow-xl"
+        class="dialog-panel"
         role="dialog"
         @keydown.esc="emit('cancel')"
       >
-        <h2 class="text-base font-semibold text-slate-900">
-          {{ action ? t("automation.edit") : t("automation.newAction") }}
-        </h2>
+        <div class="dialog-body">
+          <h2 class="dialog-title">
+            {{ action ? t("automation.edit") : t("automation.newAction") }}
+          </h2>
 
-        <label class="mt-4 block">
-          <span class="text-sm font-medium text-slate-700">{{ t("automation.name") }}</span>
-          <input
-            v-model="form.name"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-400 focus:outline-none"
+          <label class="mt-4 block">
+            <span class="dialog-label">{{ t("automation.name") }}</span>
+            <input
+              v-model="form.name"
+              class="dialog-input mt-1.5 text-sm"
+            >
+          </label>
+
+          <label class="mt-3 block">
+            <span class="dialog-label">{{ t("automation.command") }}</span>
+            <textarea
+              v-model="form.command"
+              rows="3"
+              spellcheck="false"
+              class="dialog-input mt-1.5 resize-none font-mono text-xs"
+            />
+          </label>
+
+          <label class="mt-3 block">
+            <span class="dialog-label">{{ t("automation.cwd") }}</span>
+            <input
+              v-model="form.cwd"
+              spellcheck="false"
+              placeholder="E:\code\idea\ipaste-new"
+              class="dialog-input mt-1.5 font-mono text-xs"
+            >
+          </label>
+
+          <label class="mt-3 flex items-center gap-2">
+            <input
+              v-model="form.confirmBeforeRun"
+              type="checkbox"
+              class="dialog-checkbox"
+            >
+            <span class="text-sm text-slate-700">{{ t("automation.confirmBeforeRun") }}</span>
+          </label>
+          <label class="mt-2 flex items-center gap-2">
+            <input
+              v-model="form.closePanelOnSuccess"
+              type="checkbox"
+              class="dialog-checkbox"
+            >
+            <span class="text-sm text-slate-700">{{ t("automation.closePanelOnSuccess") }}</span>
+          </label>
+
+          <p
+            v-if="error"
+            class="dialog-error mt-3"
           >
-        </label>
+            {{ error }}
+          </p>
+        </div>
 
-        <label class="mt-3 block">
-          <span class="text-sm font-medium text-slate-700">{{ t("automation.command") }}</span>
-          <textarea
-            v-model="form.command"
-            rows="3"
-            spellcheck="false"
-            class="mt-1 w-full resize-none rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs focus:border-slate-400 focus:outline-none"
-          />
-        </label>
-
-        <label class="mt-3 block">
-          <span class="text-sm font-medium text-slate-700">{{ t("automation.cwd") }}</span>
-          <input
-            v-model="form.cwd"
-            spellcheck="false"
-            placeholder="E:\code\idea\ipaste-new"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs focus:border-slate-400 focus:outline-none"
-          >
-        </label>
-
-        <label class="mt-3 flex items-center gap-2">
-          <input
-            v-model="form.confirmBeforeRun"
-            type="checkbox"
-            class="size-4"
-          >
-          <span class="text-sm text-slate-700">{{ t("automation.confirmBeforeRun") }}</span>
-        </label>
-        <label class="mt-2 flex items-center gap-2">
-          <input
-            v-model="form.closePanelOnSuccess"
-            type="checkbox"
-            class="size-4"
-          >
-          <span class="text-sm text-slate-700">{{ t("automation.closePanelOnSuccess") }}</span>
-        </label>
-
-        <p
-          v-if="error"
-          class="mt-2 text-sm text-red-600"
-        >
-          {{ error }}
-        </p>
-
-        <div class="mt-4 flex justify-end gap-2">
+        <div class="dialog-footer">
           <button
             type="button"
-            class="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+            class="btn-ghost"
             @click="emit('cancel')"
           >
             {{ t("common.cancel") }}
           </button>
           <button
             type="button"
-            class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
+            class="btn-primary"
             @click="submit"
           >
             {{ t("common.save") }}

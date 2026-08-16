@@ -259,24 +259,94 @@ function onReject() {
 </template>
 
 <style scoped>
-.lan-sync-panel { padding: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 14px; }
+.lan-sync-panel {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+  border: 1px solid rgba(140, 145, 169, 0.4);
+  border-radius: var(--window-radius);
+  clip-path: inset(0 round var(--window-radius));
+  background:
+    radial-gradient(120% 90% at 12% -12%, var(--aurora-a), transparent 55%),
+    radial-gradient(120% 90% at 92% -6%, var(--aurora-b), transparent 50%),
+    var(--bg-app-grad);
+  color: var(--text-1);
+}
+html.dark .lan-sync-panel { border-color: rgba(255, 255, 255, 0.09); }
 .lan-header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.lan-close { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; cursor: pointer; color: #6b7280; }
-.lan-close:hover { background: #f3f4f6; color: #111827; }
+.lan-close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.lan-close:hover { background: var(--surface-hover); color: var(--text-1); }
 .lan-section { display: flex; flex-direction: column; gap: 8px; }
 .lan-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.lan-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }
-.lan-btn.primary { background: #0D9488; color: #fff; border-color: #0D9488; }
-.lan-btn.danger { color: #b91c1c; }
-.lan-code { font-family: monospace; background: #f3f4f6; padding: 8px; border-radius: 6px; }
-.lan-error { color: #b91c1c; }
-.lan-notice { color: #0D9488; }
-.lan-hint { color: #6b7280; font-size: 12px; }
+.lan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, filter 140ms ease;
+}
+.lan-btn:hover { border-color: var(--border-accent); background: var(--accent-soft); color: var(--accent-strong); }
+.lan-btn.primary {
+  background: var(--accent-grad);
+  color: var(--on-accent);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+}
+.lan-btn.primary:hover { background: var(--accent-grad); color: var(--on-accent); filter: brightness(1.08); }
+.lan-btn.danger { color: var(--danger); }
+.lan-btn.danger:hover { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-strong); }
+.lan-code {
+  font-family: var(--font-mono);
+  background: var(--surface-code);
+  padding: 8px;
+  border-radius: 8px;
+  color: var(--text-1);
+  border: 1px solid var(--border);
+}
+.lan-error { color: var(--danger); }
+.lan-notice { color: var(--success); }
+.lan-hint { color: var(--text-3); font-size: 12px; }
 .lan-rejected { cursor: pointer; }
-.lan-history { max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; border: 1px solid #e5e7eb; border-radius: 6px; }
-.lan-history li { padding: 8px; cursor: pointer; border-bottom: 1px solid #f3f4f6; }
-.lan-history li:hover { background: #f9fafb; }
-.lan-history li.lan-empty { color: #9ca3af; cursor: default; }
+.lan-history {
+  max-height: 200px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.lan-history li { padding: 8px 10px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.lan-history li:last-child { border-bottom: 0; }
+.lan-history li:hover { background: var(--accent-soft); }
+.lan-history li.lan-empty { color: var(--text-3); cursor: default; }
 .lan-history li.lan-empty:hover { background: transparent; }
 
 /* 条目选择器：顶部一行 tab（历史 + 各分组），下方列表 */
@@ -285,35 +355,50 @@ function onReject() {
 .lan-btn:disabled { opacity: 0.55; cursor: default; }
 .lan-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .lan-tab {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: 999px; border: 1px solid #d1d5db;
-  background: #fff; cursor: pointer; font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
-.lan-tab.active { background: #0D9488; color: #fff; border-color: #0D9488; }
+.lan-tab:hover { border-color: var(--border-accent); color: var(--accent-strong); }
+.lan-tab.active {
+  background: var(--accent-grad);
+  color: var(--on-accent);
+  border-color: transparent;
+}
 .lan-tab-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
 
-/* 端口占用弹窗：绝对定位覆盖整个 lan-sync-panel。根 div 需 position: relative。 */
-.lan-sync-panel { position: relative; }
+/* 端口占用弹窗：绝对定位覆盖整个 lan-sync-panel。 */
 .lan-conflict-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(17, 24, 39, 0.45);
+  background: var(--backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
   z-index: 20;
+  backdrop-filter: var(--backdrop-blur);
 }
 .lan-conflict-dialog {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   max-width: 320px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-dialog);
 }
-.lan-conflict-dialog p { margin: 0; color: #111827; }
+.lan-conflict-dialog p { margin: 0; color: var(--text-1); }
 .lan-conflict-dialog .lan-row { justify-content: space-between; }
 </style>
