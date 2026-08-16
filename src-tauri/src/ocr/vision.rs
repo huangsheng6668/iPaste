@@ -10,6 +10,8 @@ use objc2::{
 use objc2_core_foundation::CGRect;
 use objc2_foundation::{NSArray, NSError, NSRange, NSString, NSURL};
 
+use crate::models::{ImageOcrResult, ImageOcrWord};
+
 
 #[cfg(target_os = "macos")]
 pub(crate) const MACOS_OCR_ENGINE_ID: &str = "apple-vision";
