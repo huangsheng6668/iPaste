@@ -19,6 +19,8 @@ It is built for people who move between chat, browsers, terminals, design tools,
 - Saved categories: keep reusable snippets for code, commands, addresses, reply templates, prompts, and more.
 - Image viewer: preview, zoom, rotate, copy back to the clipboard, and extract text with OCR.
 - Append copy: temporarily merge several text copies into one snippet while gathering material.
+- LAN sync: pair two devices on the same network with a short code, then send clips or whole categories directly between them — end-to-end encrypted, never routed through any server.
+- Quick actions: save shell commands as one-keystroke panel actions, with optional confirmation, streamed output, and JSON import/export.
 - Configurable preferences: retention period, panel layout, default open behavior, global shortcut, language, and OCR mode.
 - Optional self-hosted sync: sync only saved categories and saved text-like content; raw clipboard history stays local.
 - Signed updates: built-in Tauri updater support for releases distributed through GitHub Releases or Cloudflare R2.
@@ -71,6 +73,7 @@ iPaste is local-first by default.
 
 - Automatically captured clipboard history is not uploaded or synced.
 - Local data is stored in a SQLite database under the system app data directory.
+- LAN sync transfers content directly between your own devices over the local network. Sessions are protected by a pairing code and end-to-end encryption (X25519 key exchange, AES-256-GCM); no server is involved.
 - When cloud sync is enabled, only categories and saved text, link, color, and HTML entries are synced.
 - Image and file snippets are currently excluded from the cloud sync payload.
 - Cloud sync requires your own API address and API key.
@@ -128,44 +131,60 @@ npm run tauri dev
 ### Build
 
 ```bash
-npm run build
-npm run tauri build
+npm run lint        # ESLint
+npm test            # Vitest unit tests (frontend)
+npm run build       # Type-check (vue-tsc) + Vite production build
+npm run tauri build # Desktop installers
 ```
 
 Quick native compile check:
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+### Shared Types
+
+TypeScript bindings in `src/types/generated/` are generated from Rust via ts-rs. After changing shared models in `models.rs` or event payloads/names in `events.rs`, regenerate and commit them — CI verifies freshness:
+
+```bash
+npm run gen:types
 ```
 
 ## Project Structure
 
 ```text
 .
-├── src/                  # Vue app, store, components, and frontend API wrappers
+├── src/                  # Vue app: components, composables, Pinia stores, frontend API wrappers
 ├── src-tauri/            # Tauri config and Rust desktop backend
 │   └── src/              # Rust backend modules (see below)
 ├── scripts/              # Release, versioning, and updater distribution tools
 ├── docs/                 # Operational docs and project notes
 ├── key/                  # Public updater key; private keys must not be committed
-└── .github/workflows/    # Signed desktop build release workflows
+└── .github/workflows/    # CI and signed desktop build release workflows
 ```
 
 The Rust backend in `src-tauri/src/` is split into small domain modules:
 
 | Module | Responsibility |
 | --- | --- |
-| `lib.rs` | Tauri builder entry, shared constants, and cross-module helpers |
-| `models.rs` | Structured serde data models shared by commands and modules |
-| `store.rs` | SQLite persistence and cloud sync orchestration |
+| `lib.rs` | Tauri builder entry (`run()` composition root) and shared constants |
+| `models.rs` | Structured serde data models shared by commands and modules (exported to TypeScript via ts-rs) |
+| `error.rs` | `AppError`: unified command error contract (`{code, message, params}`) |
+| `events.rs` | Single source of frontend/backend event names and payloads; generates `src/types/generated/events.ts` |
+| `util.rs` | Shared pure helpers: hashing, clip-type detection, `clean_*` validation, localized labels |
+| `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `ocr.rs` | Image OCR: Tesseract asset install (Windows) and system Vision pipeline (macOS) |
+| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
-| `tray.rs` | System tray, menu labels, append-copy timeout |
+| `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
 | `paste.rs` | Target app activation and paste triggering |
-| `commands.rs` | Thin Tauri command layer exposing module functions to the UI |
+| `automation.rs` | Quick-action process execution and event streaming |
+| `commands.rs` | Thin Tauri command layer exposing domain modules to the UI |
 
 ## How It Works
 
@@ -185,6 +204,14 @@ History items and saved category items are different concepts. History items exp
 
 The desktop app can connect to a self-hosted iPaste sync API using an API address and API key in Preferences. Sync scope includes categories and saved text-like category items. The sync service source will be open-sourced when it is ready.
 
+### LAN Sync
+
+Two iPaste instances on the same network can pair with a short code. One device hosts a session; the other joins by address and code. Both sides confirm the pairing before any transfer. Clips and whole categories flow directly between the devices over an encrypted session — a category that does not exist on the receiving side is created automatically.
+
+### Quick Actions
+
+Quick actions are saved shell commands shown in their own panel category. Run them with one keystroke, optionally confirm first, watch streamed output in the detail pane, and share sets between machines via JSON import/export.
+
 ### Image OCR
 
 macOS uses the system Vision framework. Windows uses Tesseract assets that can be installed from app preferences.
@@ -196,9 +223,13 @@ Issues, ideas, and pull requests are welcome.
 Before submitting a pull request, run at least:
 
 ```bash
+npm run lint
+npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+If your change touches shared Rust models or events, also run `npm run gen:types` and commit the regenerated bindings.
 
 Please keep the project local-first, privacy-conscious, and careful around any change that syncs user data. For larger features, open an issue first to discuss boundaries and interaction design.
 

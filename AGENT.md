@@ -7,15 +7,18 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 ## 当前能力
 
 - 将 macOS 和 Windows 作为一等桌面目标平台支持。
-- 以托盘应用形式运行，并提供全局快捷键。
-- 自动捕获本地文本剪贴板历史。
-- 使用 SQLite 在本地存储历史记录和分类。
-- 支持用户创建、重命名、删除和选择分类。
-- 支持用户手动把历史片段加入分类。
-- 支持搜索历史记录和分类片段。
-- 支持通过写入系统剪贴板并触发平台粘贴快捷键来应用片段。
+- 以托盘应用形式运行，并提供可自定义的全局快捷键。
+- 自动捕获文本与图片剪贴板历史（SQLite 本地存储，按内容哈希去重）。
+- 分类：创建、重命名、改色、排序，手动把历史片段存为快照。
+- 搜索历史与分类片段；键盘为主的选择与回贴流程。
+- 图片查看器：预览、缩放、复制回剪贴板、OCR 提取文本（macOS 系统 Vision / Windows Tesseract 资源）。
+- 追加复制：临时合并多段文本复制。
+- LAN 同步：两台设备配对码互信，加密直传片段与整组分类（v4 挑战握手，不经服务器）。
+- 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
+- 快捷动作：保存 shell 命令为面板动作（可确认、输出流式展示、JSON 导入导出）。
+- 多语言界面与签名自动更新（GitHub Releases / Cloudflare R2）。
 
-完整历史同步、账户认证、附件同步、富 HTML 保留和高级来源应用识别仍需按产品优先级谨慎推进。
+账户认证、附件/富媒体云同步、高级来源应用识别等仍未做，按产品优先级推进。
 
 ## 技术栈
 
@@ -76,6 +79,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 ## Rust 规范
 
 - 对命令载荷使用带 `serde` 的结构化数据模型。
+- 修改 `models.rs` 共享模型或 `events.rs` 事件契约后，运行 `npm run gen:types` 并把 `src/types/generated/` 的再生成结果一并提交（CI 校验新鲜度）。
 - 将 SQLite 访问封装在小型存储层后面。
 - Tauri 命令统一返回 `Result<T, AppError>`（`error.rs`，序列化为 `{code, message, params}`）；前端按 code 分支，不解析 message。
 - 避免让面向界面的命令执行长时间阻塞操作。
@@ -94,18 +98,20 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 
 - `stores/ipasteStore.ts`：数据快照缓存与 CRUD 包装；`stores/lib/` 为纯函数库（ordering/selection/settings 清洗/automationFilter/automationTransfer，均带单测）；`stores/uiStore.ts` 为 toast 等瞬态 UI 状态。
 - `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useLanSync、useUpdater 等。
-- App.vue 只保留多窗口路由、面板布局骨架与 composable 接线；新增交互逻辑先进 composable，展示组件保持无业务状态。
+- App.vue 保留多窗口路由、面板布局骨架、composable 接线，以及少量面板级残留（条目内联重命名、分类 CRUD 包装、更新检查节流）；新增交互逻辑先进 composable，展示组件保持无业务状态。
 - 错误双通道：加载失败走 store.error 持久横幅；动作失败走 uiStore.pushToast（ErrorToast.vue 渲染）。
 - `lib/env.ts` 是 isTauri 唯一来源；事件名一律用 `types/generated/events` 的 IPASTE_EVENTS。
 
 ## 验证
 
-在声明重要功能完成前，运行：
+在声明重要功能完成前，按涉及面运行：
 
-- `npm run build`
-- `cargo check --manifest-path src-tauri/Cargo.toml`
+- 前端改动：`npm run lint`、`npm test`（Vitest 单测）、`npm run build`。
+- Rust 改动：`cargo check --manifest-path src-tauri/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`。
+- 改动共享模型/事件契约：另跑 `npm run gen:types` 并确认 `git diff --exit-code -- src/types/generated` 干净。
+- macOS 专属 cfg 分支在 Windows 上无法编译验证，推送后以 CI macos-15 为准。
 
-涉及界面工作时，需要检查桌面和窄视口表现，并确认文本不会重叠或溢出控件。
+涉及界面工作时，需要检查桌面和窄视口表现，并确认文本不会重叠或溢出控件。GUI 交互路径（拖拽排序、快捷预览、右键菜单流等）自动化测试覆盖有限，重大改动合并前需人工冒烟。
 
 ## 发布流程
 
