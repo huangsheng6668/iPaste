@@ -10,7 +10,7 @@ use crate::clipboard::{
 };
 use crate::util::clean_display_name;
 use crate::lan_sync::crypto::SecureConnection;
-use crate::lan_sync::protocol::*;
+use crate::lan_sync::protocol::{LAN_BATCH_MAX_ITEMS, LAN_MAX_PAYLOAD, LanMessage};
 use crate::lan_sync::{ControlMsg, LanSessionManager, LanStatus};
 use crate::models::ClipboardRead;
 use crate::store::Store;

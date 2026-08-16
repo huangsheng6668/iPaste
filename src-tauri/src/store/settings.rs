@@ -1,16 +1,15 @@
 // store/settings.rs — 设置读写
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::*;
-use crate::util::*;
 use super::Store;
+use crate::models::{AppSettings, Category, CategoryItem, ClipPage, CloudSettings};
 use crate::{
     DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_LANGUAGE, DEFAULT_OCR_MODE,
     DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_OPEN_BEHAVIOR, DEFAULT_RETENTION_DAYS, DEFAULT_SHORTCUT,
     CLIP_PAGE_SIZE,
     util::{
-        clean_append_copy_timeout_minutes, clean_panel_layout, clean_panel_open_behavior,
-        clean_retention_days,
+        clean_append_copy_timeout_minutes, clean_language, clean_ocr_mode, clean_panel_layout,
+        clean_panel_open_behavior, clean_retention_days, clean_shortcut,
     },
 };
 

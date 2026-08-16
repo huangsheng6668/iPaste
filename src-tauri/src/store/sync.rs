@@ -1,13 +1,12 @@
 // store/sync.rs — 云同步
 use rusqlite::{params, Connection};
 
-use crate::models::*;
-use crate::util::*;
 use super::Store;
+use crate::models::{AppSettings, CategoryItem, CloudPushPayload, CloudSnapshot, Tombstone};
 use crate::{
     cloud::{cloud_post, is_syncable_clip_type, test_cloud_connection},
     store::rows::{collect_rows, map_category_item},
-    util::now,
+    util::{clean_api_address, clean_api_key, now},
 };
 
 impl Store {

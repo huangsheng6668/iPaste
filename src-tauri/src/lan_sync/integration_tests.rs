@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::events::EVENT_LAN_JOIN_FAILED;
-use crate::lan_sync::protocol::*;
+use crate::lan_sync::protocol::{LAN_PROTOCOL_VERSION, LanMessage, PairRejectReason};
 use crate::lan_sync::session::{run_session_loop, Connection};
 use crate::lan_sync::LanEventSink;
 
@@ -266,7 +266,7 @@ async fn full_v4_handshake_and_secure_session_roundtrip() {
 /// 攻击者不知道配对码：claim 校验失败时 host 拒绝，且派生密钥不同无法解密。
 #[tokio::test]
 async fn wrong_code_claim_derives_mismatched_keys() {
-    use crate::lan_sync::crypto::*;
+    use crate::lan_sync::crypto::{derive_session_key, generate_pair_keys};
 
     let (a_sec, a_pub) = generate_pair_keys();
     let (b_sec, b_pub) = generate_pair_keys();
@@ -281,7 +281,7 @@ async fn wrong_code_claim_derives_mismatched_keys() {
 /// 若 guest 跳过 auth_tag 校验，它会拿到一个无法解密任何帧的错误 key。
 #[tokio::test]
 async fn mismatched_key_prevents_decryption() {
-    use crate::lan_sync::crypto::*;
+    use crate::lan_sync::crypto::SecureConnection;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

@@ -21,9 +21,9 @@ use tauri::{
     Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 
-use crate::events::*;
-use crate::models::*;
-use crate::util::*;
+use crate::events::{EVENT_PANEL_VISIBILITY_CHANGED, PanelVisibilityChanged};
+use crate::models::{AppState, MainWindowActivation, WindowGeometry};
+use crate::util::{clamp, localized_text, percent_encode_component};
 use crate::{
     paste::{
         current_main_window_activation, remember_main_window_activation,
@@ -33,6 +33,8 @@ use crate::{
 };
 #[cfg(target_os = "macos")]
 use crate::paste::run_on_main_thread_for_paste;
+#[cfg(target_os = "macos")]
+use crate::models::MainPanelState;
 
 pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) const SETTINGS_WINDOW: &str = "settings";
@@ -615,10 +617,15 @@ fn show_auxiliary_window(
     app: &tauri::AppHandle,
     config: AuxiliaryWindowConfig,
 ) -> Result<(), String> {
-    let main_monitor = app
-        .get_webview_window(MAIN_WINDOW)
-        .and_then(|window| window.current_monitor().ok().flatten())
-        .or_else(|| app.primary_monitor().ok().flatten());
+    // viewer（near_main_window）定位只依赖主窗口自身（position_clip_viewer_window），
+    // 无需查询显示器；其余辅助窗口才取「主窗口所在显示器」用于居中。
+    let main_monitor = if config.near_main_window {
+        None
+    } else {
+        app.get_webview_window(MAIN_WINDOW)
+            .and_then(|window| window.current_monitor().ok().flatten())
+            .or_else(|| app.primary_monitor().ok().flatten())
+    };
     let window = if let Some(window) = app.get_webview_window(&config.label) {
         window
     } else {

@@ -5,12 +5,11 @@ use std::path::PathBuf;
 use chrono::{Duration as ChronoDuration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::*;
-use crate::util::*;
 use super::Store;
+use crate::models::{CapturedClipboardItem, ClipItem, ClipPage, ClipUpdate, SearchResult};
 use crate::{
     clipboard::image_bytes_from_data_url, store::rows::{collect_rows, map_clip},
-    util::{new_id, now, safe_filename}, IMAGE_DIR,
+    util::{clean_display_name, hash_text, new_id, now, preview, safe_filename}, IMAGE_DIR,
 };
 
 impl Store {

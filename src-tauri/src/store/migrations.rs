@@ -2,10 +2,9 @@
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 
-use crate::util::*;
 use super::Store;
 use crate::{
-    clipboard::image_bytes_from_data_url, util::new_id, DEFAULT_CLIPBOARD_SEEDS,
+    clipboard::image_bytes_from_data_url, util::{hash_text, new_id, preview}, DEFAULT_CLIPBOARD_SEEDS,
 };
 
 fn add_column_if_missing(

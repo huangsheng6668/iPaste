@@ -8,7 +8,9 @@ use tokio::process::Command;
 
 use tauri::Emitter;
 
-use crate::events::*;
+use crate::events::{
+    EVENT_AUTOMATION_RUN_FINISHED, EVENT_AUTOMATION_RUN_OUTPUT, EVENT_AUTOMATION_RUN_STARTED,
+};
 use crate::models::{AutomationAction, AutomationRunSummary};
 use crate::store::Store;
 

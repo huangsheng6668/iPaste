@@ -4,8 +4,7 @@ use reqwest::{blocking::Client, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::models::*;
-use crate::models::HealthPayload;
+use crate::models::{CloudEnvelope, HealthPayload};
 
 pub(crate) fn cloud_get<T: DeserializeOwned>(
     api_address: &str,

@@ -5,16 +5,28 @@ use std::process::Command;
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::clipboard::*;
 use crate::error::AppError;
-use crate::events::*;
-use crate::models::*;
-use crate::paste::*;
-use crate::shortcut::*;
-use crate::tray::*;
-use crate::util::*;
-use crate::window::*;
 use crate::{cloud::test_cloud_connection, CLIP_PAGE_SIZE};
+use crate::clipboard::{record_inserted_capture, write_clipboard_and_mark};
+use crate::events::{EVENT_LISTENING_CHANGED, ListeningChanged};
+use crate::models::{
+    AppInfo, AppSettings, AppSnapshot, AppState, AutomationAction, AutomationInput,
+    AutomationRunDetail, AutomationRunSummary, Category, CategoryItem, CategoryWithItem,
+    ClipPage, ClipUpdate, ImageOcrResult, MainWindowActivation, OcrInstallStatus, SearchResult,
+};
+use crate::paste::paste_to_previous_app;
+use crate::shortcut::{
+    emit_settings_changed, set_app_shortcut_enabled_inner, update_registered_app_shortcut,
+};
+use crate::tray::{
+    apply_tray_language, set_append_copy_enabled_inner, update_pause_capture_menu_label,
+};
+use crate::util::{clean_api_address, clean_api_key, clean_shortcut, localized_text};
+use crate::window::{
+    CLIP_VIEWER_WINDOW_PREFIX, SETTINGS_WINDOW, apply_main_window_layout_geometry,
+    hide_main_window, show_clip_viewer_window, show_main_window, show_settings_window,
+    start_native_main_panel_drag,
+};
 /// get_snapshot 与 sync_cloud_now 共用的 AppSnapshot 组装
 /// （原两处逐行重复约 22 行）。prune_expired 统一在读取前执行。
 fn build_app_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {

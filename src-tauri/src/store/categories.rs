@@ -3,12 +3,11 @@ use std::collections::HashSet;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::*;
-use crate::util::*;
 use super::Store;
+use crate::models::{Category, CategoryHitGroup, CategoryItem, CategoryWithItem, ClipItem};
 use crate::{
     store::rows::{collect_rows, map_category, map_category_item, map_clip},
-    util::{clean_color, new_id, now},
+    util::{clean_category_name, clean_color, clean_display_name, new_id, now},
 };
 
 fn ensure_unique_ids(ids: &[String]) -> Result<(), String> {

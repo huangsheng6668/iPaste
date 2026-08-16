@@ -19,7 +19,7 @@ use enigo::{
 use tauri::Manager;
 
 use crate::error::AppError;
-use crate::models::*;
+use crate::models::{AppState, MainWindowActivation};
 
 #[cfg(target_os = "macos")]
 const PASTE_FOCUS_TIMEOUT: Duration = Duration::from_millis(250);

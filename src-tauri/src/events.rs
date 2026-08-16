@@ -45,6 +45,33 @@ pub(crate) const EVENT_LAN_JOIN_FAILED: &str = "ipaste://lan-join-failed";
 #[allow(dead_code)]
 pub(crate) const EVENT_CLIP_UPDATED: &str = "ipaste://clip-updated";
 
+/// 事件目录单源：新增事件在这里加一行，生成器与完整性断言自动跟随。
+/// 仅被 `export_tests` 消费（生成 events.ts + 完整性校验），故同样 allow(dead_code)。
+#[allow(dead_code)]
+const EVENT_TABLE: &[(&str, &str)] = &[
+    ("clipboardCaptured", EVENT_CLIPBOARD_CAPTURED),
+    ("captureError", EVENT_CAPTURE_ERROR),
+    ("listeningChanged", EVENT_LISTENING_CHANGED),
+    ("appendCopyChanged", EVENT_APPEND_COPY_CHANGED),
+    ("settingsChanged", EVENT_SETTINGS_CHANGED),
+    ("panelVisibilityChanged", EVENT_PANEL_VISIBILITY_CHANGED),
+    ("shortcutOpened", EVENT_SHORTCUT_OPENED),
+    ("ocrInstallProgress", EVENT_OCR_INSTALL_PROGRESS),
+    ("automationRunStarted", EVENT_AUTOMATION_RUN_STARTED),
+    ("automationRunOutput", EVENT_AUTOMATION_RUN_OUTPUT),
+    ("automationRunFinished", EVENT_AUTOMATION_RUN_FINISHED),
+    ("lanSessionReady", EVENT_LAN_SESSION_READY),
+    ("lanDisconnected", EVENT_LAN_DISCONNECTED),
+    ("lanPairRequest", EVENT_LAN_PAIR_REQUEST),
+    ("lanGuestRejected", EVENT_LAN_GUEST_REJECTED),
+    ("lanClipReceived", EVENT_LAN_CLIP_RECEIVED),
+    ("lanClipReceiveFailed", EVENT_LAN_CLIP_RECEIVE_FAILED),
+    ("lanCategorySent", EVENT_LAN_CATEGORY_SENT),
+    ("lanCategoryReceived", EVENT_LAN_CATEGORY_RECEIVED),
+    ("lanJoinFailed", EVENT_LAN_JOIN_FAILED),
+    ("clipUpdated", EVENT_CLIP_UPDATED),
+];
+
 // —— 事件 payload（自 models.rs / lan_sync/mod.rs 移入；derive 随行）——
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -173,39 +200,16 @@ mod export_tests {
     /// 产物幂等：内容不变时重写为相同字节；CI 用 git diff 校验新鲜度。
     #[test]
     fn export_bindings_events() {
-        let events: &[(&str, &str)] = &[
-            ("clipboardCaptured", EVENT_CLIPBOARD_CAPTURED),
-            ("captureError", EVENT_CAPTURE_ERROR),
-            ("listeningChanged", EVENT_LISTENING_CHANGED),
-            ("appendCopyChanged", EVENT_APPEND_COPY_CHANGED),
-            ("settingsChanged", EVENT_SETTINGS_CHANGED),
-            ("panelVisibilityChanged", EVENT_PANEL_VISIBILITY_CHANGED),
-            ("shortcutOpened", EVENT_SHORTCUT_OPENED),
-            ("ocrInstallProgress", EVENT_OCR_INSTALL_PROGRESS),
-            ("automationRunStarted", EVENT_AUTOMATION_RUN_STARTED),
-            ("automationRunOutput", EVENT_AUTOMATION_RUN_OUTPUT),
-            ("automationRunFinished", EVENT_AUTOMATION_RUN_FINISHED),
-            ("lanSessionReady", EVENT_LAN_SESSION_READY),
-            ("lanDisconnected", EVENT_LAN_DISCONNECTED),
-            ("lanPairRequest", EVENT_LAN_PAIR_REQUEST),
-            ("lanGuestRejected", EVENT_LAN_GUEST_REJECTED),
-            ("lanClipReceived", EVENT_LAN_CLIP_RECEIVED),
-            ("lanClipReceiveFailed", EVENT_LAN_CLIP_RECEIVE_FAILED),
-            ("lanCategorySent", EVENT_LAN_CATEGORY_SENT),
-            ("lanCategoryReceived", EVENT_LAN_CATEGORY_RECEIVED),
-            ("lanJoinFailed", EVENT_LAN_JOIN_FAILED),
-            ("clipUpdated", EVENT_CLIP_UPDATED),
-        ];
-        // 完整性守护：新增事件常量时必须同步登记到此表，否则 events.ts 会静默缺项
+        // 完整性守护：新增事件常量时必须同步登记到 EVENT_TABLE，否则 events.ts 会静默缺项
         // （CI 新鲜度检查无法发现「从未生成」的缺失）。
-        assert_eq!(events.len(), 21, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
+        assert_eq!(EVENT_TABLE.len(), 21, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
         let mut out = String::from(
             "// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.\n\
              // Run `npm run gen:types` to regenerate.\n\
              // clipUpdated 由前端发起（useClipEditor），其余由 Rust 发起。\n\
              export const IPASTE_EVENTS = {\n",
         );
-        for (key, value) in events {
+        for (key, value) in EVENT_TABLE {
             out.push_str(&format!("  {key}: \"{value}\",\n"));
         }
         out.push_str(
@@ -214,5 +218,14 @@ mod export_tests {
         );
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/types/generated/events.ts");
         std::fs::write(path, out).unwrap();
+    }
+
+    /// 事件表完整性：条目数快照 + 事件值无重复（漏登记一行或把值抄错都会在此失败，
+    /// 且重复值会让 `as const` 的键类型静默合并，属最难肉眼发现的错配）。
+    #[test]
+    fn event_table_covers_all_consts() {
+        assert_eq!(EVENT_TABLE.len(), 21, "事件目录条目数偏离快照，需同步更新此断言");
+        let set: std::collections::HashSet<_> = EVENT_TABLE.iter().map(|(_, v)| *v).collect();
+        assert_eq!(set.len(), EVENT_TABLE.len(), "EVENT_TABLE 存在重复的事件值");
     }
 }

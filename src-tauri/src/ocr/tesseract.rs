@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use super::installer::{ocr_asset_dir, ocr_engine_dir};
-use crate::models::*;
+use crate::models::{ImageOcrResult, ImageOcrWord};
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn recognize_image_text_inner(

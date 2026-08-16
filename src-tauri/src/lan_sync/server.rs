@@ -10,9 +10,11 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use crate::lan_sync::crypto::generate_pair_keys;
-use crate::lan_sync::protocol::*;
+use crate::lan_sync::protocol::{
+    LAN_PROTOCOL_VERSION, LAN_TCP_BASE_PORT, LanMessage, PairRejectReason, code_hash,
+};
 use crate::lan_sync::session::{run_session_loop, Connection};
-use crate::lan_sync::*;
+use crate::lan_sync::{ControlMsg, LanSessionManager, device_name};
 use crate::store::Store;
 
 /// 握手/配对阶段的最大并发连接数，超出即丢弃新连接（防 slowloris 型资源耗尽）。

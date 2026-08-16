@@ -6,9 +6,11 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
-use crate::lan_sync::protocol::*;
+use crate::lan_sync::protocol::{
+    CHALLENGE_WAIT_TIMEOUT_SECS, LAN_PROTOCOL_VERSION, LanMessage, PairRejectReason,
+};
 use crate::lan_sync::session::{run_session_loop, Connection};
-use crate::lan_sync::*;
+use crate::lan_sync::{ControlMsg, LanSessionManager, device_name};
 use crate::store::Store;
 
 /// 与 host 握手：等 PairChallenge → 发持码证明 → 校验 PairAccepted → 进 session loop。

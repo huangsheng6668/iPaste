@@ -1,8 +1,9 @@
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-use crate::events::*;
-use crate::models::*;
+use crate::events::{EVENT_SETTINGS_CHANGED, SettingsChanged};
+use crate::models::{AppSettings, AppState};
+
 pub(crate) fn shortcut_matches(shortcut: &Shortcut, shortcut_spec: &str) -> bool {
     shortcut_spec
         .parse::<Shortcut>()

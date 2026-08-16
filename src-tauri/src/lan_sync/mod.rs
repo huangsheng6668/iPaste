@@ -16,6 +16,13 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use ts_rs::TS;
 
+use crate::events::{
+    EVENT_LAN_CATEGORY_RECEIVED, EVENT_LAN_CATEGORY_SENT, EVENT_LAN_CLIP_RECEIVED,
+    EVENT_LAN_CLIP_RECEIVE_FAILED, EVENT_LAN_DISCONNECTED, EVENT_LAN_GUEST_REJECTED,
+    EVENT_LAN_JOIN_FAILED, EVENT_LAN_PAIR_REQUEST, EVENT_LAN_SESSION_READY, LanCategoryReceived,
+    LanCategorySent, LanClipReceiveFailed, LanClipReceived, LanDisconnected, LanGuestRejected,
+    LanJoinFailed, LanPairRequest, LanSessionReady,
+};
 use crate::lan_sync::pair_guard::PairGuard;
 
 /// 事件出口抽象：生产环境转发到 Tauri 前端；测试用 Noop（不构造任何
@@ -42,9 +49,6 @@ impl LanEventSink for NoopEventSink {
     fn emit(&self, _event: &str, _payload: &serde_json::Value) {}
 }
 
-use crate::lan_sync::protocol::*;
-use crate::models::*;
-use crate::events::*;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]

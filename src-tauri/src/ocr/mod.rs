@@ -3,8 +3,9 @@
 
 use tauri::Emitter;
 
-use crate::events::*;
-use crate::models::*;
+use crate::events::EVENT_OCR_INSTALL_PROGRESS;
+use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus};
+
 #[cfg(target_os = "macos")]
 use crate::DEFAULT_OCR_MODE;
 #[cfg(target_os = "macos")]

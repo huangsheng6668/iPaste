@@ -90,6 +90,14 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 面板内的键盘快捷键应通过明确行为体现可发现性，不要使用大段说明文案。
 - 命令按钮以及分类、类型提示应使用 lucide 图标。
 
+## 前端结构
+
+- `stores/ipasteStore.ts`：数据快照缓存与 CRUD 包装；`stores/lib/` 为纯函数库（ordering/selection/settings 清洗/automationFilter/automationTransfer，均带单测）；`stores/uiStore.ts` 为 toast 等瞬态 UI 状态。
+- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useLanSync、useUpdater 等。
+- App.vue 只保留多窗口路由、面板布局骨架与 composable 接线；新增交互逻辑先进 composable，展示组件保持无业务状态。
+- 错误双通道：加载失败走 store.error 持久横幅；动作失败走 uiStore.pushToast（ErrorToast.vue 渲染）。
+- `lib/env.ts` 是 isTauri 唯一来源；事件名一律用 `types/generated/events` 的 IPASTE_EVENTS。
+
 ## 验证
 
 在声明重要功能完成前，运行：

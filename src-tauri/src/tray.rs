@@ -10,11 +10,10 @@ use tauri::{
     Emitter,
 };
 
-use crate::events::*;
-use crate::models::*;
-use crate::util::*;
+use crate::events::{AppendCopyChanged, EVENT_APPEND_COPY_CHANGED, EVENT_LISTENING_CHANGED, ListeningChanged};
+use crate::models::{AppendCopyState, AppState, MainWindowActivation};
 use crate::window::show_settings_window;
-use crate::{util::new_id, window::show_main_window, DEFAULT_LANGUAGE};
+use crate::{util::{localized_text, new_id}, window::show_main_window, DEFAULT_LANGUAGE};
 pub(crate) fn update_pause_capture_menu_label(state: &AppState, is_listening: bool) {
     let language = state
         .store

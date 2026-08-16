@@ -7,8 +7,8 @@ use tauri::Manager;
 use zip::ZipArchive;
 
 use super::{emit_ocr_install_progress, ocr_platform};
-use crate::models::*;
-use crate::util::*;
+use crate::models::{OcrInstallStatus, OcrManifest, OcrManifestFile};
+use crate::util::{clean_ocr_mode, file_sha256, validate_relative_path};
 
 #[cfg(not(target_os = "macos"))]
 const OCR_GITHUB_RELEASE_BASE_URL: &str =
