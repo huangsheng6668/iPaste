@@ -19,6 +19,8 @@ iPaste 常驻系统托盘，在本机记录剪贴板历史。你可以用全局�
 - 保存分类：把常用片段保存为分类条目，用于代码片段、命令、地址、回复模板和提示词。
 - 图片查看：支持图片预览、缩放、旋转、复制回剪贴板，以及 OCR 文本提取。
 - 追加复制：可把多次文本复制临时合并为一个片段，适合收集多段资料。
+- 局域网同步：在同一网络下用短配对码连接两台设备，直接互发片段或整组分类——端到端加密，不经任何服务器。
+- 快捷动作：把 shell 命令保存为一键执行的面板动作，支持可选确认、输出流式展示和 JSON 导入导出。
 - 可配置偏好：支持历史保留时长、面板布局、打开行为、全局快捷键、语言和 OCR 模式设置。
 - 可选自托管同步：只同步保存分类和已保存的类文本内容，原始剪贴板历史始终留在本机。
 - 签名更新：内置 Tauri 更新器支持，发布产物可通过 GitHub Releases 或 Cloudflare R2 分发。
@@ -71,6 +73,7 @@ iPaste 的默认模型是本地优先。
 
 - 自动捕获的剪贴板历史不会被上传或同步。
 - 本地数据保存在系统应用数据目录下的 SQLite 数据库中。
+- 局域网同步在你自己的设备间通过本地网络直接传输内容。会话由配对码与端到端加密（X25519 密钥交换、AES-256-GCM）保护，不经过任何服务器。
 - 启用云同步时，只同步分类和已保存的文本、链接、颜色、HTML 内容。
 - 图片和文件片段目前不在云同步载荷中。
 - 云同步需要你自己配置 API 地址和 API Key。
@@ -128,44 +131,60 @@ npm run tauri dev
 ### 构建
 
 ```bash
-npm run build
-npm run tauri build
+npm run lint        # ESLint 检查
+npm test            # Vitest 前端单测
+npm run build       # 类型检查（vue-tsc）+ Vite 生产构建
+npm run tauri build # 桌面安装包
 ```
 
 快速检查原生编译：
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+### 共享类型
+
+`src/types/generated/` 中的 TypeScript 绑定由 ts-rs 从 Rust 生成。修改 `models.rs` 共享模型或 `events.rs` 事件定义后，请重新生成并提交——CI 会校验新鲜度。
+
+```bash
+npm run gen:types
 ```
 
 ## 项目结构
 
 ```text
 .
-├── src/                  # Vue 应用、store、组件和前端 API 封装
+├── src/                  # Vue 应用：组件、composables、Pinia store 与前端 API 封装
 ├── src-tauri/            # Tauri 配置和 Rust 桌面后端
 │   └── src/              # Rust 后端模块（见下表）
 ├── scripts/              # 发布、版本和更新器分发工具
 ├── docs/                 # 运维文档和项目笔记
 ├── key/                  # 公开更新器公钥；私钥不得进入 git
-└── .github/workflows/    # 已签名桌面构建的发布工作流
+└── .github/workflows/    # CI 与已签名桌面构建的发布工作流
 ```
 
 `src-tauri/src/` 下的 Rust 后端按领域拆分为小模块：
 
 | 模块 | 职责 |
 | --- | --- |
-| `lib.rs` | Tauri 构建入口、共享常量和跨模块辅助函数 |
-| `models.rs` | 命令和模块共享的结构化 serde 数据模型 |
-| `store.rs` | SQLite 持久化与云同步编排 |
+| `lib.rs` | Tauri 构建入口（`run()` 组合根）与共享常量 |
+| `models.rs` | 命令和模块共享的结构化 serde 数据模型（经 ts-rs 导出为 TypeScript） |
+| `error.rs` | `AppError`：统一的命令错误契约（`{code, message, params}`） |
+| `events.rs` | 前后端事件名与 payload 的唯一来源；生成 `src/types/generated/events.ts` |
+| `util.rs` | 共享纯函数：哈希、剪贴板类型检测、`clean_*` 校验清理、本地化文案 |
+| `store.rs` + `store/` | SQLite 持久化，按域拆分子模块（clips/categories/settings/automations/sync/migrations/secrets） |
 | `clipboard.rs` | 剪贴板捕获、规范化和写回 |
 | `cloud.rs` | 自托管同步 API 客户端 |
-| `ocr.rs` | 图片 OCR：Tesseract 资源安装（Windows）和系统 Vision 管线（macOS） |
+| `lan_sync/` | LAN 设备同步：协议、加密（X25519 + AES-256-GCM）、会话循环、host/guest 角色、配对防护 |
+| `ocr/` | 图片 OCR：资源安装器与状态检测（Windows）、Tesseract 执行（Windows）、Vision 管线（macOS） |
 | `window.rs` | 面板/设置/放大窗口、原生面板行为和窗口定位 |
-| `tray.rs` | 系统托盘、菜单文案、追加复制超时 |
+| `tray.rs` | 系统托盘、菜单文案与菜单事件处理 |
 | `shortcut.rs` | 全局快捷键注册与更新 |
 | `paste.rs` | 目标应用激活与触发粘贴 |
-| `commands.rs` | 向 UI 暴露模块函数的薄 Tauri 命令层 |
+| `automation.rs` | 快捷动作的进程执行与事件流 |
+| `commands.rs` | 向 UI 暴露域模块的薄 Tauri 命令层 |
 
 ## 工作原理
 
@@ -185,6 +204,14 @@ Rust 后端在后台监听系统剪贴板，对受支持的内容进行规范化
 
 桌面应用可以在偏好设置中配置 API 地址和 API Key，连接到自托管的 iPaste 同步 API。同步范围包括分类和已保存的类文本分类条目。同步服务源码待就绪后开源。
 
+### 局域网同步
+
+同一网络下的两台 iPaste 可以用短配对码建立连接。一台设备发起会话，另一台凭地址和配对码加入，任何传输前双方都要确认配对。片段与整组分类经加密会话在设备间直传；接收端不存在的分类会自动创建。
+
+### 快捷动作
+
+快捷动作是保存的 shell 命令，显示在独立的面板分类里。一键执行、可选先确认、在详情窗格查看流式输出，并可通过 JSON 导入导出在机器间分享。
+
 ### 图片 OCR
 
 macOS 使用系统 Vision 框架。Windows 使用可在应用偏好设置中安装的 Tesseract 资源。
@@ -196,9 +223,13 @@ macOS 使用系统 Vision 框架。Windows 使用可在应用偏好设置中安�
 提交 Pull Request 前请至少运行：
 
 ```bash
+npm run lint
+npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+如果改动涉及共享 Rust 模型或事件，还需要运行 `npm run gen:types` 并把再生成的绑定一并提交。
 
 请保持项目本地优先、尊重隐私，并谨慎处理任何会同步用户数据的改动。较大的功能建议先开 Issue 讨论边界和交互。
 

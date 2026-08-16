@@ -20,6 +20,8 @@ Il est conçu pour les personnes qui passent toute la journée entre messageries
 - Catégories enregistrées: conservez des extraits réutilisables pour du code, des commandes, des adresses, des modèles de réponse, des prompts et plus encore.
 - Visionneuse d'images: prévisualisez, zoomez, faites pivoter, recopiez dans le presse-papiers et extrayez du texte avec l'OCR.
 - Copie par ajout: fusionnez temporairement plusieurs copies de texte en un seul extrait pendant que vous rassemblez du contenu.
+- Synchronisation LAN : appariez deux appareils sur le même réseau avec un code court, puis envoyez des clips ou des catégories entières directement entre eux — chiffré de bout en bout, sans passer par aucun serveur.
+- Actions rapides : enregistrez des commandes shell comme actions de panneau à une touche, avec confirmation optionnelle, sortie en flux et import/export JSON.
 - Préférences configurables: durée de conservation, disposition du panneau, comportement d'ouverture par défaut, raccourci global, langue et mode OCR.
 - Synchronisation autohébergée facultative: synchronise uniquement les catégories enregistrées et le contenu textuel enregistré; l'historique brut du presse-papiers reste local.
 - Mises à jour signées: prise en charge du Tauri updater intégré pour les versions distribuées via GitHub Releases ou Cloudflare R2.
@@ -54,6 +56,7 @@ iPaste est local-first par défaut.
 
 - L'historique du presse-papiers capturé automatiquement n'est ni téléversé ni synchronisé.
 - Les données locales sont stockées dans une base SQLite sous le répertoire de données d'application du système.
+- La synchronisation LAN transfère le contenu directement entre vos propres appareils via le réseau local. Les sessions sont protégées par un code d'appairage et un chiffrement de bout en bout (échange de clés X25519, AES-256-GCM) ; aucun serveur n'intervient.
 - Lorsque la synchronisation cloud est activée, seules les catégories et les entrées enregistrées de texte, lien, couleur et HTML sont synchronisées.
 - Les extraits d'image et de fichier sont actuellement exclus de la charge utile de synchronisation cloud.
 - La synchronisation cloud nécessite votre propre adresse d'API et votre propre clé d'API.
@@ -111,44 +114,60 @@ npm run tauri dev
 ### Build
 
 ```bash
-npm run build
-npm run tauri build
+npm run lint        # ESLint
+npm test            # Vitest unit tests (frontend)
+npm run build       # Type-check (vue-tsc) + Vite production build
+npm run tauri build # Desktop installers
 ```
 
 Vérification rapide de compilation native:
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+### Shared Types
+
+Les liaisons TypeScript dans `src/types/generated/` sont générées depuis Rust via ts-rs. Après avoir modifié les modèles partagés dans `models.rs` ou les événements dans `events.rs`, régénérez-les et versionnez-les ; la CI vérifie leur fraîcheur.
+
+```bash
+npm run gen:types
 ```
 
 ## Project Structure
 
 ```text
 .
-├── src/                  # Vue app, store, components, and frontend API wrappers
+├── src/                  # Vue app: components, composables, Pinia stores, frontend API wrappers
 ├── src-tauri/            # Tauri config and Rust desktop backend
 │   └── src/              # Rust backend modules (see below)
 ├── scripts/              # Release, versioning, and updater distribution tools
 ├── docs/                 # Operational docs and project notes
 ├── key/                  # Public updater key; private keys must not be committed
-└── .github/workflows/    # Signed desktop build release workflows
+└── .github/workflows/    # CI and signed desktop build release workflows
 ```
 
 The Rust backend in `src-tauri/src/` is split into small domain modules:
 
 | Module | Responsibility |
 | --- | --- |
-| `lib.rs` | Tauri builder entry, shared constants, and cross-module helpers |
-| `models.rs` | Structured serde data models shared by commands and modules |
-| `store.rs` | SQLite persistence and cloud sync orchestration |
+| `lib.rs` | Tauri builder entry (`run()` composition root) and shared constants |
+| `models.rs` | Structured serde data models shared by commands and modules (exported to TypeScript via ts-rs) |
+| `error.rs` | `AppError`: unified command error contract (`{code, message, params}`) |
+| `events.rs` | Single source of frontend/backend event names and payloads; generates `src/types/generated/events.ts` |
+| `util.rs` | Shared pure helpers: hashing, clip-type detection, `clean_*` validation, localized labels |
+| `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `ocr.rs` | Image OCR: Tesseract asset install (Windows) and system Vision pipeline (macOS) |
+| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
-| `tray.rs` | System tray, menu labels, append-copy timeout |
+| `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
 | `paste.rs` | Target app activation and paste triggering |
-| `commands.rs` | Thin Tauri command layer exposing module functions to the UI |
+| `automation.rs` | Quick-action process execution and event streaming |
+| `commands.rs` | Thin Tauri command layer exposing domain modules to the UI |
 
 ## How It Works
 
@@ -168,6 +187,14 @@ Les éléments d'historique et les éléments de catégories enregistrées sont 
 
 L'application de bureau peut se connecter à une iPaste sync API autohébergée en utilisant une adresse d'API et une clé d'API dans Preferences. Le périmètre de synchronisation inclut les catégories et les éléments de catégorie enregistrés de type texte. Le code source du service de synchronisation sera publié en open source lorsqu'il sera prêt.
 
+### LAN Sync
+
+Deux instances d'iPaste sur le même réseau peuvent s'appairer avec un code court. Un appareil héberge la session ; l'autre rejoint par adresse et code. Les deux parties confirment l'appairage avant tout transfert. Les clips et des catégories entières circulent directement entre les appareils via une session chiffrée ; une catégorie absente chez le destinataire est créée automatiquement.
+
+### Quick Actions
+
+Les actions rapides sont des commandes shell enregistrées, affichées dans leur propre catégorie du panneau. Exécutez-les d'une touche, confirmez au préalable si vous le souhaitez, suivez la sortie en flux dans le volet de détails et partagez des ensembles entre machines via l'import/export JSON.
+
 ### Image OCR
 
 macOS utilise le framework Vision du système. Windows utilise des ressources Tesseract qui peuvent être installées depuis les préférences de l'application.
@@ -179,9 +206,13 @@ Les Issues, idées et Pull Requests sont les bienvenues.
 Avant d'envoyer une Pull Request, exécutez au minimum:
 
 ```bash
+npm run lint
+npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+Si votre modification touche les modèles Rust partagés ou les événements, exécutez aussi `npm run gen:types` et incluez les liaisons régénérées dans le commit.
 
 Veuillez garder le projet local-first, respectueux de la vie privée et prudent avec tout changement qui synchronise des données utilisateur. Pour les fonctionnalités plus importantes, ouvrez d'abord une Issue afin de discuter des limites et du design d'interaction.
 

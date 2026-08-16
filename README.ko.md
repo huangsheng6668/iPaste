@@ -20,6 +20,8 @@ iPaste는 시스템 트레이에 상주하며 클립보드 기록을 로컬에 �
 - 저장 카테고리: 코드, 명령어, 주소, 답장 템플릿, 프롬프트 등 재사용 가능한 스니펫을 보관합니다.
 - 이미지 뷰어: 미리보기, 확대/축소, 회전, 클립보드로 다시 복사, OCR 텍스트 추출을 지원합니다.
 - 이어붙여 복사: 자료를 모으는 동안 여러 번 복사한 텍스트를 하나의 스니펫으로 임시 병합할 수 있습니다.
+- LAN 동기화: 같은 네트워크의 두 기기를 짧은 코드로 페어링하고, 클립이나 카테고리 전체를 기기 간에 직접 전송합니다. 종단 간 암호화되며 서버를 거치지 않습니다.
+- 빠른 동작: 셸 명령을 한 번의 키로 실행하는 패널 동작으로 저장합니다. 선택적 확인, 스트리밍 출력, JSON 가져오기/내보내기를 지원합니다.
 - 설정 가능한 환경설정: 보존 기간, 패널 레이아웃, 기본 열기 동작, 전역 단축키, 언어, OCR 모드를 설정할 수 있습니다.
 - 선택적 셀프 호스팅 동기화: 저장 카테고리와 저장된 텍스트 계열 콘텐츠만 동기화하며, 원본 클립보드 기록은 로컬에 유지됩니다.
 - 서명된 업데이트: GitHub Releases 또는 Cloudflare R2로 배포되는 릴리스를 위한 내장 Tauri updater를 지원합니다.
@@ -54,6 +56,7 @@ iPaste는 기본적으로 로컬 우선입니다.
 
 - 자동으로 캡처된 클립보드 기록은 업로드되거나 동기화되지 않습니다.
 - 로컬 데이터는 시스템 앱 데이터 디렉터리 아래의 SQLite 데이터베이스에 저장됩니다.
+- LAN 동기화는 콘텐츠를 로컬 네트워크를 통해 내 기기 간에 직접 전송합니다. 세션은 페어링 코드와 종단 간 암호화(X25519 키 교환, AES-256-GCM)로 보호되며 서버는 관여하지 않습니다.
 - 클라우드 동기화를 활성화하면 카테고리와 저장된 텍스트, 링크, 색상, HTML 항목만 동기화됩니다.
 - 이미지와 파일 스니펫은 현재 클라우드 동기화 페이로드에서 제외됩니다.
 - 클라우드 동기화에는 직접 준비한 API 주소와 API 키가 필요합니다.
@@ -111,44 +114,60 @@ npm run tauri dev
 ### Build
 
 ```bash
-npm run build
-npm run tauri build
+npm run lint        # ESLint
+npm test            # Vitest unit tests (frontend)
+npm run build       # Type-check (vue-tsc) + Vite production build
+npm run tauri build # Desktop installers
 ```
 
 빠른 네이티브 컴파일 확인:
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+### Shared Types
+
+`src/types/generated/`의 TypeScript 바인딩은 ts-rs를 통해 Rust에서 생성됩니다. `models.rs`의 공유 모델이나 `events.rs`의 이벤트 정의를 변경한 뒤에는 다시 생성하여 커밋하세요. CI가 신선도를 검증합니다.
+
+```bash
+npm run gen:types
 ```
 
 ## Project Structure
 
 ```text
 .
-├── src/                  # Vue app, store, components, and frontend API wrappers
+├── src/                  # Vue app: components, composables, Pinia stores, frontend API wrappers
 ├── src-tauri/            # Tauri config and Rust desktop backend
 │   └── src/              # Rust backend modules (see below)
 ├── scripts/              # Release, versioning, and updater distribution tools
 ├── docs/                 # Operational docs and project notes
 ├── key/                  # Public updater key; private keys must not be committed
-└── .github/workflows/    # Signed desktop build release workflows
+└── .github/workflows/    # CI and signed desktop build release workflows
 ```
 
 The Rust backend in `src-tauri/src/` is split into small domain modules:
 
 | Module | Responsibility |
 | --- | --- |
-| `lib.rs` | Tauri builder entry, shared constants, and cross-module helpers |
-| `models.rs` | Structured serde data models shared by commands and modules |
-| `store.rs` | SQLite persistence and cloud sync orchestration |
+| `lib.rs` | Tauri builder entry (`run()` composition root) and shared constants |
+| `models.rs` | Structured serde data models shared by commands and modules (exported to TypeScript via ts-rs) |
+| `error.rs` | `AppError`: unified command error contract (`{code, message, params}`) |
+| `events.rs` | Single source of frontend/backend event names and payloads; generates `src/types/generated/events.ts` |
+| `util.rs` | Shared pure helpers: hashing, clip-type detection, `clean_*` validation, localized labels |
+| `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `ocr.rs` | Image OCR: Tesseract asset install (Windows) and system Vision pipeline (macOS) |
+| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
-| `tray.rs` | System tray, menu labels, append-copy timeout |
+| `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
 | `paste.rs` | Target app activation and paste triggering |
-| `commands.rs` | Thin Tauri command layer exposing module functions to the UI |
+| `automation.rs` | Quick-action process execution and event streaming |
+| `commands.rs` | Thin Tauri command layer exposing domain modules to the UI |
 
 ## How It Works
 
@@ -168,6 +187,14 @@ iPaste에서 붙여넣을 때 앱은 선택한 스니펫을 시스템 클립보�
 
 데스크톱 앱은 Preferences에서 API 주소와 API 키를 설정해 셀프 호스팅 iPaste sync API에 연결할 수 있습니다. 동기화 범위에는 카테고리와 저장된 텍스트 계열 카테고리 항목이 포함됩니다. 동기화 서비스 소스는 준비되는 대로 오픈 소스로 공개될 예정입니다.
 
+### LAN Sync
+
+같은 네트워크의 두 iPaste는 짧은 코드로 페어링할 수 있습니다. 한쪽 기기가 세션을 호스트하고 다른 쪽이 주소와 코드로 참여합니다. 전송 전에 양쪽 모두 페어링을 확인합니다. 클립과 카테고리 전체는 암호화된 세션을 통해 기기 간에 직접 전달되며, 받는 쪽에 없는 카테고리는 자동으로 생성됩니다.
+
+### Quick Actions
+
+빠른 동작은 저장한 셸 명령으로, 전용 패널 카테고리에 표시됩니다. 한 번의 키로 실행하고, 필요하면 먼저 확인하며, 세부 정보 창에서 스트리밍 출력을 확인하고, JSON 가져오기/내보내기로 세트를 공유할 수 있습니다.
+
 ### Image OCR
 
 macOS는 시스템 Vision framework를 사용합니다. Windows는 앱 환경설정에서 설치할 수 있는 Tesseract 에셋을 사용합니다.
@@ -179,9 +206,13 @@ Issue, 아이디어, Pull Request를 환영합니다.
 Pull Request를 제출하기 전에 최소한 다음을 실행하세요.
 
 ```bash
+npm run lint
+npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+공유 Rust 모델이나 이벤트에 관련된 변경이라면 `npm run gen:types`도 실행하고 재생성된 바인딩을 커밋에 포함하세요.
 
 프로젝트를 로컬 우선, 개인정보 보호 중심으로 유지하고, 사용자 데이터를 동기화하는 변경에는 신중해 주세요. 큰 기능은 먼저 Issue를 열어 범위와 상호작용 설계를 논의하세요.
 
