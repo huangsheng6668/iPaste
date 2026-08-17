@@ -900,3 +900,186 @@ html.dark .app-shell {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ==========================================================================
+   Raycast Layout & Command Bar & Action Bar
+   ========================================================================== */
+
+.raycast-container {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-app);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--window-radius);
+  color: var(--text-1);
+}
+
+.raycast-top-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+
+.raycast-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.raycast-search-input-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.raycast-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-1);
+}
+
+.raycast-search-input::placeholder {
+  color: var(--text-3);
+}
+
+.raycast-filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 1rem 0.625rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.raycast-filter-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.raycast-pill-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.625rem;
+  padding: 0 0.625rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-inset);
+  color: var(--text-2);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.raycast-pill-tab:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.raycast-pill-tab-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--border-accent);
+  font-weight: 600;
+}
+
+.raycast-main-split {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.raycast-left-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  gap: 0.375rem;
+}
+
+.raycast-left-pane::-webkit-scrollbar {
+  width: 0.25rem;
+}
+
+.raycast-left-pane::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--r-pill);
+}
+
+.raycast-right-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---- Keyboard Action Bar ---------------------------------------------- */
+.keyboard-action-bar {
+  flex: 0 0 auto;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.875rem;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-2);
+  font-size: 0.6875rem;
+  color: var(--text-3);
+  user-select: none;
+}
+
+.keyboard-action-list {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.keyboard-action-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
+.keyboard-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.25rem;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+

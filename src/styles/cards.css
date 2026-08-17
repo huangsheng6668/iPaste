@@ -695,3 +695,271 @@
 .detail-pane-value {
   color: var(--text-2);
 }
+
+/* ==========================================================================
+   Raycast / Linear Style Mini Cards & Inspector
+   ========================================================================== */
+
+/* ---- Mini Card (Dual Line) -------------------------------------------- */
+.clip-mini-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0.5rem 0.875rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 120ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.clip-mini-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.clip-mini-card-selected,
+.clip-mini-card-selected:hover {
+  background: var(--surface-active);
+  border-color: var(--border-accent);
+}
+
+.clip-mini-card-indicator {
+  position: absolute;
+  left: 0;
+  top: 0.375rem;
+  bottom: 0.375rem;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--focus-ring);
+  transition: transform 140ms ease;
+}
+
+.clip-mini-card-line1 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.clip-mini-card-icon {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+}
+
+.clip-mini-card-selected .clip-mini-card-icon {
+  color: var(--accent);
+}
+
+.clip-mini-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-mini-card-tag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.375rem;
+  border-radius: var(--r-pill);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--border-accent);
+}
+
+.clip-mini-card-line2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.6875rem;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.clip-mini-card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-mini-card-action-hint {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: var(--r-xs);
+  background: var(--surface-hover);
+  color: var(--text-2);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: 1px solid var(--border-hairline);
+}
+
+.clip-mini-card-selected .clip-mini-card-action-hint {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+
+/* ---- Inspector Pane --------------------------------------------------- */
+.clip-inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border-hairline);
+  overflow: hidden;
+}
+
+.clip-inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-2);
+}
+
+.clip-inspector-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.clip-inspector-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-inspector-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.875rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.clip-inspector-content-box {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-code);
+  padding: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-1);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.clip-inspector-image-box {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-code);
+  padding: 0.5rem;
+  overflow: hidden;
+}
+
+.clip-inspector-image-box img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+}
+
+.clip-inspector-color-box {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-code);
+}
+
+.clip-inspector-color-preview {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-card);
+}
+
+.clip-inspector-meta-card {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-2);
+  font-size: 0.6875rem;
+}
+
+.clip-inspector-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.clip-inspector-meta-label {
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.clip-inspector-meta-val {
+  color: var(--text-1);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
