@@ -59,21 +59,21 @@ watch(
 <template>
   <div
     v-if="action"
-    class="flex h-full flex-col"
+    class="flex h-full flex-col bg-[var(--surface)] text-[var(--text-1)]"
   >
-    <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <div class="flex items-center justify-between border-b border-[var(--border-hairline)] px-4 py-3 bg-[var(--surface-2)]">
       <div class="min-w-0">
-        <h2 class="truncate text-sm font-semibold text-slate-950">
+        <h2 class="truncate text-sm font-semibold text-[var(--text-1)]">
           {{ action.name }}
         </h2>
         <span
           class="text-xs"
-          :class="status === 'running' ? 'text-blue-600' : status === 'success' ? 'text-emerald-600' : status === 'failed' || status === 'timed_out' ? 'text-red-600' : 'text-slate-400'"
+          :class="status === 'running' ? 'text-[var(--info)]' : status === 'success' ? 'text-[var(--success)]' : status === 'failed' || status === 'timed_out' ? 'text-[var(--danger)]' : 'text-[var(--text-3)]'"
         >{{ statusLabel }}</span>
       </div>
       <button
         type="button"
-        class="btn-primary"
+        class="btn-primary text-xs"
         :disabled="status === 'running'"
         @click="emit('run')"
       >
@@ -89,21 +89,21 @@ watch(
       </button>
     </div>
 
-    <div class="flex-1 overflow-auto px-4 py-3 text-sm">
-      <dl class="space-y-2">
+    <div class="flex-1 overflow-auto p-4 text-sm">
+      <dl class="space-y-3">
         <div>
-          <dt class="text-xs font-medium text-slate-500">
+          <dt class="text-xs font-medium text-[var(--text-3)]">
             {{ t("automation.command") }}
           </dt>
-          <dd class="mt-0.5 break-all rounded bg-slate-50 p-2 font-mono text-xs">
+          <dd class="mt-1 break-all rounded-md border border-[var(--border-hairline)] bg-[var(--surface-code)] p-2.5 font-mono text-xs text-[var(--text-1)]">
             {{ action.command }}
           </dd>
         </div>
         <div v-if="action.cwd">
-          <dt class="text-xs font-medium text-slate-500">
+          <dt class="text-xs font-medium text-[var(--text-3)]">
             {{ t("automation.cwd") }}
           </dt>
-          <dd class="mt-0.5 font-mono text-xs text-slate-700">
+          <dd class="mt-1 font-mono text-xs text-[var(--text-2)]">
             {{ action.cwd }}
           </dd>
         </div>
@@ -112,18 +112,18 @@ watch(
           class="flex gap-4"
         >
           <div>
-            <dt class="text-xs font-medium text-slate-500">
+            <dt class="text-xs font-medium text-[var(--text-3)]">
               {{ t("automation.detailExitCode") }}
             </dt>
-            <dd class="text-xs">
+            <dd class="text-xs font-mono text-[var(--text-2)]">
               {{ action.lastRun.exitCode ?? "—" }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs font-medium text-slate-500">
+            <dt class="text-xs font-medium text-[var(--text-3)]">
               {{ t("automation.detailDuration") }}
             </dt>
-            <dd class="text-xs">
+            <dd class="text-xs font-mono text-[var(--text-2)]">
               {{ action.lastRun.durationMs != null ? `${action.lastRun.durationMs} ms` : "—" }}
             </dd>
           </div>
@@ -132,7 +132,7 @@ watch(
 
       <div
         v-if="loading"
-        class="mt-3 text-xs text-slate-400"
+        class="mt-3 text-xs text-[var(--text-3)]"
       >
         {{ t("automation.statusRunning") }}…
       </div>
@@ -141,13 +141,13 @@ watch(
           v-if="runningLogs.stdout"
           class="mt-3"
         >
-          <dt class="text-xs font-medium text-slate-500">
+          <dt class="text-xs font-medium text-[var(--text-3)]">
             {{ t("automation.detailStdout") }}
           </dt>
-          <pre class="mt-0.5 max-h-48 overflow-auto rounded bg-slate-50 p-2 font-mono text-xs">{{ runningLogs.stdout }}</pre>
+          <pre class="mt-1 max-h-48 overflow-auto rounded-md border border-[var(--border-hairline)] bg-[var(--surface-code)] p-2.5 font-mono text-xs text-[var(--text-1)]">{{ runningLogs.stdout }}</pre>
           <p
             v-if="detail?.stdoutTruncated"
-            class="mt-0.5 text-xs text-slate-400"
+            class="mt-0.5 text-xs text-[var(--text-3)]"
           >
             {{ t("automation.logTruncated") }}
           </p>
@@ -156,13 +156,13 @@ watch(
           v-if="runningLogs.stderr"
           class="mt-2"
         >
-          <dt class="text-xs font-medium text-slate-500">
+          <dt class="text-xs font-medium text-[var(--text-3)]">
             {{ t("automation.detailStderr") }}
           </dt>
-          <pre class="mt-0.5 max-h-48 overflow-auto rounded bg-red-50 p-2 font-mono text-xs text-red-700">{{ runningLogs.stderr }}</pre>
+          <pre class="mt-1 max-h-48 overflow-auto rounded-md border border-[var(--danger-border)] bg-[var(--danger-soft)] p-2.5 font-mono text-xs text-[var(--danger)]">{{ runningLogs.stderr }}</pre>
           <p
             v-if="detail?.stderrTruncated"
-            class="mt-0.5 text-xs text-slate-400"
+            class="mt-0.5 text-xs text-[var(--text-3)]"
           >
             {{ t("automation.logTruncated") }}
           </p>

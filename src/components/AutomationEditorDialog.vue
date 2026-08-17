@@ -106,7 +106,7 @@ function submit() {
               type="checkbox"
               class="dialog-checkbox"
             >
-            <span class="text-sm text-slate-700">{{ t("automation.confirmBeforeRun") }}</span>
+            <span class="text-sm text-[var(--text-1)]">{{ t("automation.confirmBeforeRun") }}</span>
           </label>
           <label class="mt-2 flex items-center gap-2">
             <input
@@ -114,7 +114,7 @@ function submit() {
               type="checkbox"
               class="dialog-checkbox"
             >
-            <span class="text-sm text-slate-700">{{ t("automation.closePanelOnSuccess") }}</span>
+            <span class="text-sm text-[var(--text-1)]">{{ t("automation.closePanelOnSuccess") }}</span>
           </label>
 
           <p

@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import {
+  CornerDownLeft,
   FileText,
+  GripVertical,
   Image,
   Link,
   Maximize2,
   Palette,
   Type,
 } from "lucide-vue-next";
-import { computed } from "vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { t } from "../i18n";
 import { categoryDisplayName, clipMetricText, formatTime, typeLabel } from "../lib/format";
@@ -39,9 +41,16 @@ const isColor = computed(() => props.item.clipType === "color");
 const imageSrc = computed(() => clipImageSrc(props.item));
 const colorPreviewValue = computed(() => props.item.text.trim());
 const displayTitle = computed(() => props.item.displayName?.trim() || "");
-const headerLabel = computed(() => displayTitle.value || typeLabel(props.item.clipType));
-const previewContent = computed(() => props.item.text || props.item.previewText);
-const shouldFadePreview = computed(() => previewContent.value.length > 28 || previewContent.value.includes("\n"));
+
+const snippetTitle = computed(() => {
+  if (displayTitle.value) return displayTitle.value;
+  if (isImage.value) return typeLabel("image");
+  if (isColor.value) return colorPreviewValue.value;
+  const raw = props.item.text || props.item.previewText || "";
+  const firstLine = raw.split("\n")[0].trim();
+  return firstLine || typeLabel(props.item.clipType);
+});
+
 const categoryTagLabel = computed(() => {
   if (props.item.collection !== "history") return "";
   if (!props.categoryTags.length) return "";
@@ -50,14 +59,17 @@ const categoryTagLabel = computed(() => {
   const extraCount = props.categoryTags.length - 1;
   return extraCount > 0 ? `${label} +${extraCount}` : label;
 });
+
 const categoryTagColor = computed(() => {
   if (props.item.collection !== "history") return undefined;
   if (!props.categoryTags.length) return undefined;
   return props.categoryTags[0].color;
 });
+
 const displayTime = computed(() =>
   props.item.collection === "history" ? props.item.lastCapturedAt : props.item.createdAt,
 );
+
 const metricText = computed(() => clipMetricText(props.item.clipType, props.item.text, props.item.previewText));
 
 const iconComponent = computed(() => {
@@ -82,43 +94,31 @@ function startReorder(event: PointerEvent) {
     event.preventDefault();
     return;
   }
-
   emit("reorderPointerDown", {
     item: props.item,
     index: props.index,
     event,
   });
 }
-
-function moveImagePreview(event: PointerEvent) {
-  const target = event.currentTarget as HTMLElement;
-  const rect = target.getBoundingClientRect();
-  const x = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1) * 100;
-  const y = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1) * 100;
-
-  target.style.setProperty("--clip-image-x", `${x.toFixed(1)}%`);
-  target.style.setProperty("--clip-image-y", `${y.toFixed(1)}%`);
-  target.style.setProperty("--clip-image-scale", "1.5");
-}
-
-function resetImagePreview(event: PointerEvent) {
-  const target = event.currentTarget as HTMLElement;
-  target.style.removeProperty("--clip-image-x");
-  target.style.removeProperty("--clip-image-y");
-  target.style.removeProperty("--clip-image-scale");
-}
 </script>
 
 <template>
   <article
-    class="clip-card group"
-    :class="[{ 'clip-card-selected': selected }, `clip-card-type-${item.clipType}`]"
+    class="clip-mini-card"
+    :class="{ 'clip-mini-card-selected': selected }"
     role="option"
     :aria-selected="selected"
     @click="emit('select', index)"
     @dblclick="emit('apply', item)"
     @contextmenu.prevent.stop="openContextMenu"
   >
+    <!-- Selected Active Coral Indicator -->
+    <div
+      v-if="selected"
+      class="clip-mini-card-indicator"
+    />
+
+    <!-- Delete Confirmation Floating Badge -->
     <div
       v-if="deleteConfirming"
       class="clip-delete-confirm-banner"
@@ -126,108 +126,93 @@ function resetImagePreview(event: PointerEvent) {
     >
       {{ t("clip.confirmDeleteWithBackspace") }}
     </div>
-    <button
-      type="button"
-      class="clip-expand-button"
-      :aria-label="t('clip.expand')"
-      :data-tooltip="t('clip.expand')"
-      tabindex="-1"
-      @click.stop="emit('expand', item)"
-    >
-      <Maximize2 class="size-3.5" />
-    </button>
-    <div class="clip-card-main">
-      <div class="clip-card-content min-w-0">
-        <div class="flex items-center gap-2 pr-8">
-          <button
-            type="button"
-            class="clip-title-type-icon"
-            :class="{ 'clip-title-type-icon-reorderable': reorderEnabled }"
-            :aria-label="reorderEnabled ? t('clip.dragReorder') : typeLabel(item.clipType)"
-            :data-tooltip="reorderEnabled ? t('clip.dragReorder') : typeLabel(item.clipType)"
-            tabindex="-1"
-            @click.stop="emit('select', index)"
-            @dblclick.stop="emit('apply', item)"
-            @pointerdown.stop="startReorder"
-          >
-            <svg
-              v-if="item.clipType === 'text'"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 1024 1024"
-              fill="currentColor"
-              class="clip-title-type-icon-svg clip-title-type-icon-svg-text"
-              aria-hidden="true"
-            >
-              <path d="M853.333333 170.666667H170.666667a42.666667 42.666667 0 0 0-42.666667 42.666666v128a42.666667 42.666667 0 0 0 85.333333 0V256h256v554.666667H384a42.666667 42.666667 0 0 0 0 85.333333h256a42.666667 42.666667 0 0 0 0-85.333333h-85.333333V256h256v85.333333a42.666667 42.666667 0 0 0 85.333333 0V213.333333a42.666667 42.666667 0 0 0-42.666667-42.666666z" />
-            </svg>
-            <component
-              :is="iconComponent"
-              v-else
-              class="clip-title-type-icon-svg"
-            />
-          </button>
-          <span class="clip-card-title min-w-0 truncate text-xs">{{ headerLabel }}</span>
-          <span class="size-1 rounded-full bg-slate-300" />
-          <span class="truncate text-xs text-slate-400">{{ formatTime(displayTime) }}</span>
-        </div>
 
-        <input
-          v-if="editingName !== null"
-          class="clip-title-input mt-1"
-          :value="editingName"
-          tabindex="-1"
-          spellcheck="false"
-          @click.stop
-          @dblclick.stop
-          @input="emit('updateEditingName', ($event.target as HTMLInputElement).value)"
-          @keydown.enter.prevent.stop="emit('commitRename', item)"
-          @keydown.escape.prevent.stop="emit('cancelRename')"
-          @blur="emit('commitRename', item)"
+    <!-- Line 1: Type Icon + Title / Snippet + Category Tag -->
+    <div class="clip-mini-card-line1">
+      <span
+        v-if="reorderEnabled"
+        class="cursor-grab text-[var(--text-3)] hover:text-[var(--text-1)]"
+        @pointerdown.stop="startReorder"
+      >
+        <GripVertical class="size-3.5" />
+      </span>
+
+      <span class="clip-mini-card-icon">
+        <span
+          v-if="isColor"
+          class="inline-block size-3 rounded-full border border-black/20 dark:border-white/20"
+          :style="{ backgroundColor: colorPreviewValue }"
+        />
+        <img
+          v-else-if="isImage"
+          class="size-3.5 rounded object-cover"
+          :src="imageSrc"
+          alt=""
         >
-
-        <div
-          v-if="isImage"
-          class="clip-preview-image mt-1.5"
-          @pointermove="moveImagePreview"
-          @pointerleave="resetImagePreview"
-        >
-          <img
-            class="w-full object-cover"
-            :src="imageSrc"
-            :alt="t('common.imagePreviewAlt')"
-          >
-        </div>
-
-        <div
-          v-else-if="isColor"
-          class="clip-preview-color mt-1.5"
-        >
-          <span
-            class="clip-preview-color-swatch"
-            :style="{ backgroundColor: colorPreviewValue }"
-          />
-          <span class="clip-preview-color-code">{{ previewContent }}</span>
-        </div>
-
-        <p
+        <component
+          :is="iconComponent"
           v-else
-          class="clip-preview-text mt-1 whitespace-pre-wrap break-words text-sm leading-5"
-          :class="{ 'clip-preview-text-fade': shouldFadePreview }"
-        >
-          {{ previewContent }}
-        </p>
-      </div>
-    </div>
-    <div class="clip-card-footer">
-      <span class="clip-metric-badge">{{ metricText }}</span>
+          class="size-3.5"
+        />
+      </span>
+
+      <!-- Inline Rename Input or Text Title -->
+      <input
+        v-if="editingName !== null"
+        class="clip-title-input flex-1 min-w-0 bg-transparent text-xs outline-none border-b border-[var(--accent)]"
+        :value="editingName"
+        tabindex="-1"
+        spellcheck="false"
+        @click.stop
+        @dblclick.stop
+        @input="emit('updateEditingName', ($event.target as HTMLInputElement).value)"
+        @keydown.enter.prevent.stop="emit('commitRename', item)"
+        @keydown.escape.prevent.stop="emit('cancelRename')"
+        @blur="emit('commitRename', item)"
+      >
+      <span
+        v-else
+        class="clip-mini-card-title"
+      >{{ snippetTitle }}</span>
+
       <span
         v-if="categoryTagLabel"
-        class="clip-category-tag"
-        :style="{ '--tag-color': categoryTagColor }"
+        class="clip-mini-card-tag"
       >
-        <span class="clip-category-tag-dot" />
+        <span
+          v-if="categoryTagColor"
+          class="size-1.5 rounded-full"
+          :style="{ backgroundColor: categoryTagColor }"
+        />
         {{ categoryTagLabel }}
       </span>
+    </div>
+
+    <!-- Line 2: Size/Chars + Time + Enter Hint -->
+    <div class="clip-mini-card-line2">
+      <div class="clip-mini-card-meta">
+        <span>{{ metricText }}</span>
+        <span>·</span>
+        <span>{{ formatTime(displayTime) }}</span>
+      </div>
+
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="hidden group-hover:inline-flex p-0.5 rounded text-[var(--text-3)] hover:text-[var(--text-1)]"
+          :aria-label="t('clip.expand')"
+          @click.stop="emit('expand', item)"
+        >
+          <Maximize2 class="size-3" />
+        </button>
+        <span
+          v-if="selected"
+          class="clip-mini-card-action-hint"
+        >
+          <CornerDownLeft class="size-2.5" />
+          {{ t("common.paste") }}
+        </span>
+      </div>
     </div>
   </article>
 </template>

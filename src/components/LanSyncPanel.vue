@@ -130,18 +130,46 @@ function onReject() {
 
 <template>
   <div class="lan-sync-panel">
-    <header class="lan-header" data-tauri-drag-region>
+    <header
+      class="lan-header"
+      data-tauri-drag-region
+    >
       <Wifi :size="18" />
       <span>{{ t("lan.title") }}</span>
-      <button type="button" class="lan-close" :aria-label="t('topBar.closePanel')" @click="closeWindow">
+      <button
+        type="button"
+        class="lan-close"
+        :aria-label="t('topBar.closePanel')"
+        @click="closeWindow"
+      >
         <X :size="16" />
       </button>
     </header>
 
-    <p v-if="error" class="lan-error">{{ error }}</p>
-    <p v-if="notice === 'clip-received'" class="lan-notice">{{ t("lan.received") }}</p>
-    <p v-if="notice === 'category-sent' && lastCategorySent" class="lan-notice">{{ categorySentText() }}</p>
-    <p v-if="notice === 'category-received' && lastCategoryReceived" class="lan-notice">{{ categoryReceivedText() }}</p>
+    <p
+      v-if="error"
+      class="lan-error"
+    >
+      {{ error }}
+    </p>
+    <p
+      v-if="notice === 'clip-received'"
+      class="lan-notice"
+    >
+      {{ t("lan.received") }}
+    </p>
+    <p
+      v-if="notice === 'category-sent' && lastCategorySent"
+      class="lan-notice"
+    >
+      {{ categorySentText() }}
+    </p>
+    <p
+      v-if="notice === 'category-received' && lastCategoryReceived"
+      class="lan-notice"
+    >
+      {{ categoryReceivedText() }}
+    </p>
     <p
       v-if="rejectedGuest"
       class="lan-hint lan-rejected"
@@ -151,47 +179,110 @@ function onReject() {
     </p>
 
     <!-- 初始：创建 / 加入 -->
-    <div v-if="info.status === 'idle'" class="lan-section">
-      <button class="lan-btn primary" @click="createSession">{{ t("lan.createSession") }}</button>
+    <div
+      v-if="info.status === 'idle'"
+      class="lan-section"
+    >
+      <button
+        class="lan-btn primary"
+        @click="createSession"
+      >
+        {{ t("lan.createSession") }}
+      </button>
       <details>
         <summary>{{ t("lan.manual") }}</summary>
         <div class="lan-row">
-          <input v-model="manualAddress" :placeholder="t('lan.address')" />
-          <input v-model="manualCode" :placeholder="t('lan.code')" />
-          <button class="lan-btn" @click="joinByAddress">{{ t("lan.joinSession") }}</button>
+          <input
+            v-model="manualAddress"
+            :placeholder="t('lan.address')"
+          >
+          <input
+            v-model="manualCode"
+            :placeholder="t('lan.code')"
+          >
+          <button
+            class="lan-btn"
+            @click="joinByAddress"
+          >
+            {{ t("lan.joinSession") }}
+          </button>
         </div>
       </details>
-      <p class="lan-hint">{{ t("lan.firewallHint") }}</p>
+      <p class="lan-hint">
+        {{ t("lan.firewallHint") }}
+      </p>
     </div>
 
     <!-- 接入确认（优先于 hosting：guest 发 pair-request 时 info.status 仍为 hosting） -->
-    <div v-else-if="notice === 'pair-request'" class="lan-section">
+    <div
+      v-else-if="notice === 'pair-request'"
+      class="lan-section"
+    >
       <p>{{ t("lan.pairRequest", { device: pendingPeerName }) }}</p>
       <div class="lan-row">
-        <button class="lan-btn primary" @click="onAccept"><Check :size="14" /> {{ t("lan.accept") }}</button>
-        <button class="lan-btn" @click="onReject"><X :size="14" /> {{ t("lan.reject") }}</button>
+        <button
+          class="lan-btn primary"
+          @click="onAccept"
+        >
+          <Check :size="14" /> {{ t("lan.accept") }}
+        </button>
+        <button
+          class="lan-btn"
+          @click="onReject"
+        >
+          <X :size="14" /> {{ t("lan.reject") }}
+        </button>
       </div>
     </div>
 
     <!-- Host 等待加入 -->
-    <div v-else-if="info.status === 'hosting'" class="lan-section">
+    <div
+      v-else-if="info.status === 'hosting'"
+      class="lan-section"
+    >
       <label>{{ t("lan.code") }}</label>
       <code class="lan-code">{{ info.code }}</code>
       <label>{{ t("lan.listenAddr") }}</label>
       <code class="lan-code">{{ info.listenAddr }}</code>
       <p>{{ statusText }}</p>
-      <button class="lan-btn" @click="disconnect">{{ t("lan.disconnect") }}</button>
+      <button
+        class="lan-btn"
+        @click="disconnect"
+      >
+        {{ t("lan.disconnect") }}
+      </button>
     </div>
 
     <!-- 已连接 -->
-    <div v-else-if="info.status === 'connected'" class="lan-section">
+    <div
+      v-else-if="info.status === 'connected'"
+      class="lan-section"
+    >
       <p>{{ statusText }}</p>
       <div class="lan-row">
-        <button class="lan-btn primary" @click="sendCurrent"><ArrowUp :size="14" /> {{ t("lan.pushMine") }}</button>
-        <button class="lan-btn" @click="requestClip"><ArrowDown :size="14" /> {{ t("lan.pullTheirs") }}</button>
+        <button
+          class="lan-btn primary"
+          @click="sendCurrent"
+        >
+          <ArrowUp :size="14" /> {{ t("lan.pushMine") }}
+        </button>
+        <button
+          class="lan-btn"
+          @click="requestClip"
+        >
+          <ArrowDown :size="14" /> {{ t("lan.pullTheirs") }}
+        </button>
       </div>
-      <button class="lan-btn" @click="showPicker = !showPicker"><History :size="14" /> {{ t("lan.selectSource") }}</button>
-      <div v-if="showPicker" class="lan-picker">
+      <button
+        class="lan-btn"
+        @click="showPicker = !showPicker"
+      >
+        <History :size="14" /> {{ t("lan.selectSource") }}
+      </button>
+      <div
+        v-if="showPicker"
+        class="lan-picker"
+      >
         <div class="lan-tabs">
           <button
             class="lan-tab"
@@ -207,11 +298,17 @@ function onReject() {
             :class="{ active: sourceTab === cat.id }"
             @click="sourceTab = cat.id"
           >
-            <span class="lan-tab-dot" :style="{ backgroundColor: cat.color }" />
+            <span
+              class="lan-tab-dot"
+              :style="{ backgroundColor: cat.color }"
+            />
             {{ cat.name }}
           </button>
         </div>
-        <div v-if="sourceTab !== 'history' && activeCategoryItemCount > 0" class="lan-row lan-send-category-row">
+        <div
+          v-if="sourceTab !== 'history' && activeCategoryItemCount > 0"
+          class="lan-row lan-send-category-row"
+        >
           <button
             type="button"
             class="lan-btn primary"
@@ -223,33 +320,70 @@ function onReject() {
           </button>
         </div>
         <ul class="lan-history">
-          <li v-for="item in pickerItems" :key="item.key" @click="item.onClick">
+          <li
+            v-for="item in pickerItems"
+            :key="item.key"
+            @click="item.onClick"
+          >
             {{ item.label }}
           </li>
-          <li v-if="pickerItems.length === 0" class="lan-empty">{{ t("lan.empty") }}</li>
+          <li
+            v-if="pickerItems.length === 0"
+            class="lan-empty"
+          >
+            {{ t("lan.empty") }}
+          </li>
         </ul>
       </div>
-      <button class="lan-btn danger" @click="disconnect"><WifiOff :size="14" /> {{ t("lan.disconnect") }}</button>
+      <button
+        class="lan-btn danger"
+        @click="disconnect"
+      >
+        <WifiOff :size="14" /> {{ t("lan.disconnect") }}
+      </button>
     </div>
 
     <!-- Guest 等待确认 -->
-    <div v-else class="lan-section">
+    <div
+      v-else
+      class="lan-section"
+    >
       <p>{{ statusText }}</p>
-      <button class="lan-btn" @click="disconnect">{{ t("lan.disconnect") }}</button>
+      <button
+        class="lan-btn"
+        @click="disconnect"
+      >
+        {{ t("lan.disconnect") }}
+      </button>
     </div>
 
     <!-- 端口占用弹窗：覆盖在面板上，三选一 -->
-    <div v-if="portConflict" class="lan-conflict-overlay">
+    <div
+      v-if="portConflict"
+      class="lan-conflict-overlay"
+    >
       <div class="lan-conflict-dialog">
         <p>{{ t("lan.portInUse", { port: "45130", name: portConflict.name, pid: String(portConflict.pid) }) }}</p>
         <div class="lan-row">
-          <button type="button" class="lan-btn primary" @click="killPortProcess">
+          <button
+            type="button"
+            class="lan-btn primary"
+            @click="killPortProcess"
+          >
             {{ t("lan.killProcess") }}
           </button>
-          <button type="button" class="lan-btn" @click="quitApp">
+          <button
+            type="button"
+            class="lan-btn"
+            @click="quitApp"
+          >
             {{ t("lan.quitApp") }}
           </button>
-          <button type="button" class="lan-btn" @click="cancelPortConflict">
+          <button
+            type="button"
+            class="lan-btn"
+            @click="cancelPortConflict"
+          >
             {{ t("common.cancel") }}
           </button>
         </div>
@@ -269,16 +403,13 @@ function onReject() {
   flex-direction: column;
   gap: 12px;
   font-size: 14px;
-  border: 1px solid rgba(140, 145, 169, 0.4);
+  border: 1px solid var(--border-hairline);
   border-radius: var(--window-radius);
   clip-path: inset(0 round var(--window-radius));
-  background:
-    radial-gradient(120% 90% at 12% -12%, var(--aurora-a), transparent 55%),
-    radial-gradient(120% 90% at 92% -6%, var(--aurora-b), transparent 50%),
-    var(--bg-app-grad);
+  background: var(--bg-app);
   color: var(--text-1);
 }
-html.dark .lan-sync-panel { border-color: rgba(255, 255, 255, 0.09); }
+html.dark .lan-sync-panel { border-color: var(--border-hairline); }
 .lan-header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .lan-close {
   margin-left: auto;

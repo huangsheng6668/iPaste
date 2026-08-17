@@ -1,20 +1,19 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ClipboardCopy, Download, Inbox, Info, Pencil, Play, Trash2, Upload, Zap } from "lucide-vue-next";
-import CategoryRail from "./components/CategoryRail.vue";
-import ClipCard from "./components/ClipCard.vue";
+import { AlertCircle, ClipboardCopy, Download, Info, Pencil, Play, Trash2, Upload } from "lucide-vue-next";
 import ClipContextMenu from "./components/ClipContextMenu.vue";
-import AutomationCard from "./components/AutomationCard.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import ErrorToast from "./components/ErrorToast.vue";
 import LanSyncPanel from "./components/LanSyncPanel.vue";
-import QuickPreviewPanel from "./components/QuickPreviewPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
-import TopBar from "./components/TopBar.vue";
+import CommandSearchBar from "./components/CommandSearchBar.vue";
+import ClipListPane from "./components/ClipListPane.vue";
+import ClipInspectorPane from "./components/ClipInspectorPane.vue";
+import KeyboardActionBar from "./components/KeyboardActionBar.vue";
 import UpdateDialog from "./components/UpdateDialog.vue";
 import { useUpdater } from "./composables/useUpdater";
 import { useAppEvents } from "./composables/useAppEvents";
@@ -27,7 +26,7 @@ import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
 import { isTauri } from "./lib/env";
-import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
+import { formatShortcut, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
@@ -40,7 +39,6 @@ const isClipViewerWindow = new URLSearchParams(window.location.search).get("wind
 const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const isPreservingCurrentApp = ref(false);
-const categoryRailElement = ref<InstanceType<typeof CategoryRail> | null>(null);
 const editingClipKey = ref<string | null>(null);
 const editingClipName = ref("");
 let unlistenShortcutOpened: UnlistenFn | null = null;
@@ -56,7 +54,6 @@ const {
   pendingDeleteContextKey,
   pendingDeleteByKey,
   contextDeleteLabel,
-  openFallbackContextMenu,
   openClipContextMenu,
   pasteContextItem,
   copyContextItem,
@@ -78,8 +75,6 @@ const quickPreview = useQuickPreview({
   isMacOs,
 });
 const {
-  quickPreviewItem,
-  clearQuickPreviewHover,
   hoverPreviewItem,
   clearHoveredPreviewItem,
   handleSelectionChange,
@@ -125,9 +120,7 @@ const { handleKeydown, handleKeyup } = panelKeyboard;
 
 const {
   clipListElement,
-  isClipListScrolling,
   showClipListScrollbar,
-  handleClipListScroll,
   resetClipListScroll,
   setupWatches,
   cleanup: cleanupClipListScroll,
@@ -189,7 +182,6 @@ const categoryItemCounts = computed(() =>
 );
 
 const formattedShortcut = computed(() => `${formatShortcut("CommandOrControl+F")} ${t("shortcut.search")}`);
-const isSideLayout = computed(() => store.panelLayout === "side");
 const canReorderVisibleItems = computed(() =>
   store.selectedCategoryId !== "history" && !store.search.trim() && store.visibleItems.length > 1,
 );
@@ -299,10 +291,6 @@ async function deleteCategory(id: string) {
   await store.deleteCategory(id);
 }
 
-async function reorderCategories(categoryIds: string[]) {
-  await store.reorderCategories(categoryIds);
-}
-
 function itemCategoryTags(item: ClipViewItem) {
   if (item.collection === "history") return categoriesByHash.value[item.contentHash] ?? [];
 
@@ -313,10 +301,6 @@ function itemCategoryTags(item: ClipViewItem) {
 
 function toCategoryClipViewItem(item: CategoryItem): ClipViewItem {
   return { ...item, collection: "category" };
-}
-
-async function applyFallbackItem(item: ClipViewItem) {
-  await store.applyItem(item);
 }
 
 function startItemDrag(payload: { item: ClipViewItem; index: number; event: PointerEvent }) {
@@ -412,7 +396,6 @@ function blurCategoryFocus() {
 function closeFloatingLayers() {
   clipMenu.close();
   quickPreview.resetQuickPreviewState();
-  categoryRailElement.value?.closeFloatingLayers();
 }
 
 function handleVisibilityChange() {
@@ -432,6 +415,9 @@ function scheduleSilentUpdateCheck() {
   void updater.checkForUpdate({ silent: true });
 }
 
+const selectedClipItem = computed(() => store.visibleItems[store.selectedIndex] ?? null);
+const selectedAutomationAction = computed(() => store.visibleActions[store.selectedActionIndex] ?? null);
+
 async function focusEditingClipName() {
   await nextTick();
   window.setTimeout(() => {
@@ -449,249 +435,118 @@ async function focusEditingClipName() {
 
   <main
     v-else
-    class="app-shell"
+    class="raycast-container"
     :class="{ 'app-shell-preserve-current-app': isPreservingCurrentApp }"
     @click="closeFloatingLayers"
   >
-    <section class="flex min-w-0 flex-1 flex-col">
-      <div class="relative">
-        <TopBar
-          v-model="store.search"
-          :shortcut="formattedShortcut"
-          :settings-open="false"
-          :append-copy-enabled="store.isAppendCopyEnabled"
-          :append-copy-timeout-minutes="store.appendCopyTimeoutMinutes"
-          :has-update="updater.hasAvailableUpdate.value"
-          @toggle-settings="store.showSettings"
-          @toggle-append-copy="store.toggleAppendCopy"
-          @open-update="updater.openUpdateDialog"
-          @close="hidePanelFromUi"
-        />
-      </div>
+    <!-- Top Command Search & Category Pill Tabs -->
+    <CommandSearchBar
+      :search-query="store.search"
+      :shortcut="formattedShortcut"
+      :categories="store.categories"
+      :selected-category-id="store.selectedCategoryId"
+      :editing-category-id="editingCategoryId"
+      :history-count="store.clipTotalCount"
+      :category-counts="categoryItemCounts"
+      :settings-open="false"
+      :append-copy-enabled="store.isAppendCopyEnabled"
+      :append-copy-timeout-minutes="store.appendCopyTimeoutMinutes"
+      :has-update="updater.hasAvailableUpdate.value"
+      :checking-update="updater.updateStatus.value === 'checking'"
+      @update:search-query="store.search = $event"
+      @select-category="store.selectCategory"
+      @create-category="createCategory"
+      @edit-category="editCategory"
+      @rename-category="renameCategory"
+      @recolor-category="updateCategoryColor"
+      @delete-category="deleteCategory"
+      @toggle-settings="store.showSettings"
+      @toggle-append-copy="store.toggleAppendCopy"
+      @open-update="updater.openUpdateDialog"
+      @close="hidePanelFromUi"
+    />
 
-      <UpdateDialog
-        :open="updater.updateDialogOpen.value"
-        :status="updater.updateStatus.value"
-        :update="updater.availableUpdate.value"
-        :error="updater.updateError.value"
-        :error-phase="updater.updateErrorPhase.value"
-        :downloaded-bytes="updater.updateDownloadedBytes.value"
-        :total-bytes="updater.updateTotalBytes.value"
-        @dismiss="updater.dismissUpdateDialog"
-        @install="updater.installAvailableUpdate"
-        @relaunch="updater.relaunchForUpdate"
+    <!-- Update Dialog -->
+    <UpdateDialog
+      :open="updater.updateDialogOpen.value"
+      :status="updater.updateStatus.value"
+      :update="updater.availableUpdate.value"
+      :error="updater.updateError.value"
+      :error-phase="updater.updateErrorPhase.value"
+      :downloaded-bytes="updater.updateDownloadedBytes.value"
+      :total-bytes="updater.updateTotalBytes.value"
+      @dismiss="updater.dismissUpdateDialog"
+      @install="updater.installAvailableUpdate"
+      @relaunch="updater.relaunchForUpdate"
+    />
+
+    <!-- Error Banner if any -->
+    <div
+      v-if="store.error"
+      class="error-banner m-2"
+    >
+      <AlertCircle class="size-4" />
+      <span class="min-w-0 flex-1 truncate">{{ store.error }}</span>
+    </div>
+
+    <!-- Main Dual-Column Split View -->
+    <div class="raycast-main-split">
+      <!-- Left Pane: Mini Cards Stream -->
+      <ClipListPane
+        :items="store.visibleItems"
+        :selected-index="store.selectedIndex"
+        :selected-category-id="store.selectedCategoryId"
+        :is-loading-more="store.isLoadingMoreClips"
+        :can-reorder="canReorderVisibleItems"
+        :editing-clip-key="editingClipKey"
+        :editing-clip-name="editingClipName"
+        :pending-delete-key="pendingDeleteByKey"
+        :dragging-item-key="draggingItemKey"
+        :item-drop-target-key="itemDropTargetKey"
+        :item-drop-side="itemDropSide"
+        :visible-actions="store.visibleActions"
+        :fallback-groups="store.fallbackGroups"
+        :item-category-tags="itemCategoryTags"
+        :item-drag-style="itemDragStyle"
+        :to-category-clip-view-item="toCategoryClipViewItem"
+        @select="selectClipCard"
+        @apply="store.applyItem"
+        @expand="openClipViewer"
+        @open-context-menu="openClipContextMenu"
+        @update-editing-name="updateEditingClipName"
+        @commit-rename="commitEditingClipName"
+        @cancel-rename="cancelEditingClipName"
+        @reorder-pointer-down="startItemDrag"
+        @hover-preview="hoverPreviewItem"
+        @leave-preview="clearHoveredPreviewItem"
+        @select-action="(action) => selectActionCard(store.visibleActions.findIndex((a: AutomationAction) => a.id === action.id))"
+        @run-action="runSelectedAction"
+        @edit-action="openAutomationEditor"
+        @delete-action="deleteAutomationAction"
+        @copy-action="copyAutomationCommand"
+        @open-action-context-menu="openAutomationContextMenu($event.action, { clientX: $event.x, clientY: $event.y } as MouseEvent)"
+        @create-action="openAutomationEditor(null)"
       />
 
-      <section
-        class="main-content"
-        :class="{ 'main-content-side': isSideLayout }"
-      >
-        <CategoryRail
-          ref="categoryRailElement"
-          :categories="store.categories"
-          :selected-category-id="store.selectedCategoryId"
-          :editing-category-id="editingCategoryId"
-          :history-count="store.clipTotalCount"
-          :category-counts="categoryItemCounts"
-          :orientation="isSideLayout ? 'vertical' : 'horizontal'"
-          @select="store.selectCategory"
-          @create="createCategory"
-          @edit="editCategory"
-          @rename="renameCategory"
-          @recolor="updateCategoryColor"
-          @finish-editing="finishEditingCategory"
-          @delete="deleteCategory"
-          @reorder="reorderCategories"
-        />
+      <!-- Right Pane: Real-Time Inspector Preview -->
+      <ClipInspectorPane
+        :item="selectedClipItem"
+        :automation-action="selectedAutomationAction"
+        :mode="store.selectedCategoryId === 'automation' ? 'actions' : 'clip'"
+        @copy="store.copyItem"
+        @apply="store.applyItem"
+        @expand="openClipViewer"
+        @run-automation="runSelectedAction"
+      />
+    </div>
 
-        <section class="clip-area">
-          <div
-            v-if="store.error"
-            class="error-banner"
-          >
-            <AlertCircle class="size-4" />
-            <span class="min-w-0 flex-1 truncate">{{ store.error }}</span>
-          </div>
+    <!-- Bottom Keyboard Action Bar -->
+    <KeyboardActionBar
+      :mode="store.selectedCategoryId === 'automation' ? 'automation' : 'history'"
+      :is-mac="isMacOs"
+    />
 
-          <div
-            ref="clipListElement"
-            class="clip-list-scroll subtle-scrollbar min-h-0 flex-1 overflow-y-auto p-4"
-            :class="{
-              'subtle-scrollbar-active': isClipListScrolling,
-              'clip-list-scroll-previewing': quickPreviewItem,
-            }"
-            @scroll="handleClipListScroll"
-            @pointerleave="clearQuickPreviewHover"
-          >
-            <div
-              v-if="store.isLoading"
-              class="clip-card-grid"
-            >
-              <div
-                v-for="index in 9"
-                :key="index"
-                class="skeleton-card"
-              />
-            </div>
-
-            <div
-              v-else-if="store.selectedCategoryId === 'actions'"
-              class="clip-card-grid"
-            >
-              <AutomationCard
-                v-for="(action, index) in store.visibleActions"
-                :key="action.id"
-                :action="action"
-                :selected="store.selectedActionIndex === index"
-                @click="selectActionCard(index)"
-                @run="runSelectedAction(action)"
-                @edit="openAutomationEditor(action)"
-                @delete="deleteAutomationAction(action)"
-                @copy="copyAutomationCommand(action)"
-                @open-context-menu="openAutomationContextMenu(action, $event)"
-              />
-              <div
-                v-if="!store.visibleActions.length"
-                class="empty-state"
-              >
-                <div class="empty-state-icon">
-                  <Zap class="size-7" />
-                </div>
-                <h2>
-                  {{ t("automation.entry") }}
-                </h2>
-                <p>
-                  {{ t("automation.noActions") }}
-                </p>
-                <button
-                  type="button"
-                  class="btn-primary mt-5"
-                  @click="openAutomationEditor(null)"
-                >
-                  {{ t("automation.newAction") }}
-                </button>
-              </div>
-            </div>
-
-            <div
-              v-else-if="store.fallbackGroups.length"
-              class="fallback-groups"
-            >
-              <section
-                v-for="group in store.fallbackGroups"
-                :key="group.category.id"
-                class="fallback-group"
-              >
-                <header class="fallback-group-header">
-                  <span
-                    class="fallback-group-dot"
-                    :style="{ backgroundColor: group.category.color }"
-                  />
-                  <span class="fallback-group-name truncate">{{ categoryDisplayName(group.category.name) }}</span>
-                  <span class="fallback-group-count">{{ group.items.length }}</span>
-                </header>
-                <div class="fallback-group-items clip-card-grid">
-                  <div
-                    v-for="item in group.items"
-                    :key="item.id"
-                    class="fallback-item"
-                  >
-                    <ClipCard
-                      :item="toCategoryClipViewItem(item)"
-                      :index="0"
-                      :selected="false"
-                      :category-tags="[]"
-                      :editing-name="null"
-                      :reorder-enabled="false"
-                      @apply="applyFallbackItem"
-                      @expand="openClipViewer"
-                      @open-context-menu="openFallbackContextMenu"
-                    />
-                    <span class="source-tag">
-                      {{ t("search.fromCategory", { name: categoryDisplayName(group.category.name) }) }}
-                    </span>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div
-              v-else-if="store.visibleItems.length"
-              class="clip-card-grid"
-            >
-              <ClipCard
-                v-for="(item, index) in store.visibleItems"
-                :key="`${item.collection}-${item.id}`"
-                :item="item"
-                :index="index"
-                :data-item-key="contextItemKey(item)"
-                :data-item-id="item.id"
-                :selected="store.selectedIndex === index"
-                :category-tags="itemCategoryTags(item)"
-                :editing-name="editingClipKey === contextItemKey(item) ? editingClipName : null"
-                :reorder-enabled="canReorderVisibleItems && item.collection === 'category'"
-                :delete-confirming="pendingDeleteByKey === contextItemKey(item)"
-                :style="itemDragStyle(item)"
-                :class="{
-                  'clip-card-dragging': draggingItemKey === contextItemKey(item),
-                  'clip-card-drop-before': itemDropTargetKey === contextItemKey(item) && itemDropSide === 'before',
-                  'clip-card-drop-after': itemDropTargetKey === contextItemKey(item) && itemDropSide === 'after',
-                  'clip-card-delete-confirming': pendingDeleteByKey === contextItemKey(item),
-                }"
-                @select="selectClipCard"
-                @apply="store.applyItem"
-                @expand="openClipViewer"
-                @open-context-menu="openClipContextMenu"
-                @update-editing-name="updateEditingClipName"
-                @commit-rename="commitEditingClipName"
-                @cancel-rename="cancelEditingClipName"
-                @reorder-pointer-down="startItemDrag"
-                @pointerenter="hoverPreviewItem(item)"
-                @pointerleave="clearHoveredPreviewItem(item)"
-              />
-              <div
-                v-if="store.selectedCategoryId === 'history' && store.isLoadingMoreClips"
-                class="skeleton-card skeleton-card-compact clip-grid-full"
-              />
-            </div>
-
-            <div
-              v-else
-              class="empty-state"
-            >
-              <div class="empty-state-icon">
-                <Inbox class="size-7" />
-              </div>
-              <h2>
-                {{ t("empty.title") }}
-              </h2>
-              <p>
-                {{ t("empty.description") }}
-              </p>
-            </div>
-          </div>
-
-          <QuickPreviewPanel
-            v-if="quickPreview.quickPreviewItem.value"
-            :item="quickPreview.quickPreviewItem.value"
-            :title="quickPreview.quickPreviewTitle.value"
-            :label="quickPreview.quickPreviewAriaLabel.value"
-            :time="quickPreview.quickPreviewTime.value"
-            :size="quickPreview.quickPreviewSize.value"
-            :content="quickPreview.quickPreviewContent.value"
-            :image-src="quickPreview.quickPreviewImageSrc.value"
-            :color-value="quickPreview.quickPreviewColorValue.value"
-            :locked="quickPreview.isQuickPreviewLocked.value"
-            :selected-text="quickPreview.quickPreviewSelectedText.value"
-            @lock="quickPreview.lockQuickPreview"
-            @copy="quickPreview.copyQuickPreviewItem"
-            @paste="quickPreview.pasteQuickPreviewSelection"
-            @close="quickPreview.closeQuickPreview"
-          />
-        </section>
-      </section>
-    </section>
-
+    <!-- Overlays & Dialogs -->
     <ErrorToast />
 
     <ClipContextMenu
@@ -805,10 +660,22 @@ async function focusEditingClipName() {
         <Trash2 class="size-3.5" /> {{ t("automation.delete") }}
       </button>
       <div class="context-menu-separator" />
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="triggerImport">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="triggerImport"
+      >
         <Upload class="size-3.5" /> {{ t("automation.importAction") }}
       </button>
-      <button type="button" class="context-menu-item" tabindex="-1" role="menuitem" @click="exportAllAutomations">
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click="exportAllAutomations"
+      >
         <Download class="size-3.5" /> {{ t("automation.exportAll") }}
       </button>
     </div>
@@ -819,6 +686,6 @@ async function focusEditingClipName() {
       accept=".json"
       class="hidden"
       @change="onImportFileSelected"
-    />
+    >
   </main>
 </template>

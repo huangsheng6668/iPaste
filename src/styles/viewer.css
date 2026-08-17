@@ -11,17 +11,14 @@
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(140, 145, 169, 0.4);
+  border: 1px solid var(--border-hairline);
   border-radius: var(--window-radius);
   clip-path: inset(0 round var(--window-radius));
-  background:
-    radial-gradient(120% 90% at 12% -12%, var(--aurora-a), transparent 55%),
-    radial-gradient(120% 90% at 92% -6%, var(--aurora-b), transparent 50%),
-    var(--bg-app-grad);
+  background: var(--bg-app);
 }
 
 html.dark .clip-viewer-shell {
-  border-color: rgba(255, 255, 255, 0.09);
+  border-color: var(--border-hairline);
 }
 
 .clip-viewer-toolbar {

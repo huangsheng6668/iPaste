@@ -40,8 +40,8 @@ const statusLabel = computed(() => {
     @contextmenu.prevent="emit('open-context-menu', { x: $event.clientX, y: $event.clientY })"
   >
     <div class="flex items-center gap-2">
-      <Terminal class="size-4 shrink-0 text-slate-400" />
-      <span class="truncate text-sm font-medium text-slate-900">{{ action.name }}</span>
+      <Terminal class="size-4 shrink-0 text-[var(--accent)]" />
+      <span class="truncate text-sm font-medium text-[var(--text-1)]">{{ action.name }}</span>
       <span
         class="automation-status-badge"
         :class="`automation-status-${status}`"
@@ -49,13 +49,13 @@ const statusLabel = computed(() => {
         {{ statusLabel }}
       </span>
     </div>
-    <div class="mt-1 flex items-center gap-1 truncate font-mono text-xs text-slate-500">
+    <div class="mt-1 flex items-center gap-1 truncate font-mono text-xs text-[var(--text-2)]">
       <Play class="size-3 shrink-0" />
       <span class="truncate">{{ action.command }}</span>
     </div>
     <p
       v-if="action.cwd"
-      class="mt-0.5 truncate text-xs text-slate-400"
+      class="mt-0.5 truncate text-xs text-[var(--text-3)]"
     >
       {{ action.cwd }}
     </p>
