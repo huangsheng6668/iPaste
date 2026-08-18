@@ -5,9 +5,11 @@ import { t } from "../i18n";
 const props = defineProps<{
   mode?: "history" | "category" | "automation";
   isMac?: boolean;
+  nextCategoryName?: string;
 }>();
 
 const metaKey = computed(() => (props.isMac ? "⌘" : "Ctrl+"));
+const tabLabel = computed(() => props.nextCategoryName || t("category.history"));
 </script>
 
 <template>
@@ -72,7 +74,7 @@ const metaKey = computed(() => (props.isMac ? "⌘" : "Ctrl+"));
     <div class="keyboard-action-list">
       <div class="keyboard-action-item">
         <kbd class="keyboard-kbd">⇥</kbd>
-        <span>{{ t("category.history") }}</span>
+        <span>{{ tabLabel }}</span>
       </div>
 
       <div class="keyboard-action-item">
