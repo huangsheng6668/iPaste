@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -51,8 +51,22 @@ const emit = defineEmits<{
 }>();
 
 const searchInputRef = ref<HTMLInputElement | null>(null);
+const tabsContainerRef = ref<HTMLElement | null>(null);
+const isSearchFocused = ref(false);
+const hasScrollLeft = ref(false);
+const hasScrollRight = ref(false);
 const editingName = ref("");
 let dragReleaseTimer: number | null = null;
+
+const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
+const searchShortcutHint = computed(() => (isMacOs ? "⌘F" : "Ctrl+F"));
+
+function updateScrollState() {
+  const el = tabsContainerRef.value;
+  if (!el) return;
+  hasScrollLeft.value = el.scrollLeft > 2;
+  hasScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+}
 
 watch(
   () => props.editingCategoryId,
@@ -63,6 +77,23 @@ watch(
     await nextTick();
   },
 );
+
+watch(
+  () => props.categories,
+  () => {
+    void nextTick(updateScrollState);
+  },
+  { deep: true },
+);
+
+onMounted(() => {
+  updateScrollState();
+  window.addEventListener("resize", updateScrollState);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("resize", updateScrollState);
+});
 
 async function startWindowDrag(event: MouseEvent) {
   if (!isTauri || event.button !== 0) return;
@@ -127,23 +158,29 @@ defineExpose({
         class="raycast-search-input-wrap"
         @mousedown.stop
       >
-        <Search class="size-4 shrink-0 text-[var(--text-3)]" />
+        <Search class="size-4 shrink-0 text-[var(--text-3)] transition-colors" />
         <input
           ref="searchInputRef"
           class="raycast-search-input"
           :value="searchQuery"
           :placeholder="t('topBar.searchPlaceholder')"
           spellcheck="false"
+          @focus="isSearchFocused = true"
+          @blur="isSearchFocused = false"
           @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
         >
         <button
           v-if="searchQuery"
           type="button"
-          class="inline-flex size-4 items-center justify-center rounded-full text-[var(--text-3)] hover:text-[var(--text-1)]"
+          class="inline-flex size-4 items-center justify-center rounded-full text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors"
           @click="clearSearch"
         >
           <X class="size-3" />
         </button>
+        <kbd
+          v-else-if="!isSearchFocused"
+          class="keyboard-kbd text-[0.625rem] opacity-60 pointer-events-none select-none"
+        >{{ searchShortcutHint }}</kbd>
       </div>
 
       <!-- Quick Action Buttons -->
@@ -207,67 +244,80 @@ defineExpose({
       </div>
     </div>
 
-    <!-- Category Pill Filter Tabs -->
+    <!-- Category Pill Filter Tabs Wrapper with Fade Mask -->
     <div
-      class="raycast-filter-tabs"
+      class="raycast-filter-tabs-wrapper"
+      :class="{
+        'has-scroll-left': hasScrollLeft,
+        'has-scroll-right': hasScrollRight,
+      }"
       @mousedown.stop
     >
-      <!-- All History Tab -->
-      <button
-        type="button"
-        class="raycast-pill-tab"
-        :class="{ 'raycast-pill-tab-active': selectedCategoryId === 'history' }"
-        @click="emit('selectCategory', 'history')"
+      <div
+        ref="tabsContainerRef"
+        class="raycast-filter-tabs"
+        @scroll="updateScrollState"
       >
-        <Clock class="size-3" />
-        <span>{{ t("category.history") }}</span>
-        <span
-          v-if="historyCount > 0"
-          class="text-[0.625rem] opacity-70"
-        >{{ historyCount }}</span>
-      </button>
+        <!-- All History Tab -->
+        <button
+          type="button"
+          class="raycast-pill-tab"
+          :class="{ 'raycast-pill-tab-active': selectedCategoryId === 'history' }"
+          @click="emit('selectCategory', 'history')"
+        >
+          <Clock class="size-3" />
+          <span>{{ t("category.history") }}</span>
+          <span
+            v-if="historyCount > 0"
+            class="text-[0.625rem] opacity-75 tabular-nums font-mono"
+          >{{ historyCount }}</span>
+        </button>
 
-      <!-- Custom Categories -->
-      <button
-        v-for="cat in categories"
-        :key="cat.id"
-        type="button"
-        class="raycast-pill-tab"
-        :class="{ 'raycast-pill-tab-active': selectedCategoryId === cat.id }"
-        @click="emit('selectCategory', cat.id)"
-      >
-        <span
-          class="size-2 rounded-full shrink-0 shadow-xs"
-          :style="{ backgroundColor: cat.color }"
-        />
-        <span>{{ categoryDisplayName(cat.name) }}</span>
-        <span
-          v-if="categoryCounts[cat.id]"
-          class="text-[0.625rem] opacity-70"
-        >{{ categoryCounts[cat.id] }}</span>
-      </button>
+        <!-- Custom Categories -->
+        <button
+          v-for="cat in categories"
+          :key="cat.id"
+          type="button"
+          class="raycast-pill-tab"
+          :class="{ 'raycast-pill-tab-active': selectedCategoryId === cat.id }"
+          @click="emit('selectCategory', cat.id)"
+        >
+          <span
+            class="size-2 rounded-full shrink-0"
+            :style="{
+              backgroundColor: cat.color,
+              boxShadow: `0 0 6px ${cat.color}90`,
+            }"
+          />
+          <span>{{ categoryDisplayName(cat.name) }}</span>
+          <span
+            v-if="categoryCounts[cat.id]"
+            class="text-[0.625rem] opacity-75 tabular-nums font-mono"
+          >{{ categoryCounts[cat.id] }}</span>
+        </button>
 
-      <!-- Automation Tab -->
-      <button
-        type="button"
-        class="raycast-pill-tab"
-        :class="{ 'raycast-pill-tab-active': selectedCategoryId === 'automation' }"
-        @click="emit('selectCategory', 'automation')"
-      >
-        <Zap class="size-3" />
-        <span>{{ t("automation.entry") }}</span>
-      </button>
+        <!-- Automation Tab -->
+        <button
+          type="button"
+          class="raycast-pill-tab"
+          :class="{ 'raycast-pill-tab-active': selectedCategoryId === 'automation' }"
+          @click="emit('selectCategory', 'automation')"
+        >
+          <Zap class="size-3" />
+          <span>{{ t("automation.entry") }}</span>
+        </button>
 
-      <!-- Add Category Button -->
-      <button
-        type="button"
-        class="raycast-pill-tab hover:text-[var(--accent)]"
-        :aria-label="t('category.newCategory')"
-        :data-tooltip="t('category.newCategory')"
-        @click="emit('createCategory')"
-      >
-        <Plus class="size-3" />
-      </button>
+        <!-- Add Category Button -->
+        <button
+          type="button"
+          class="raycast-pill-tab hover:text-[var(--accent)]"
+          :aria-label="t('category.newCategory')"
+          :data-tooltip="t('category.newCategory')"
+          @click="emit('createCategory')"
+        >
+          <Plus class="size-3" />
+        </button>
+      </div>
     </div>
   </div>
 </template>

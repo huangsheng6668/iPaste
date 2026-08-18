@@ -78,6 +78,12 @@
   --shadow-pop: 0 16px 36px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05);
   --shadow-dialog: 0 24px 48px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08);
   --shadow-toast: 0 12px 28px rgba(0, 0, 0, 0.14);
+  --shadow-keycap: 0 1.5px 0 rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --glow-top-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* ---- patterns & micro-effects ---- */
+  --checkerboard-pat: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+  --radar-wave: rgba(255, 99, 99, 0.2);
 
   /* ---- tooltip ---- */
   --tooltip-bg: rgba(23, 24, 28, 0.94);
@@ -142,6 +148,12 @@ html.dark {
   --shadow-pop: 0 20px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-dialog: 0 28px 64px rgba(0, 0, 0, 0.65), 0 6px 18px rgba(0, 0, 0, 0.35);
   --shadow-toast: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --shadow-keycap: 0 1.5px 0 rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --glow-top-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* ---- patterns & micro-effects ---- */
+  --checkerboard-pat: repeating-conic-gradient(rgba(255, 255, 255, 0.04) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+  --radar-wave: rgba(255, 99, 99, 0.25);
 
   --tooltip-bg: rgba(18, 19, 22, 0.96);
   --tooltip-text: #ededef;

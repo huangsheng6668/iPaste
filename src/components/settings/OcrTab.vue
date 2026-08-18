@@ -38,10 +38,10 @@ const {
           <ScanText class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.tabs.ocr") }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ ocrStatusText }}
           </p>
         </div>

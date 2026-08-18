@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { CheckCircle2, Cloud, Unplug } from "lucide-vue-next";
+import { CheckCircle2, Cloud, HardDrive, Unplug } from "lucide-vue-next";
 import { t } from "../../i18n";
 import { useIpasteStore } from "../../stores/ipasteStore";
 import { useCloudSync } from "../../composables/useCloudSync";
@@ -22,21 +22,92 @@ const {
 const isInsecureHttpAddress = computed(() =>
   cloudApiAddress.value.trim().toLowerCase().startsWith("http://"),
 );
+
+const totalItems = computed(() => store.clips.length + store.categoryItems.length);
+const imageCount = computed(() => store.clips.filter((c) => c.clipType === "image").length);
+const textCount = computed(() => store.clips.length - imageCount.value);
+const categoryCount = computed(() => store.categories.length);
+
+const textPercent = computed(() => (totalItems.value ? Math.max(5, Math.round((textCount.value / (totalItems.value + categoryCount.value || 1)) * 100)) : 50));
+const imagePercent = computed(() => (totalItems.value ? Math.max(5, Math.round((imageCount.value / (totalItems.value + categoryCount.value || 1)) * 100)) : 30));
+const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.value > 0 ? 100 - textPercent.value - imagePercent.value : 10));
 </script>
 
 <template>
   <div class="settings-section">
     <div class="data-management-grid">
+      <!-- Storage Overview Breakdown -->
+      <section class="settings-panel settings-column-panel">
+        <div class="settings-panel-heading">
+          <div class="settings-icon settings-icon-blue">
+            <HardDrive class="size-5" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <h2 class="text-sm font-semibold text-[var(--text-1)]">
+              {{ t("settings.storage.title") }}
+            </h2>
+            <p class="mt-1 text-sm text-[var(--text-2)] tabular-nums">
+              {{ totalItems }} items stored · {{ categoryCount }} categories
+            </p>
+          </div>
+        </div>
+
+        <div class="storage-breakdown-wrap">
+          <div class="storage-breakdown-bar">
+            <div
+              class="storage-breakdown-segment"
+              :style="{ width: `${textPercent}%`, backgroundColor: 'var(--accent)' }"
+              :title="`Text & Snippets: ${textCount}`"
+            />
+            <div
+              class="storage-breakdown-segment"
+              :style="{ width: `${imagePercent}%`, backgroundColor: 'var(--info)' }"
+              :title="`Images: ${imageCount}`"
+            />
+            <div
+              class="storage-breakdown-segment"
+              :style="{ width: `${categoryPercent}%`, backgroundColor: 'var(--warning)' }"
+              :title="`Categories: ${categoryCount}`"
+            />
+          </div>
+
+          <div class="storage-breakdown-legend tabular-nums">
+            <div class="storage-legend-item">
+              <span
+                class="storage-legend-dot"
+                :style="{ backgroundColor: 'var(--accent)' }"
+              />
+              <span>Text / Code ({{ textCount }})</span>
+            </div>
+            <div class="storage-legend-item">
+              <span
+                class="storage-legend-dot"
+                :style="{ backgroundColor: 'var(--info)' }"
+              />
+              <span>Images ({{ imageCount }})</span>
+            </div>
+            <div class="storage-legend-item">
+              <span
+                class="storage-legend-dot"
+                :style="{ backgroundColor: 'var(--warning)' }"
+              />
+              <span>Categories ({{ categoryCount }})</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cloud Sync Panel -->
       <section class="settings-panel settings-column-panel">
         <div class="settings-panel-heading">
           <div class="settings-icon settings-icon-teal">
             <Cloud class="size-5" />
           </div>
           <div class="min-w-0">
-            <h2 class="text-sm font-semibold text-slate-950">
+            <h2 class="text-sm font-semibold text-[var(--text-1)]">
               {{ t("settings.cloud.title") }}
             </h2>
-            <p class="mt-1 text-sm text-slate-500">
+            <p class="mt-1 text-sm text-[var(--text-2)]">
               {{ cloudStatusText }}
             </p>
           </div>

@@ -25,10 +25,10 @@ const {
           <Keyboard class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.shortcuts.global.title") }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ t("settings.shortcuts.global.description") }}
           </p>
         </div>
@@ -38,7 +38,10 @@ const {
         <button
           type="button"
           class="shortcut-capture-button"
-          :class="{ 'shortcut-capture-button-recording': shortcutRecording }"
+          :class="{
+            'shortcut-capture-button-recording': shortcutRecording,
+            'shortcut-recording-glow': shortcutRecording,
+          }"
           :aria-pressed="shortcutRecording"
           @click="startRecordingShortcut"
         >
@@ -90,10 +93,10 @@ const {
           <Keyboard class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.shortcuts.panel.title") }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ t("settings.shortcuts.panel.description") }}
           </p>
         </div>

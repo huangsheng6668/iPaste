@@ -86,10 +86,10 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">
+        <h2 class="text-sm font-semibold text-[var(--text-1)]">
           {{ t("settings.language.title") }}
         </h2>
-        <p class="mt-1 text-sm text-slate-500">
+        <p class="mt-1 text-sm text-[var(--text-2)]">
           {{ t("settings.language.description") }}
         </p>
       </div>
@@ -109,10 +109,10 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">
+        <h2 class="text-sm font-semibold text-[var(--text-1)]">
           {{ t("settings.appearance.title") }}
         </h2>
-        <p class="mt-1 text-sm text-slate-500">
+        <p class="mt-1 text-sm text-[var(--text-2)]">
           {{ t("settings.appearance.description") }}
         </p>
       </div>
@@ -147,10 +147,10 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">
+        <h2 class="text-sm font-semibold text-[var(--text-1)]">
           {{ t("settings.autostart.title") }}
         </h2>
-        <p class="mt-1 text-sm text-slate-500">
+        <p class="mt-1 text-sm text-[var(--text-2)]">
           {{ t("settings.autostart.description") }}
         </p>
         <p
@@ -181,10 +181,10 @@ async function updateLanguage(language: Language) {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">
+        <h2 class="text-sm font-semibold text-[var(--text-1)]">
           {{ t("settings.openDefault.title") }}
         </h2>
-        <p class="mt-1 text-sm text-slate-500">
+        <p class="mt-1 text-sm text-[var(--text-2)]">
           {{ t("settings.openDefault.description") }}
         </p>
       </div>
@@ -213,10 +213,10 @@ async function updateLanguage(language: Language) {
           <AppWindow class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.layout.title") }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ t("settings.layout.description") }}
           </p>
         </div>
@@ -259,10 +259,10 @@ async function updateLanguage(language: Language) {
           <ClipboardPlus class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-slate-950">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.appendCopy.title") }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ t("settings.appendCopy.description", { duration: appendCopyTimeoutText }) }}
           </p>
         </div>
@@ -288,10 +288,10 @@ async function updateLanguage(language: Language) {
           <Database class="size-5" />
         </div>
         <div class="min-w-0">
-          <h2 class="text-sm font-semibold text-slate-950">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.storage.title") }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ t("settings.storage.description", { duration: retentionText }) }}
           </p>
         </div>

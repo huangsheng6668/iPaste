@@ -181,34 +181,47 @@ function onReject() {
     <!-- 初始：创建 / 加入 -->
     <div
       v-if="info.status === 'idle'"
-      class="lan-section"
+      class="lan-section items-center text-center py-4"
     >
+      <div class="lan-radar-container my-2">
+        <div class="lan-radar-circle" />
+        <div class="lan-radar-circle lan-radar-delay" />
+        <div class="lan-radar-center">
+          <Wifi class="size-6 text-[var(--accent)]" />
+        </div>
+      </div>
+
       <button
-        class="lan-btn primary"
+        class="lan-btn primary px-6 py-2.5 text-sm"
         @click="createSession"
       >
         {{ t("lan.createSession") }}
       </button>
-      <details>
-        <summary>{{ t("lan.manual") }}</summary>
-        <div class="lan-row">
+
+      <details class="w-full text-left mt-2">
+        <summary class="cursor-pointer text-xs text-[var(--text-3)] hover:text-[var(--text-1)]">
+          {{ t("lan.manual") }}
+        </summary>
+        <div class="lan-row mt-2">
           <input
             v-model="manualAddress"
+            class="dialog-input text-xs"
             :placeholder="t('lan.address')"
           >
           <input
             v-model="manualCode"
+            class="dialog-input text-xs"
             :placeholder="t('lan.code')"
           >
           <button
-            class="lan-btn"
+            class="lan-btn w-full justify-center text-xs"
             @click="joinByAddress"
           >
             {{ t("lan.joinSession") }}
           </button>
         </div>
       </details>
-      <p class="lan-hint">
+      <p class="lan-hint mt-2">
         {{ t("lan.firewallHint") }}
       </p>
     </div>
@@ -216,10 +229,12 @@ function onReject() {
     <!-- 接入确认（优先于 hosting：guest 发 pair-request 时 info.status 仍为 hosting） -->
     <div
       v-else-if="notice === 'pair-request'"
-      class="lan-section"
+      class="lan-section text-center py-4"
     >
-      <p>{{ t("lan.pairRequest", { device: pendingPeerName }) }}</p>
-      <div class="lan-row">
+      <p class="font-semibold text-sm text-[var(--text-1)]">
+        {{ t("lan.pairRequest", { device: pendingPeerName }) }}
+      </p>
+      <div class="lan-row justify-center mt-3">
         <button
           class="lan-btn primary"
           @click="onAccept"
@@ -238,15 +253,40 @@ function onReject() {
     <!-- Host 等待加入 -->
     <div
       v-else-if="info.status === 'hosting'"
-      class="lan-section"
+      class="lan-section items-center text-center py-2"
     >
-      <label>{{ t("lan.code") }}</label>
-      <code class="lan-code">{{ info.code }}</code>
-      <label>{{ t("lan.listenAddr") }}</label>
-      <code class="lan-code">{{ info.listenAddr }}</code>
-      <p>{{ statusText }}</p>
+      <div class="lan-radar-container my-1">
+        <div class="lan-radar-circle" />
+        <div class="lan-radar-circle lan-radar-delay" />
+        <div class="lan-radar-center">
+          <Wifi class="size-6 text-[var(--accent)]" />
+        </div>
+      </div>
+
+      <label class="text-xs font-semibold text-[var(--text-3)] uppercase tracking-wider">{{ t("lan.code") }}</label>
+      <div
+        v-if="info.code"
+        class="lan-pin-grid my-2"
+      >
+        <span
+          v-for="(digit, idx) in info.code.split('')"
+          :key="idx"
+          class="lan-pin-cell"
+        >{{ digit }}</span>
+      </div>
+      <code
+        v-else
+        class="lan-code"
+      >{{ info.code }}</code>
+
+      <label class="text-xs font-semibold text-[var(--text-3)] uppercase tracking-wider mt-1">{{ t("lan.listenAddr") }}</label>
+      <code class="lan-code text-xs text-[var(--text-2)]">{{ info.listenAddr }}</code>
+      
+      <p class="text-xs text-[var(--text-2)] my-2">
+        {{ statusText }}
+      </p>
       <button
-        class="lan-btn"
+        class="lan-btn danger text-xs"
         @click="disconnect"
       >
         {{ t("lan.disconnect") }}
@@ -258,27 +298,33 @@ function onReject() {
       v-else-if="info.status === 'connected'"
       class="lan-section"
     >
-      <p>{{ statusText }}</p>
+      <div class="flex items-center gap-2 px-1 py-1">
+        <span class="size-2.5 rounded-full bg-[var(--success)] shadow-sm animate-pulse" />
+        <span class="font-semibold text-sm text-[var(--text-1)]">{{ statusText }}</span>
+      </div>
+
       <div class="lan-row">
         <button
-          class="lan-btn primary"
+          class="lan-btn primary flex-1 justify-center"
           @click="sendCurrent"
         >
           <ArrowUp :size="14" /> {{ t("lan.pushMine") }}
         </button>
         <button
-          class="lan-btn"
+          class="lan-btn flex-1 justify-center"
           @click="requestClip"
         >
           <ArrowDown :size="14" /> {{ t("lan.pullTheirs") }}
         </button>
       </div>
+
       <button
-        class="lan-btn"
+        class="lan-btn justify-center"
         @click="showPicker = !showPicker"
       >
         <History :size="14" /> {{ t("lan.selectSource") }}
       </button>
+
       <div
         v-if="showPicker"
         class="lan-picker"
@@ -311,7 +357,7 @@ function onReject() {
         >
           <button
             type="button"
-            class="lan-btn primary"
+            class="lan-btn primary w-full justify-center"
             :disabled="sendingCategory === sourceTab"
             @click="sendWholeCategory"
           >
@@ -335,8 +381,9 @@ function onReject() {
           </li>
         </ul>
       </div>
+
       <button
-        class="lan-btn danger"
+        class="lan-btn danger mt-2"
         @click="disconnect"
       >
         <WifiOff :size="14" /> {{ t("lan.disconnect") }}
@@ -346,11 +393,13 @@ function onReject() {
     <!-- Guest 等待确认 -->
     <div
       v-else
-      class="lan-section"
+      class="lan-section text-center py-4"
     >
-      <p>{{ statusText }}</p>
+      <p class="text-sm text-[var(--text-2)]">
+        {{ statusText }}
+      </p>
       <button
-        class="lan-btn"
+        class="lan-btn danger mt-3"
         @click="disconnect"
       >
         {{ t("lan.disconnect") }}
@@ -447,25 +496,82 @@ html.dark .lan-sync-panel { border-color: var(--border-hairline); }
   background: var(--accent-grad);
   color: var(--on-accent);
   border-color: transparent;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 14px rgba(255, 99, 99, 0.25);
 }
 .lan-btn.primary:hover { background: var(--accent-grad); color: var(--on-accent); filter: brightness(1.08); }
 .lan-btn.danger { color: var(--danger); }
 .lan-btn.danger:hover { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-strong); }
+
+/* ---- Radar Wave Visual ---- */
+.lan-radar-container {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lan-radar-circle {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: radar-pulse 2.4s infinite cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.lan-radar-delay {
+  animation-delay: 1.2s;
+}
+.lan-radar-center {
+  position: relative;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 16px var(--focus-ring);
+}
+
+/* ---- 6-digit PIN Grid ---- */
+.lan-pin-grid {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.lan-pin-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border-accent);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--accent);
+  box-shadow: var(--shadow-card);
+}
+
 .lan-code {
   font-family: var(--font-mono);
   background: var(--surface-code);
-  padding: 8px;
+  padding: 6px 12px;
   border-radius: 8px;
   color: var(--text-1);
   border: 1px solid var(--border);
 }
-.lan-error { color: var(--danger); }
-.lan-notice { color: var(--success); }
+.lan-error { color: var(--danger); font-size: 13px; }
+.lan-notice { color: var(--success); font-size: 13px; }
 .lan-hint { color: var(--text-3); font-size: 12px; }
 .lan-rejected { cursor: pointer; }
 .lan-history {
-  max-height: 200px;
+  max-height: 180px;
   overflow-y: auto;
   list-style: none;
   padding: 0;

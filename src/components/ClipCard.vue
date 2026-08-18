@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import {
+  Code,
   CornerDownLeft,
   FileText,
   GripVertical,
@@ -38,6 +39,11 @@ const emit = defineEmits<{
 
 const isImage = computed(() => props.item.clipType === "image");
 const isColor = computed(() => props.item.clipType === "color");
+const isCode = computed(() => {
+  if (props.item.clipType === "html") return true;
+  const text = props.item.text || "";
+  return /^(const|let|var|function|import|export|class|def|public|private|fn|impl|struct|enum|\{|<|SELECT|INSERT|UPDATE|DELETE)/m.test(text);
+});
 const imageSrc = computed(() => clipImageSrc(props.item));
 const colorPreviewValue = computed(() => props.item.text.trim());
 const displayTitle = computed(() => props.item.displayName?.trim() || "");
@@ -77,6 +83,7 @@ const iconComponent = computed(() => {
   if (props.item.clipType === "color") return Palette;
   if (props.item.clipType === "image") return Image;
   if (props.item.clipType === "file") return FileText;
+  if (isCode.value) return Code;
   return Type;
 });
 
@@ -105,7 +112,10 @@ function startReorder(event: PointerEvent) {
 <template>
   <article
     class="clip-mini-card"
-    :class="{ 'clip-mini-card-selected': selected }"
+    :class="{
+      'clip-mini-card-selected': selected,
+      'clip-mini-card-delete-confirming': deleteConfirming,
+    }"
     role="option"
     :aria-selected="selected"
     @click="emit('select', index)"
@@ -131,7 +141,7 @@ function startReorder(event: PointerEvent) {
     <div class="clip-mini-card-line1">
       <span
         v-if="reorderEnabled"
-        class="cursor-grab text-[var(--text-3)] hover:text-[var(--text-1)]"
+        class="cursor-grab text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors"
         @pointerdown.stop="startReorder"
       >
         <GripVertical class="size-3.5" />
@@ -140,7 +150,7 @@ function startReorder(event: PointerEvent) {
       <span class="clip-mini-card-icon">
         <span
           v-if="isColor"
-          class="inline-block size-3 rounded-full border border-black/20 dark:border-white/20"
+          class="inline-block size-3 rounded-full border border-black/20 shadow-xs dark:border-white/20"
           :style="{ backgroundColor: colorPreviewValue }"
         />
         <img
@@ -152,14 +162,14 @@ function startReorder(event: PointerEvent) {
         <component
           :is="iconComponent"
           v-else
-          class="size-3.5"
+          class="size-3"
         />
       </span>
 
       <!-- Inline Rename Input or Text Title -->
       <input
         v-if="editingName !== null"
-        class="clip-title-input flex-1 min-w-0 bg-transparent text-xs outline-none border-b border-[var(--accent)]"
+        class="clip-title-input flex-1 min-w-0 bg-transparent text-xs outline-none border-b border-[var(--accent)] font-medium text-[var(--text-1)]"
         :value="editingName"
         tabindex="-1"
         spellcheck="false"
@@ -190,7 +200,7 @@ function startReorder(event: PointerEvent) {
 
     <!-- Line 2: Size/Chars + Time + Enter Hint -->
     <div class="clip-mini-card-line2">
-      <div class="clip-mini-card-meta">
+      <div class="clip-mini-card-meta tabular-nums">
         <span>{{ metricText }}</span>
         <span>·</span>
         <span>{{ formatTime(displayTime) }}</span>
@@ -199,7 +209,7 @@ function startReorder(event: PointerEvent) {
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="hidden group-hover:inline-flex p-0.5 rounded text-[var(--text-3)] hover:text-[var(--text-1)]"
+          class="p-0.5 rounded text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors"
           :aria-label="t('clip.expand')"
           @click.stop="emit('expand', item)"
         >

@@ -12,9 +12,38 @@ const metaKey = computed(() => (props.isMac ? "⌘" : "Ctrl+"));
 
 <template>
   <footer class="keyboard-action-bar">
-    <div class="keyboard-action-list">
+    <!-- Left Action Hints Group -->
+    <div
+      v-if="mode === 'automation'"
+      class="keyboard-action-list"
+    >
+      <div class="keyboard-action-item font-medium text-[var(--text-1)]">
+        <kbd class="keyboard-kbd text-[var(--accent)] font-bold">↵</kbd>
+        <span>{{ t("automation.run") }}</span>
+      </div>
+
       <div class="keyboard-action-item">
-        <kbd class="keyboard-kbd">↵</kbd>
+        <kbd class="keyboard-kbd">E</kbd>
+        <span>{{ t("automation.edit") }}</span>
+      </div>
+
+      <div class="keyboard-action-item">
+        <kbd class="keyboard-kbd">{{ metaKey }}C</kbd>
+        <span>{{ t("common.copy") }}</span>
+      </div>
+
+      <div class="keyboard-action-item">
+        <kbd class="keyboard-kbd">⌫</kbd>
+        <span>{{ t("common.delete") }}</span>
+      </div>
+    </div>
+
+    <div
+      v-else
+      class="keyboard-action-list"
+    >
+      <div class="keyboard-action-item font-medium text-[var(--text-1)]">
+        <kbd class="keyboard-kbd text-[var(--accent)] font-bold">↵</kbd>
         <span>{{ t("common.paste") }}</span>
       </div>
 
@@ -39,6 +68,7 @@ const metaKey = computed(() => (props.isMac ? "⌘" : "Ctrl+"));
       </div>
     </div>
 
+    <!-- Right Navigation Hints Group -->
     <div class="keyboard-action-list">
       <div class="keyboard-action-item">
         <kbd class="keyboard-kbd">⇥</kbd>

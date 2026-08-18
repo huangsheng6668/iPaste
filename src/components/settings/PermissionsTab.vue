@@ -20,10 +20,10 @@ async function openAccessibilityGuide() {
       </div>
 
       <div class="min-w-0 flex-1">
-        <h2 class="text-sm font-semibold text-slate-950">
+        <h2 class="text-sm font-semibold text-[var(--text-1)]">
           {{ t("settings.permissions.accessibility.title") }}
         </h2>
-        <p class="mt-1 text-sm leading-6 text-slate-500">
+        <p class="mt-1 text-sm leading-6 text-[var(--text-2)]">
           {{ t("settings.permissions.accessibility.description") }}
         </p>
       </div>
@@ -43,10 +43,10 @@ async function openAccessibilityGuide() {
       v-if="showPermissionGuide"
       class="permission-guide"
     >
-      <h3 class="text-sm font-semibold text-slate-950">
+      <h3 class="text-sm font-semibold text-[var(--text-1)]">
         {{ t("settings.permissions.howTo") }}
       </h3>
-      <p class="mt-2 text-sm leading-6 text-slate-600">
+      <p class="mt-2 text-sm leading-6 text-[var(--text-2)]">
         {{ t("settings.permissions.guide") }}
       </p>
       <button
