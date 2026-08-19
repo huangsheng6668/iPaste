@@ -574,7 +574,9 @@ mod tests {
             engine: OcrManifestEngine {
                 id: engine_id.to_string(),
                 version: "1".to_string(),
-                platform: "windows-x64".to_string(),
+                // validate_ocr_manifest 与 ocr_platform() 比对，测试必须用当前平台值，
+                // 否则在 Linux CI 上因 "unsupported" != "windows-x64" 失败
+                platform: super::ocr_platform().to_string(),
                 mode: None,
                 base_url: "https://example.com/".to_string(),
                 files: vec![OcrManifestFile {
