@@ -35,9 +35,9 @@ pub(crate) const OCR_MODEL_DIR: &str = "paddle"; // → ocr/paddle/{mode}/
 const OCR_CHARSET_FILE: &str = "ppocr_keys_v5.txt";
 // Task 0 实测的默认体积兜底（manifest 拉取后以 manifest 为权威）
 #[cfg(not(target_os = "macos"))]
-const OCR_FAST_TOTAL_BYTES: u64 = 10_903_450;
+const OCR_FAST_TOTAL_BYTES: u64 = 10_885_068;
 #[cfg(not(target_os = "macos"))]
-const OCR_BEST_TOTAL_BYTES: u64 = 21_384_230;
+const OCR_BEST_TOTAL_BYTES: u64 = 21_365_848;
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn install_ocr_assets_inner(

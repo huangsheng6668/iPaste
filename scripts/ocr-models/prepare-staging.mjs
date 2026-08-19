@@ -27,8 +27,8 @@ const FILES = [
   {
     source: "ppocr_keys_v5.txt",
     dest: "paddle/fast/ppocr_keys_v5.txt",
-    bytes: 92_390,
-    sha256: "f3ff5ed81ad3c267593fd3f7183528bb12bbaaa3ab05145ea0ac9ffeffbc6efe",
+    bytes: 74_008,
+    sha256: "f2ed6bb20a850ce4767fa9b4622d9b282985ab7f0ea8f8c11abd790ca6d2ff94",
   },
   {
     source: "PP-OCRv5_mobile_det.mnn",
@@ -41,6 +41,12 @@ const FILES = [
     dest: "paddle/best/rec.mnn",
     bytes: 16_531_596,
     sha256: "c809800b09263a8d18c678c211e470ffc464cbb33db2e6bde0244766f3feb0db",
+  },
+  {
+    source: "ppocr_keys_v5.txt",
+    dest: "paddle/best/ppocr_keys_v5.txt",
+    bytes: 74_008,
+    sha256: "f2ed6bb20a850ce4767fa9b4622d9b282985ab7f0ea8f8c11abd790ca6d2ff94",
   },
 ];
 

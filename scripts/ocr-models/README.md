@@ -36,15 +36,15 @@ cd rust-paddle-ocr && git checkout 2d0a7e582b955cc6627091765560a78776bcce5c
 | --- | --- | ---: | --- |
 | `paddle/fast/det.mnn` | `PP-OCRv5_mobile_det_fp16.mnn` | 2,439,100 | `617b5228b101275594f96ebb6ae7662fd1618bcf8e84b0ffde1cf3b48e754951` |
 | `paddle/fast/rec.mnn` | `PP-OCRv5_mobile_rec_fp16.mnn` | 8,371,960 | `ff03e4204260325eabe9f4eae0ec8cc6b79b8a97a8e38a5292ba69cf02a689fc` |
-| `paddle/fast/ppocr_keys_v5.txt` | `ppocr_keys_v5.txt` | 92,390 | `f3ff5ed81ad3c267593fd3f7183528bb12bbaaa3ab05145ea0ac9ffeffbc6efe` |
+| `paddle/fast/ppocr_keys_v5.txt` | `ppocr_keys_v5.txt` | 74,008 | `f2ed6bb20a850ce4767fa9b4622d9b282985ab7f0ea8f8c11abd790ca6d2ff94` |
 | `paddle/best/det.mnn` | `PP-OCRv5_mobile_det.mnn` | 4,760,244 | `326f846bb5c903282e116ea089e8796b67921586726cca9457730436a79684c3` |
 | `paddle/best/rec.mnn` | `PP-OCRv5_mobile_rec.mnn` | 16,531,596 | `c809800b09263a8d18c678c211e470ffc464cbb33db2e6bde0244766f3feb0db` |
-| `paddle/best/ppocr_keys_v5.txt` | `ppocr_keys_v5.txt` | 92,390 | same as fast (identical file) |
+| `paddle/best/ppocr_keys_v5.txt` | `ppocr_keys_v5.txt` | 74,008 | same as fast (identical file) |
 
 Notes:
 
 - `fast` = fp16 quantized, `best` = fp32. Totals match the installer fallback
-  constants: fast 10,903,450 B and best 21,384,230 B
+  constants: fast 10,885,068 B and best 21,365,848 B
   (`OCR_FAST_TOTAL_BYTES` / `OCR_BEST_TOTAL_BYTES`).
 - The charset is `ppocr_keys_v5.txt` (18,382 lines) — **not**
   `ppocr_keys_v1.txt`; v1 belongs to PP-OCRv4 and produces wrong output with
