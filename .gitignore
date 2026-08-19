@@ -40,3 +40,6 @@ key/*.key
 
 # Git worktrees
 .worktrees/
+
+# throwaway OCR feasibility spike sandbox (Task 0)
+ocr-spike/
