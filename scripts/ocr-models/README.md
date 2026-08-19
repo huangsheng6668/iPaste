@@ -228,7 +228,10 @@ exactly what production will serve.
 Prerequisites (same secrets as `.github/workflows/release.yml` /
 `scripts/mirror-r2-release.mjs`): `R2_ACCOUNT_ID`, `R2_BUCKET`,
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `IPASTE_OCR_R2_BASE_URL`, and
-`gh` authenticated against `iPaste-app/iPaste`.
+`gh` authenticated against the release repository (`huangsheng6668/iPaste`,
+same as the tauri.conf.json updater endpoint). The automated path is
+`.github/workflows/publish-ocr-assets.yml` (workflow_dispatch + push to main
+touching `scripts/ocr-models/**`), which runs this procedure in CI.
 
 ### Step 1 — regenerate manifests with the production base URL
 
@@ -291,7 +294,7 @@ cp ocr-spike/staging/paddle/best/rec.mnn          "$DIST/paddle-best-rec.mnn"
 cp ocr-spike/staging/paddle/best/ppocr_keys_v5.txt "$DIST/paddle-best-ppocr_keys_v5.txt"
 
 gh release create ipaste-ocr-windows-v2 "$DIST"/* \
-  --repo iPaste-app/iPaste \
+  --repo huangsheng6668/iPaste \
   --title "iPaste OCR engine assets v2 (paddle)" \
   --notes "PP-OCRv5 mobile MNN models (fast=fp16, best=fp32) + charset + installer v2 manifests. Source: rust-paddle-ocr @ 2d0a7e5, Apache-2.0; models: PaddleOCR, Apache-2.0. Manifest baseUrl points at R2; these model copies are archival."
 ```
@@ -308,7 +311,7 @@ for mode in fast best; do
     actual="$(curl -fsSL "$url" | sha256sum | cut -d" " -f1)"
     [ "$actual" = "$expected" ] && echo "OK   $url" || echo "FAIL $url"
   done
-  curl -fsSL "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v2/ipaste-ocr-windows-x64-$mode.json" >/dev/null \
+  curl -fsSL "https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-windows-v2/ipaste-ocr-windows-x64-$mode.json" >/dev/null \
     && echo "OK   github $mode manifest" || echo "FAIL github $mode manifest"
 done
 ```

@@ -39,7 +39,7 @@ const fallbackOcrInstallStatus: OcrInstallStatus = {
   engineVersion: null,
   mode: "fast",
   platform: "windows-x64",
-  manifestUrl: "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v2/ipaste-ocr-windows-x64-fast.json",
+  manifestUrl: "https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-windows-v2/ipaste-ocr-windows-x64-fast.json",
   installDir: "",
   downloadedBytes: 0,
   totalBytes: 10_903_450,

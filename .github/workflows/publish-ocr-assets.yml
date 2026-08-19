@@ -1,0 +1,131 @@
+name: Publish OCR assets
+
+# 发布/刷新 Windows OCR v2 资产（PP-OCRv5 .mnn 模型 + 安装器 v2 manifest）：
+# 1. 重建 staging（prepare-staging.mjs，sha256 门禁）
+# 2. 用生产 IPASTE_OCR_R2_BASE_URL 生成两份 manifest
+# 3. 上传 R2（保留 paddle/{mode}/ 键结构）+ GitHub Release ipaste-ocr-windows-v2
+# 4. 只读验证（manifest 可达 + 模型哈希一致）
+# 手册：scripts/ocr-models/README.md §4。幂等可重跑；绝不触碰 v1 资产。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/ocr-models/**"
+      - ".github/workflows/publish-ocr-assets.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish paddle OCR assets
+    runs-on: ubuntu-latest
+    env:
+      STAGING: ocr-spike/staging
+      RELEASE_TAG: ipaste-ocr-windows-v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check required secrets
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          OCR_R2_BASE_URL: ${{ secrets.IPASTE_OCR_R2_BASE_URL }}
+        run: |
+          missing=0
+          for pair in "R2_ACCOUNT_ID=$R2_ACCOUNT_ID" "R2_BUCKET=$R2_BUCKET" \
+                       "R2_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID" "R2_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY" \
+                       "IPASTE_OCR_R2_BASE_URL=$OCR_R2_BASE_URL"; do
+            key="${pair%%=*}"; value="${pair#*=}"
+            if [ -z "$value" ]; then echo "missing secret: $key"; missing=1; fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Configure the R2 secrets listed above in repository settings (same set as release.yml)."
+            exit 1
+          fi
+
+      - name: Prepare staging (sha256-gated)
+        run: node scripts/ocr-models/prepare-staging.mjs --out "$STAGING"
+
+      - name: Build manifests with production base URL
+        env:
+          OCR_R2_BASE_URL: ${{ secrets.IPASTE_OCR_R2_BASE_URL }}
+        run: |
+          for mode in fast best; do
+            node scripts/ocr-models/build-manifest.mjs --dir "$STAGING" --mode "$mode" \
+              --base-url "$OCR_R2_BASE_URL" --engine-version 2.0.0 \
+              --out "$STAGING/manifests/ipaste-ocr-windows-x64-$mode.json"
+          done
+
+      - name: Upload models and manifests to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          OCR_R2_BASE_URL: ${{ secrets.IPASTE_OCR_R2_BASE_URL }}
+        run: |
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          PREFIX="$(node -e 'const u=new URL(process.env.OCR_R2_BASE_URL); console.log(u.pathname.replace(/^\/+|\/+$/g,"")||"ocr")')"
+          echo "uploading under s3://${R2_BUCKET}/${PREFIX}/"
+          for mode in fast best; do
+            for f in det.mnn rec.mnn ppocr_keys_v5.txt; do
+              aws --endpoint-url "$ENDPOINT" s3 cp "$STAGING/paddle/$mode/$f" \
+                "s3://${R2_BUCKET}/${PREFIX}/paddle/$mode/$f" \
+                --content-type application/octet-stream \
+                --cache-control "public, max-age=31536000, immutable"
+            done
+            aws --endpoint-url "$ENDPOINT" s3 cp "$STAGING/manifests/ipaste-ocr-windows-x64-$mode.json" \
+              "s3://${R2_BUCKET}/${PREFIX}/ipaste-ocr-windows-x64-$mode.json" \
+              --content-type application/json \
+              --cache-control "public, max-age=60"
+          done
+
+      - name: Create or refresh GitHub release (manifest fallback + archival copies)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DIST="$(mktemp -d)"
+          cp "$STAGING/manifests/ipaste-ocr-windows-x64-fast.json" "$STAGING/manifests/ipaste-ocr-windows-x64-best.json" "$DIST/"
+          for mode in fast best; do
+            cp "$STAGING/paddle/$mode/det.mnn"          "$DIST/paddle-$mode-det.mnn"
+            cp "$STAGING/paddle/$mode/rec.mnn"          "$DIST/paddle-$mode-rec.mnn"
+            cp "$STAGING/paddle/$mode/ppocr_keys_v5.txt" "$DIST/paddle-$mode-ppocr_keys_v5.txt"
+          done
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$DIST"/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "$DIST"/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "iPaste OCR engine assets v2 (paddle)" \
+              --notes "PP-OCRv5 mobile MNN models (fast=fp16, best=fp32) + charset + installer v2 manifests. Source: rust-paddle-ocr @ 2d0a7e5, Apache-2.0; models: PaddleOCR, Apache-2.0. Manifest baseUrl points at R2; flattened model copies here are archival."
+          fi
+
+      - name: Verify published assets (read-only)
+        env:
+          OCR_R2_BASE_URL: ${{ secrets.IPASTE_OCR_R2_BASE_URL }}
+        run: |
+          set -e
+          for mode in fast best; do
+            manifest="$STAGING/manifests/ipaste-ocr-windows-x64-$mode.json"
+            base="$(node -e 'const m=require(process.argv[1]);console.log(m.engine.baseUrl)' "$manifest")"
+            for entry in $(node -e 'const m=require(process.argv[1]);for(const f of m.engine.files)console.log(`${f.path}|${f.sha256}`)' "$manifest"); do
+              rel="${entry%%|*}"; expected="${entry#*|}"
+              actual="$(curl -fsSL "$base$rel" | sha256sum | cut -d" " -f1)"
+              [ "$actual" = "$expected" ] || { echo "FAIL $base$rel"; exit 1; }
+              echo "OK   $base$rel"
+            done
+            curl -fsSL "$base/ipaste-ocr-windows-x64-$mode.json" >/dev/null && echo "OK   r2 $mode manifest"
+            curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/ipaste-ocr-windows-x64-$mode.json" >/dev/null \
+              && echo "OK   github $mode manifest"
+          done
