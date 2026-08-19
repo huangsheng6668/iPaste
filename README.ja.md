@@ -49,7 +49,7 @@ Linux はまだ公式ターゲットではありません。Tauri はクロス�
 4. 検索して項目を選択し、Enter を押してアクティブなアプリに貼り付けます。
 5. 長期的に再利用する内容はカテゴリに保存し、自分のワークフローに合わせて整理します。
 
-macOS での自動貼り付けにはアクセシビリティ権限が必要です。Windows で画像 OCR を使うには、Settings から Tesseract アセットをダウンロードする必要があります。
+macOS での自動貼り付けにはアクセシビリティ権限が必要です。Windows で画像 OCR を使うには、Settings から PaddleOCR モデルをダウンロードする必要があります。
 
 ## Privacy And Data
 
@@ -70,7 +70,7 @@ iPaste は既定でローカルファーストです。
 | Platform | Status | Notes |
 | --- | --- | --- |
 | macOS | Supported | OCR はシステムの Vision framework を使用します。自動貼り付けにはアクセシビリティ権限が必要です。 |
-| Windows | Supported | OCR はダウンロード可能な Tesseract アセットを使用します。 |
+| Windows | Supported | OCR はダウンロード可能な PaddleOCR モデルを使用します。 |
 | Linux | Not supported yet | 現時点では公式リリースも完全な検証もありません。 |
 
 ## Tech Stack
@@ -162,7 +162,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -198,7 +198,7 @@ iPaste から貼り付けると、アプリは選択したスニペットをシ�
 
 ### Image OCR
 
-macOS はシステムの Vision framework を使用します。Windows はアプリの環境設定からインストールできる Tesseract アセットを使用します。
+macOS はシステムの Vision framework を使用します。Windows はアプリの環境設定からインストールできる PaddleOCR モデルを使用します。
 
 ## Contributing
 
@@ -212,6 +212,8 @@ npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+Windows で Rust バックエンドをビルドするには、bindgen 用の libclang が必要です（PaddleOCR エンジンが使用します）。`choco install llvm` で導入するか、`pip install libclang` を実行して `LIBCLANG_PATH` を Python の site-packages 内の `clang/native` ディレクトリに設定してください。
 
 共有 Rust モデルやイベントに触れる変更では、`npm run gen:types` も実行し、再生成されたバインディングをコミットに含めてください。
 

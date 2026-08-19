@@ -65,7 +65,7 @@ If you already have iPaste installed, use **Check for Updates** inside the app â
 4. Search, select an item, and press Enter to paste it back into the active app.
 5. Save long-term reusable content into categories and organize it around your workflow.
 
-Auto paste on macOS requires Accessibility permission. Image OCR on Windows requires downloading Tesseract assets from Settings.
+Auto paste on macOS requires Accessibility permission. Image OCR on Windows requires downloading PaddleOCR models from Settings.
 
 ## Privacy And Data
 
@@ -86,7 +86,7 @@ If your clipboard often contains passwords, keys, client data, or internal compa
 | Platform | Status | Notes |
 | --- | --- | --- |
 | macOS | Supported | OCR uses the system Vision framework; auto paste requires Accessibility permission. |
-| Windows | Supported | OCR uses downloadable Tesseract assets. |
+| Windows | Supported | OCR uses downloadable PaddleOCR models. |
 | Linux | Not supported yet | No official release or full validation at the moment. |
 
 ## Tech Stack
@@ -178,7 +178,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -214,7 +214,7 @@ Quick actions are saved shell commands shown in their own panel category. Run th
 
 ### Image OCR
 
-macOS uses the system Vision framework. Windows uses Tesseract assets that can be installed from app preferences.
+macOS uses the system Vision framework. Windows uses PaddleOCR models that can be installed from app preferences.
 
 ## Contributing
 
@@ -228,6 +228,8 @@ npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+Building the Rust backend on Windows needs libclang for bindgen (used by the PaddleOCR engine). Install it with `choco install llvm`, or use `pip install libclang` and point `LIBCLANG_PATH` at the `clang/native` folder inside your Python site-packages.
 
 If your change touches shared Rust models or events, also run `npm run gen:types` and commit the regenerated bindings.
 

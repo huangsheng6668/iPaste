@@ -42,7 +42,7 @@ const fallbackOcrInstallStatus: OcrInstallStatus = {
   manifestUrl: "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v1/ipaste-ocr-windows-x64-fast.json",
   installDir: "",
   downloadedBytes: 0,
-  totalBytes: 37_557_099,
+  totalBytes: 10_903_450,
   missingFiles: [],
 };
 
@@ -421,10 +421,10 @@ export const ipasteApi = {
     return call<OcrInstallStatus>("install_ocr_assets", undefined, {
       ...fallbackOcrInstallStatus,
       installed: true,
-      engineVersion: "5.5.0.20241111-portable",
+      engineVersion: "2.0.0-ppocr-v5-mobile-fp16",
       mode: fallbackOcrInstallStatus.mode,
-      downloadedBytes: 37_557_099,
-      totalBytes: 37_557_099,
+      downloadedBytes: 10_903_450,
+      totalBytes: 10_903_450,
     });
   },
   removeOcrAssets() {
@@ -433,8 +433,8 @@ export const ipasteApi = {
   recognizeImageText(imagePath: string) {
     return call<ImageOcrResult>("recognize_image_text", { imagePath }, {
       text: "iPaste image OCR test Select text from image 2026",
-      engine: "mock",
-      language: "chi_sim+eng",
+      engine: "paddle",
+      language: "zh-Hans+en",
       words: [],
     });
   },

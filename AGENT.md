@@ -11,7 +11,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 自动捕获文本与图片剪贴板历史（SQLite 本地存储，按内容哈希去重）。
 - 分类：创建、重命名、改色、排序，手动把历史片段存为快照。
 - 搜索历史与分类片段；键盘为主的选择与回贴流程。
-- 图片查看器：预览、缩放、复制回剪贴板、OCR 提取文本（macOS 系统 Vision / Windows Tesseract 资源）。
+- 图片查看器：预览、缩放、复制回剪贴板、OCR 提取文本（macOS 系统 Vision / Windows PaddleOCR 资源）。
 - 追加复制：临时合并多段文本复制。
 - LAN 同步：两台设备配对码互信，加密直传片段与整组分类（v4 挑战握手，不经服务器）。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
@@ -65,7 +65,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `store.rs` + `store/`：SQLite 持久化。子模块按域拆分（clips/categories/settings/automations/sync/migrations/secrets/rows/test_support），统一 `xxx_with_conn` 事务模式。
 - `clipboard.rs`：剪贴板捕获、规范化和写回。
 - `cloud.rs`：自托管同步 API 客户端（store 侧调用 cloud，cloud 不依赖 store）。
-- `ocr/`：图片 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows 资源安装器、`tesseract.rs` Windows 识别执行、`vision.rs` macOS Vision 管线。
+- `ocr/`：图片 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows 资源安装器、`paddle.rs` Windows Paddle 识别管线、`tokens.rs` macOS/Windows 共享行内分词、`vision.rs` macOS Vision 管线。
 - `window.rs`：面板/设置/放大窗口、原生面板行为和窗口定位（辅助窗口统一走 `show_auxiliary_window`）。
 - `tray.rs`：系统托盘、菜单文案与菜单事件处理。
 - `shortcut.rs`：全局快捷键注册与更新。

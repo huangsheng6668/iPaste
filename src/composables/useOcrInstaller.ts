@@ -28,13 +28,13 @@ export function useOcrInstaller() {
       label: "Fast",
       value: "fast",
       description: t("ocr.mode.fast.description"),
-      totalBytes: 37_557_099,
+      totalBytes: 10_903_450,
     },
     {
       label: "Best",
       value: "best",
       description: t("ocr.mode.best.description"),
-      totalBytes: 59_452_879,
+      totalBytes: 21_384_230,
     },
   ]);
 

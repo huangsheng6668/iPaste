@@ -48,7 +48,7 @@ Linux는 아직 공식 대상이 아닙니다. Tauri는 크로스 플랫폼이�
 4. 검색하고 항목을 선택한 뒤 Enter를 눌러 활성 앱에 다시 붙여넣습니다.
 5. 장기적으로 재사용할 콘텐츠는 카테고리에 저장하고 워크플로에 맞게 정리합니다.
 
-macOS의 자동 붙여넣기에는 손쉬운 사용 권한이 필요합니다. Windows의 이미지 OCR은 Settings에서 Tesseract 에셋을 다운로드해야 합니다.
+macOS의 자동 붙여넣기에는 손쉬운 사용 권한이 필요합니다. Windows의 이미지 OCR은 Settings에서 PaddleOCR 모델을 다운로드해야 합니다.
 
 ## Privacy And Data
 
@@ -69,7 +69,7 @@ iPaste는 기본적으로 로컬 우선입니다.
 | Platform | Status | Notes |
 | --- | --- | --- |
 | macOS | Supported | OCR은 시스템 Vision framework를 사용하며, 자동 붙여넣기에는 손쉬운 사용 권한이 필요합니다. |
-| Windows | Supported | OCR은 다운로드 가능한 Tesseract 에셋을 사용합니다. |
+| Windows | Supported | OCR은 다운로드 가능한 PaddleOCR 모델을 사용합니다. |
 | Linux | Not supported yet | 현재 공식 릴리스나 전체 검증은 없습니다. |
 
 ## Tech Stack
@@ -161,7 +161,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -197,7 +197,7 @@ iPaste에서 붙여넣을 때 앱은 선택한 스니펫을 시스템 클립보�
 
 ### Image OCR
 
-macOS는 시스템 Vision framework를 사용합니다. Windows는 앱 환경설정에서 설치할 수 있는 Tesseract 에셋을 사용합니다.
+macOS는 시스템 Vision framework를 사용합니다. Windows는 앱 환경설정에서 설치할 수 있는 PaddleOCR 모델을 사용합니다.
 
 ## Contributing
 
@@ -211,6 +211,8 @@ npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+Windows에서 Rust 백엔드를 빌드하려면 bindgen에 필요한 libclang이 있어야 합니다(PaddleOCR 엔진이 사용). `choco install llvm`으로 설치하거나, `pip install libclang` 실행 후 `LIBCLANG_PATH`를 Python site-packages의 `clang/native` 디렉터리로 지정하세요.
 
 공유 Rust 모델이나 이벤트에 관련된 변경이라면 `npm run gen:types`도 실행하고 재생성된 바인딩을 커밋에 포함하세요.
 

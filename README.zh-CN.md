@@ -65,7 +65,7 @@ xattr -dr com.apple.quarantine /Applications/iPaste.app
 4. 搜索、选择条目，然后按回车粘贴回当前应用。
 5. 对长期复用的内容，保存到分类并按自己的工作流整理。
 
-macOS 上的自动粘贴需要辅助功能权限。Windows 上的图片 OCR 需要在设置中下载 Tesseract 资源。
+macOS 上的自动粘贴需要辅助功能权限。Windows 上的图片 OCR 需要在设置中下载 PaddleOCR 模型。
 
 ## 隐私与数据
 
@@ -86,7 +86,7 @@ iPaste 的默认模型是本地优先。
 | 平台 | 状态 | 备注 |
 | --- | --- | --- |
 | macOS | 已支持 | OCR 使用系统 Vision 框架；自动粘贴需要辅助功能权限。 |
-| Windows | 已支持 | OCR 使用可下载的 Tesseract 资源。 |
+| Windows | 已支持 | OCR 使用可下载的 PaddleOCR 模型。 |
 | Linux | 暂未支持 | 当前没有正式发布和完整验证。 |
 
 ## 技术栈
@@ -178,7 +178,7 @@ npm run gen:types
 | `clipboard.rs` | 剪贴板捕获、规范化和写回 |
 | `cloud.rs` | 自托管同步 API 客户端 |
 | `lan_sync/` | LAN 设备同步：协议、加密（X25519 + AES-256-GCM）、会话循环、host/guest 角色、配对防护 |
-| `ocr/` | 图片 OCR：资源安装器与状态检测（Windows）、Tesseract 执行（Windows）、Vision 管线（macOS） |
+| `ocr/` | 图片 OCR：资源安装器与状态检测（Windows）、PaddleOCR 执行（Windows）、Vision 管线（macOS） |
 | `window.rs` | 面板/设置/放大窗口、原生面板行为和窗口定位 |
 | `tray.rs` | 系统托盘、菜单文案与菜单事件处理 |
 | `shortcut.rs` | 全局快捷键注册与更新 |
@@ -214,7 +214,7 @@ Rust 后端在后台监听系统剪贴板，对受支持的内容进行规范化
 
 ### 图片 OCR
 
-macOS 使用系统 Vision 框架。Windows 使用可在应用偏好设置中安装的 Tesseract 资源。
+macOS 使用系统 Vision 框架。Windows 使用可在应用偏好设置中安装的 PaddleOCR 模型。
 
 ## 贡献
 
@@ -228,6 +228,8 @@ npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+在 Windows 上构建 Rust 后端需要 bindgen 所需的 libclang（PaddleOCR 引擎依赖）。可用 `choco install llvm` 安装，或 `pip install libclang` 并把 `LIBCLANG_PATH` 指向 Python site-packages 下的 `clang/native` 目录。
 
 如果改动涉及共享 Rust 模型或事件，还需要运行 `npm run gen:types` 并把再生成的绑定一并提交。
 

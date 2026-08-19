@@ -610,7 +610,7 @@ export const messages = {
     "ocr.readyMessage": "图片 OCR 资源已准备好",
     "ocr.removedMessage": "图片 OCR 资源已删除",
     "ocr.modeHint": "Fast 使用 PP-OCRv5 mobile fp16 模型，体积更小、识别更快；Best 使用 fp32 模型，识别更准。",
-    "ocr.downloadContents": "下载内容：PaddleOCR 检测模型、识别模型、中英文典",
+    "ocr.downloadContents": "下载内容：PaddleOCR 检测模型、识别模型、中英文字典",
     "ocr.currentSelection": "当前选择：{label}，{description}",
     "ocr.directory": "目录：{path}",
     "ocr.openDownloadDir": "打开下载目录",

@@ -49,7 +49,7 @@ Linux aún no es un destino oficial. Tauri es multiplataforma, pero este reposit
 4. Busca, selecciona un elemento y pulsa Enter para pegarlo de nuevo en la aplicación activa.
 5. Guarda el contenido reutilizable a largo plazo en categorías y organízalo alrededor de tu flujo de trabajo.
 
-El pegado automático en macOS requiere permiso de Accesibilidad. El OCR de imágenes en Windows requiere descargar los recursos de Tesseract desde Settings.
+El pegado automático en macOS requiere permiso de Accesibilidad. El OCR de imágenes en Windows requiere descargar los modelos de PaddleOCR desde Settings.
 
 ## Privacy And Data
 
@@ -70,7 +70,7 @@ Si tu portapapeles suele contener contraseñas, claves, datos de clientes o cont
 | Platform | Status | Notes |
 | --- | --- | --- |
 | macOS | Supported | OCR usa el framework Vision del sistema; el pegado automático requiere permiso de Accesibilidad. |
-| Windows | Supported | OCR usa recursos descargables de Tesseract. |
+| Windows | Supported | OCR usa modelos descargables de PaddleOCR. |
 | Linux | Not supported yet | Por el momento no hay versión oficial ni validación completa. |
 
 ## Tech Stack
@@ -162,7 +162,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), Tesseract runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -198,7 +198,7 @@ Las acciones rápidas son comandos de shell guardados que se muestran en su prop
 
 ### Image OCR
 
-macOS usa el framework Vision del sistema. Windows usa recursos de Tesseract que pueden instalarse desde las preferencias de la app.
+macOS usa el framework Vision del sistema. Windows usa modelos de PaddleOCR que pueden instalarse desde las preferencias de la app.
 
 ## Contributing
 
@@ -212,6 +212,8 @@ npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+Para compilar el backend de Rust en Windows se necesita libclang para bindgen (usado por el motor de PaddleOCR). Instálalo con `choco install llvm`, o con `pip install libclang` señalando `LIBCLANG_PATH` a la carpeta `clang/native` de tus site-packages de Python.
 
 Si tu cambio afecta a los modelos compartidos de Rust o a los eventos, ejecuta también `npm run gen:types` e incluye los bindings regenerados en el commit.
 
