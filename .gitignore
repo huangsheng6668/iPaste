@@ -37,3 +37,6 @@ key/*.key
 
 # Isolated development worktrees
 /.worktrees/
+
+# Git worktrees
+.worktrees/
