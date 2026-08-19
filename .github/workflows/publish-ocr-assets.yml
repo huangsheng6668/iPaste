@@ -62,7 +62,9 @@ jobs:
           cp "$STAGING/manifests/ipaste-ocr-windows-x64-fast.json" \
              "$STAGING/manifests/ipaste-ocr-windows-x64-best.json" ocr/
           printf 'iPaste OCR v2 assets (paddle PP-OCRv5). Served via GitHub Pages. Do not edit.\n' > README.md
-          git add .
+          # 显式只加目标路径：git rm 已删掉 .gitignore，git add . 会把
+          # 未跟踪的 ocr-spike/ 临时目录一并提交（重复 32MB）
+          git add ocr README.md
           git commit -m "publish: paddle ocr v2 assets [skip ci]"
           git push --force origin "$ASSETS_BRANCH"
 
@@ -116,8 +118,8 @@ jobs:
           fetch() { curl -fsSL --retry 20 --retry-delay 10 --retry-all-errors "$1"; }
           for mode in fast best; do
             manifest="$STAGING/manifests/ipaste-ocr-windows-x64-$mode.json"
-            base="$(node -e 'const m=require(process.argv[1]);console.log(m.engine.baseUrl)' "$manifest")"
-            for entry in $(node -e 'const m=require(process.argv[1]);for(const f of m.engine.files)console.log(`${f.path}|${f.sha256}`)' "$manifest"); do
+            base="$(node -e 'const m=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));console.log(m.engine.baseUrl)' "$manifest")"
+            for entry in $(node -e 'const m=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));for(const f of m.engine.files)console.log(`${f.path}|${f.sha256}`)' "$manifest"); do
               rel="${entry%%|*}"; expected="${entry#*|}"
               actual="$(fetch "$base$rel" | sha256sum | cut -d" " -f1)"
               [ "$actual" = "$expected" ] || { echo "FAIL $base$rel"; exit 1; }
