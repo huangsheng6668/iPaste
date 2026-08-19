@@ -4,7 +4,6 @@ use std::io::{Read, Write};
 
 use reqwest::blocking::Client;
 use tauri::Manager;
-use zip::ZipArchive;
 
 use super::{emit_ocr_install_progress, ocr_platform};
 use crate::models::{OcrInstallStatus, OcrManifest, OcrManifestFile};
@@ -21,8 +20,6 @@ const UPDATER_R2_ENDPOINT: &str = env!("IPASTE_UPDATER_R2_ENDPOINT");
 const OCR_DIR: &str = "ocr";
 #[cfg(not(target_os = "macos"))]
 const OCR_ASSET_DIR: &str = "assets";
-#[cfg(not(target_os = "macos"))]
-const OCR_ENGINE_DIR: &str = "tesseract";
 /// v2 安装器引擎标识：manifest.engine.id 与缓存失效判定均以此为基准。
 #[cfg(not(target_os = "macos"))]
 pub(crate) const OCR_ENGINE_ID: &str = "paddle";
@@ -47,7 +44,7 @@ pub(crate) fn install_ocr_assets_inner(
     emit_ocr_install_progress(app, "fetchingManifest", None, 0, 0);
     let manifest = fetch_ocr_manifest(&mode)?;
 
-    // 进入下载循环前清理旧版残留（tesseract 引擎目录与 v1 下载/资产目录）；
+    // 进入下载循环前清理旧版残留（v1 安装器的引擎目录与下载/资产目录）；
     // 清理失败不阻塞 v2 安装，模型文件按 file.path 落入独立的 ocr/paddle/{mode}/ 目录
     for legacy_path in legacy_ocr_paths(app) {
         if legacy_path.exists() {
@@ -79,7 +76,7 @@ pub(crate) fn install_ocr_assets_inner(
         }
 
         let url = format!("{}{}", manifest.engine.base_url, file.path);
-        let target_path = ocr_download_target_path(app, file)?;
+        let target_path = ocr_manifest_file_path(app, file)?;
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
@@ -128,10 +125,6 @@ pub(crate) fn install_ocr_assets_inner(
         }
 
         fs::rename(&temp_path, &target_path).map_err(|error| error.to_string())?;
-        if file.archive.as_deref() == Some("zip") {
-            install_ocr_zip_archive(app, file, &target_path)?;
-            let _ = fs::remove_file(&target_path);
-        }
         downloaded_bytes = file_start_bytes.saturating_add(file.size);
     }
 
@@ -396,32 +389,9 @@ fn ocr_manifest_file_installed(
     app: &tauri::AppHandle,
     file: &OcrManifestFile,
 ) -> Result<bool, String> {
-    if file.archive.as_deref() == Some("zip") {
-        if file.entries.is_empty() {
-            return Ok(false);
-        }
-        let install_dir = ocr_manifest_install_dir(app, file)?;
-        return file
-            .entries
-            .iter()
-            .map(|entry| install_dir.join(entry).exists())
-            .try_fold(true, |all_exist, exists| Ok(all_exist && exists));
-    }
-
+    // v2 模型均为裸文件（validator 已拒绝压缩包），落点即 file.path 描述的布局
     let target_path = ocr_manifest_file_path(app, file)?;
     file_is_valid(&target_path, &file.sha256)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ocr_download_target_path(
-    app: &tauri::AppHandle,
-    file: &OcrManifestFile,
-) -> Result<PathBuf, String> {
-    if file.archive.as_deref() == Some("zip") {
-        return Ok(ocr_download_dir(app)?.join(&file.name));
-    }
-
-    ocr_manifest_file_path(app, file)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -436,66 +406,6 @@ fn ocr_manifest_file_path(
     let resolved = root.join(&file.path);
     ensure_path_within(&root, &resolved)?;
     Ok(resolved)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ocr_manifest_install_dir(
-    app: &tauri::AppHandle,
-    file: &OcrManifestFile,
-) -> Result<PathBuf, String> {
-    let root = ocr_root_dir(app)?;
-    let install_dir = file
-        .install_dir
-        .as_deref()
-        .unwrap_or(if file.role == "engine" {
-            OCR_ENGINE_DIR
-        } else {
-            OCR_ASSET_DIR
-        });
-    validate_relative_path(install_dir)?;
-    let resolved = root.join(install_dir);
-    ensure_path_within(&root, &resolved)?;
-    Ok(resolved)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn install_ocr_zip_archive(
-    app: &tauri::AppHandle,
-    file: &OcrManifestFile,
-    archive_path: &Path,
-) -> Result<(), String> {
-    let install_dir = ocr_manifest_install_dir(app, file)?;
-    if install_dir.exists() {
-        fs::remove_dir_all(&install_dir).map_err(|error| error.to_string())?;
-    }
-    fs::create_dir_all(&install_dir).map_err(|error| error.to_string())?;
-
-    let archive_file = fs::File::open(archive_path).map_err(|error| error.to_string())?;
-    let mut archive = ZipArchive::new(archive_file).map_err(|error| error.to_string())?;
-    for index in 0..archive.len() {
-        let mut zipped_file = archive.by_index(index).map_err(|error| error.to_string())?;
-        let Some(enclosed_name) = zipped_file.enclosed_name().map(PathBuf::from) else {
-            return Err("OCR portable zip 包含不安全路径".to_string());
-        };
-        let output_path = install_dir.join(enclosed_name);
-        ensure_path_within(&install_dir, &output_path)?;
-
-        if zipped_file.is_dir() {
-            fs::create_dir_all(&output_path).map_err(|error| error.to_string())?;
-            continue;
-        }
-
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let mut output = fs::File::create(&output_path).map_err(|error| error.to_string())?;
-        std::io::copy(&mut zipped_file, &mut output).map_err(|error| error.to_string())?;
-    }
-
-    if !ocr_manifest_file_installed(app, file)? {
-        return Err(format!("{} 解压后文件不完整", file.name));
-    }
-    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -556,7 +466,7 @@ fn read_ocr_manifest_cache(
     let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let manifest =
         serde_json::from_str::<OcrManifest>(&content).map_err(|error| error.to_string())?;
-    // 旧引擎（tesseract 时代）缓存一律视为无缓存，强制重新拉取 v2 清单，
+    // 旧引擎（v1 时代）缓存一律视为无缓存，强制重新拉取 v2 清单，
     // 避免老用户被旧缓存骗成「已安装」
     if !is_usable_cached_manifest(&manifest) {
         return Ok(None);
@@ -584,21 +494,6 @@ pub(crate) fn ocr_root_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|error| error.to_string())
         .map(|path| path.join(OCR_DIR))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn ocr_asset_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(ocr_root_dir(app)?.join(OCR_ASSET_DIR))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn ocr_engine_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(ocr_root_dir(app)?.join(OCR_ENGINE_DIR))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ocr_download_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(ocr_root_dir(app)?.join("downloads"))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -650,15 +545,16 @@ pub(crate) fn paddle_model_paths(
     paddle_model_paths_under(&ocr_root_dir(app)?, mode)
 }
 
-/// 旧版（tesseract 时代）残留目录：存在即代表需要清理。
-/// 返回 ocr/tesseract、ocr/downloads、ocr/assets 三个路径。
+/// 旧版 v1 安装器的残留目录：存在即代表需要清理。
+/// 返回 v1 引擎目录、downloads、assets 三个路径。
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn legacy_ocr_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
     let Ok(root) = ocr_root_dir(app) else {
         return Vec::new();
     };
     vec![
-        root.join(OCR_ENGINE_DIR),
+        // v2 之前安装器的引擎目录名：历史字面量，与当前引擎无关
+        root.join("tesseract"),
         root.join("downloads"),
         root.join(OCR_ASSET_DIR),
     ]
@@ -697,9 +593,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_legacy_tesseract_manifest() {
-        // 老清单直接拒绝，防止 R2 上 v1 URL 误配
-        assert!(validate_ocr_manifest(&manifest_for("tesseract", "det-model"), "fast").is_err());
+    fn validate_rejects_legacy_engine_manifest() {
+        // 老清单（非当前引擎 id）直接拒绝，防止 R2 上 v1 URL 误配
+        assert!(validate_ocr_manifest(&manifest_for("v1-engine", "det-model"), "fast").is_err());
     }
 
     #[test]
@@ -718,7 +614,7 @@ mod tests {
     fn cached_manifest_with_wrong_engine_is_ignored() {
         // 缓存失效判定抽成纯函数后测试：
         // fn is_usable_cached_manifest(m: &OcrManifest) -> bool { m.engine.id == OCR_ENGINE_ID }
-        assert!(!is_usable_cached_manifest(&manifest_for("tesseract", "det-model")));
+        assert!(!is_usable_cached_manifest(&manifest_for("v1-engine", "det-model")));
         assert!(is_usable_cached_manifest(&manifest_for("paddle", "det-model")));
     }
 

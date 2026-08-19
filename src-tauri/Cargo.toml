@@ -32,8 +32,6 @@ getrandom = "0.2"
 hkdf = "0.12"
 hmac = "0.12"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
-# PaddleOCR 进程内推理（MNN 后端）；版本以 Task 0 Windows 实测钉死
-ocr-rs = "=2.4.1"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 rusqlite = { version = "=0.32.1", features = ["bundled"] }
@@ -52,11 +50,15 @@ tauri-plugin-process = "2"
 thiserror = "2"
 hostname = "0.4"
 x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
-zip = { version = "4.6.1", default-features = false, features = ["deflate"] }
 ts-rs = "12"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_DataExchange"] }
+
+# macOS 走 Vision 管线，不编译 MNN/bindgen（ocr/paddle.rs 仅非 macOS 编译）
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# PaddleOCR 进程内推理（MNN 后端）；版本以 Task 0 Windows 实测钉死
+ocr-rs = "=2.4.1"
 
 [dev-dependencies]
 http = "1"

@@ -1,13 +1,14 @@
 //! 图片 OCR：状态检测与调度（mod）+ Windows 资源安装器（installer）+
-//! Windows Paddle 识别管线（paddle）+ Windows Tesseract 执行（tesseract）+
+//! Windows Paddle 识别管线（paddle）+
 //! macOS Vision 管线（vision）+ 跨平台行内分词（tokens）。
 
 use tauri::Emitter;
 
 use crate::events::EVENT_OCR_INSTALL_PROGRESS;
 use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus};
+#[cfg(not(target_os = "macos"))]
+use tauri::Manager;
 
-#[cfg(target_os = "macos")]
 use crate::DEFAULT_OCR_MODE;
 #[cfg(target_os = "macos")]
 use vision::MACOS_OCR_ENGINE_ID;
@@ -17,9 +18,6 @@ pub(crate) mod installer;
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) mod paddle;
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) mod tesseract;
 
 #[cfg(target_os = "macos")]
 pub(crate) mod vision;
@@ -154,8 +152,18 @@ pub(crate) async fn recognize_image(
 
     #[cfg(not(target_os = "macos"))]
     {
-        tokio::task::spawn_blocking(move || tesseract::recognize_image_text_inner(&app, image_path))
-            .await
-            .map_err(|error| error.to_string())?
+        // 本函数签名不含 store（调用方 commands.rs 只有 AppHandle），
+        // paddle 管线经 store 读取 ocr_mode，故在此从 AppState 取。
+        // AppState 理论上总已托管（setup 先于任何命令）；取不到时降级为
+        // 默认模式 fast，仍走同一管线（引擎缓存按 fast 模型路径识别）。
+        let store = app
+            .try_state::<crate::models::AppState>()
+            .map(|state| state.store.clone());
+        tokio::task::spawn_blocking(move || match store.as_ref() {
+            Some(store) => paddle::recognize_image_text_paddle(&app, store, image_path),
+            None => paddle::recognize_with_mode(&app, DEFAULT_OCR_MODE, image_path),
+        })
+        .await
+        .map_err(|error| error.to_string())?
     }
 }

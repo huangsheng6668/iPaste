@@ -1,6 +1,6 @@
 //! PaddleOCR 识别管线：ocr-rs（MNN 后端）进程内推理 + 行级结果到词级的纯映射。
 //! 纯映射部分（PaddleLine / paddle_lines_to_words）平台无关、可脱离模型单测；
-//! 引擎缓存与识别入口仅非 macOS 平台编译（与 tesseract.rs 的逐项 cfg 一致）。
+//! 引擎缓存与识别入口仅非 macOS 平台编译（与 installer.rs 的逐项 cfg 一致）。
 
 #[cfg(not(target_os = "macos"))]
 use crate::ocr::installer::{paddle_model_paths, OCR_ENGINE_ID};
@@ -98,23 +98,32 @@ fn ensure_engine(app: &tauri::AppHandle, mode: &str) -> Result<&'static ocr_rs::
     Ok(engine)
 }
 
-/// 命令入口（被 ocr/mod.rs::recognize_image 的非 macOS 分支调用，spawn_blocking 内执行）。
-/// Task 5 接入 dispatch 前暂无非测试调用方，allow(dead_code) 消除预留警告。
+/// 命令入口（被 ocr/mod.rs::recognize_image 的非 macOS 分支调用，spawn_blocking 内执行）：
+/// 从 store 设置解析 ocr_mode 后进入识别管线。
 #[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
 pub(crate) fn recognize_image_text_paddle(
     app: &tauri::AppHandle,
     store: &crate::store::Store,
     image_path: String,
 ) -> Result<crate::models::ImageOcrResult, String> {
     let mode = store.settings()?.ocr_mode;
+    recognize_with_mode(app, &mode, image_path)
+}
+
+/// 降级入口：AppState 取不到（无法读设置）时由调度方按默认模式调用。
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn recognize_with_mode(
+    app: &tauri::AppHandle,
+    mode: &str,
+    image_path: String,
+) -> Result<crate::models::ImageOcrResult, String> {
     let image_path = std::path::PathBuf::from(image_path);
     if !image_path.exists() {
         return Err("图片文件不存在".to_string());
     }
     let image = image::open(&image_path).map_err(|error| format!("无法读取图片：{error}"))?;
 
-    let engine = ensure_engine(app, &mode)?;
+    let engine = ensure_engine(app, mode)?;
     let items = engine
         .recognize(&image)
         .map_err(|error| format!("PaddleOCR 识别失败：{error}"))?;
