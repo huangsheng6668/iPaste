@@ -92,6 +92,73 @@ Observations (dev-class Windows x64 desktop, release build):
   stayed sane. Real-world screenshots are usually rendered at larger glyph
   sizes than this stress case.
 
+### 2.1 Supplement (2026-08-19): real screen captures
+
+The images above are synthetic `System.Drawing` renders. This supplement
+re-ran the smoke on **real captures of the physical screen** (the case the
+review flagged: actual ClearType subpixel rendering, live desktop furniture,
+scale variance). Methodology:
+
+- Primary display 2560x1440, 96 DPI (100% scaling), captured full-screen via
+  PowerShell `System.Windows.Forms` + `Graphics::CopyFromScreen`. Reproducible:
+  content sources + `capture.ps1` under `ocr-spike/smoke/real/src/`
+  (gitignored); raw logs under `ocr-spike/smoke/real/out-*.txt`. Apps were
+  launched with isolated temp profiles (`--user-data-dir`) and killed after
+  capture; captures include the real taskbar/desktop, as a user screenshot
+  would.
+- `zh-paragraph.png` — Chrome (100% scale) rendering local
+  `src/zh-paragraph.html`: browser chrome + Chinese news article (headline,
+  meta line, 5 justified 17 px paragraphs in Microsoft YaHei, pull quote).
+- `en-ui.png` — VS Code (fresh English-UI profile) maximized on
+  `scripts/ocr-models/build-manifest.mjs` + `README.md`: menu bar,
+  breadcrumbs, explorer sidebar, line numbers, dense syntax-colored code,
+  status bar, minimap.
+- `mixed-zh-en.png` — Chrome with `--force-device-scale-factor=1.5`
+  (emulated 150% display scaling — DPI/scale variance) rendering
+  `src/mixed-doc.html`: zh+en release notes with bullets and a bordered table.
+
+| Image (items fp16/fp32) | Precision | engine_new | runs (cold/warm/warm) |
+| --- | --- | ---: | --- |
+| zh-paragraph.png 2560x1440 (82/86) | fp16 (fast) | 7 ms | 1360 / 1454 / 2164 ms |
+| zh-paragraph.png | fp32 (best) | 14 ms | 1522 / 1431 / 2215 ms |
+| en-ui.png 2560x1440 (140/137) | fp16 (fast) | 13 ms | 2090 / 1952 / 2030 ms |
+| en-ui.png | fp32 (best) | 22 ms | 2005 / 2040 / 1973 ms |
+| mixed-zh-en.png 2560x1440 (32/32) | fp16 (fast) | 11 ms | 898 / 863 / 829 ms |
+| mixed-zh-en.png | fp32 (best) | 23 ms | 941 / 864 / 871 ms |
+
+(Timings taken on the live interactive desktop — warm-run variance such as
+zh 2164 ms reflects background load, not the engine.)
+
+Quality vs the synthetic baseline:
+
+- **zh**: body text conf 0.994–0.999 including full-width justified
+  paragraphs and the pull quote; browser chrome read correctly (tab title,
+  `file:///…zh-paragraph.html` address bar at 0.989). No ClearType-fringe
+  garbling on document text. fp16 vs fp32 differ only in tiny desktop marks
+  (fp32 picked up 4 more tray/glyph items) and one comma on a small foreign
+  window title captured at the screen edge.
+- **en**: English UI (File/Edit/View/Go/Run/Terminal/Help) conf 0.99–1.00;
+  code lines up to conf 0.998, e.g. `import { createHash } from
+  "node:crypto";` at 0.958. Sub-0.90 items are 27–35 px icon furniture
+  (sidebar chevrons read as `1`/`11`, activity-bar icons as letters), not
+  lost text. Small ~14 px chrome text shows case glitches: `OCR`→`ocR`,
+  `JSON`→`JsoN`, `JS`→`Js`.
+- **mixed @150%**: fastest and cleanest (0.83–0.94 s) — larger effective
+  glyphs from the emulated 150% scaling improve both speed and accuracy;
+  full document read end-to-end at conf ≥ 0.94, zh bullets and table cells
+  intact. Residual slips on small cells: `DPI`→`DPl`, `ms`→`mS`, one
+  `full screen`→`full creen`, and `96 MB` degraded to `M` (conf 0.61). The
+  only fp16/fp32 text diff in the document body was a space.
+- **fp16 vs fp32**: on real captures item counts differ slightly
+  (82/86, 140/137, 32/32) — entirely on tiny/low-contrast UI marks; document
+  text is effectively identical. Confirms Task 0's fp16≈fp32 finding under
+  real rendering.
+- Real vs synthetic: real screens carry more detectable furniture
+  (en-ui 140 items vs 91 synthetic) and run longer (en-ui ~2.0 s vs ~1.0 s
+  synthetic) yet stay within the interactive OCR budget. PNG captures are
+  lossless, so no compression artifacts were exercised; the small-text case
+  glitches above (`l`/`I`/`s`/`S`) are the realistic residual error mode.
+
 ## 3. Staging layout and regeneration
 
 `ocr-spike/staging/` mirrors the published R2 key structure exactly
