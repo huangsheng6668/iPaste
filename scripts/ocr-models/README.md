@@ -210,69 +210,52 @@ production-real either way; only `baseUrl` changes.
 - JSON field names are camelCase (`baseUrl`) per the serde structs in
   `src-tauri/src/models.rs`
 
-## 4. Publishing procedure — NOT EXECUTED (requires user approval)
+## 4. Publishing procedure
 
-Publishes R2 objects + GitHub Release tag `ipaste-ocr-windows-v2`.
-**Never delete the v1 assets** (`ipaste-ocr-windows-v1` release and old R2
-`ipaste-ocr-*` objects) — rollback depends on them.
+Automated path: `.github/workflows/publish-ocr-assets.yml` (workflow_dispatch,
+plus push to main touching `scripts/ocr-models/**`) runs this whole procedure
+with **zero secrets** — hosting is GitHub Pages, publishing is GITHUB_TOKEN.
+Manual equivalent below. **Never delete the v1 assets**
+(`ipaste-ocr-windows-v1` release and old R2 `ipaste-ocr-*` objects) — rollback
+depends on them.
 
-**Release gate.** No Windows app release may be cut from this branch until
-step 2 has put the v2 manifests live on R2: a released build without the
-published v2 assets loses OCR entirely (the installer rejects the old v1
-manifests via `validate_ocr_manifest`, and the paddle model objects do not
-exist at any reachable URL). During publish-day QA, the
-`IPASTE_OCR_R2_BASE_URL` runtime override (read in `ocr_r2_base_urls`,
-`src-tauri/src/ocr/installer.rs`) points a dev build at staging to preview
-exactly what production will serve.
+**Release gate.** No Windows app release may be cut until the v2 manifests are
+live (a released build without published v2 assets loses OCR entirely: the
+installer rejects the old v1 manifests via `validate_ocr_manifest`, and the
+paddle model objects do not exist at any reachable URL). During publish-day QA,
+the `IPASTE_OCR_R2_BASE_URL` runtime override (read in `ocr_r2_base_urls`,
+`src-tauri/src/ocr/installer.rs`) points a dev build at a preview URL.
 
-Prerequisites (same secrets as `.github/workflows/release.yml` /
-`scripts/mirror-r2-release.mjs`): `R2_ACCOUNT_ID`, `R2_BUCKET`,
-`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `IPASTE_OCR_R2_BASE_URL`, and
-`gh` authenticated against the release repository (`huangsheng6668/iPaste`,
-same as the tauri.conf.json updater endpoint). The automated path is
-`.github/workflows/publish-ocr-assets.yml` (workflow_dispatch + push to main
-touching `scripts/ocr-models/**`), which runs this procedure in CI.
+Hosting: a dedicated orphan branch `ocr-assets` (layout `ocr/paddle/{mode}/…`
++ `ocr/ipaste-ocr-windows-x64-{mode}.json`) is the GitHub Pages source, served
+at `https://huangsheng6668.github.io/iPaste/ocr/`. The manifests' `baseUrl`
+points there; the GitHub Release `ipaste-ocr-windows-v2` keeps the two
+manifest JSONs under their installer-fetched names as fallback plus flattened
+archival model copies.
 
-### Step 1 — regenerate manifests with the production base URL
+### Step 1 — regenerate manifests with the Pages base URL
 
 ```bash
 node scripts/ocr-models/build-manifest.mjs --dir ocr-spike/staging --mode fast \
-  --base-url "$IPASTE_OCR_R2_BASE_URL" --engine-version 2.0.0 \
+  --base-url "https://huangsheng6668.github.io/iPaste/ocr/" --engine-version 2.0.0 \
   --out ocr-spike/staging/manifests/ipaste-ocr-windows-x64-fast.json
 node scripts/ocr-models/build-manifest.mjs --dir ocr-spike/staging --mode best \
-  --base-url "$IPASTE_OCR_R2_BASE_URL" --engine-version 2.0.0 \
+  --base-url "https://huangsheng6668.github.io/iPaste/ocr/" --engine-version 2.0.0 \
   --out ocr-spike/staging/manifests/ipaste-ocr-windows-x64-best.json
 ```
 
-### Step 2 — upload to R2 (channel per `scripts/mirror-r2-release.mjs`)
-
-`mirror-r2-release.mjs` drives the AWS CLI against the R2 S3 endpoint with
-`R2_*` secrets; it flattens OCR assets by basename, which would destroy the
-`paddle/{mode}/` layout — so upload the staged tree directly:
+### Step 2 — publish the assets branch and enable Pages
 
 ```bash
-OCR_KEY_PREFIX="$(node -e 'const u=new URL(process.env.IPASTE_OCR_R2_BASE_URL); console.log(u.pathname.replace(/^\/+|\/+$/g,"")||"ocr")')"
-R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" AWS_EC2_METADATA_DISABLED=true
-
-cd ocr-spike/staging
-for mode in fast best; do
-  for f in det.mnn rec.mnn ppocr_keys_v5.txt; do
-    aws --endpoint-url "$R2_ENDPOINT" s3 cp "paddle/$mode/$f" \
-      "s3://${R2_BUCKET}/${OCR_KEY_PREFIX}/paddle/$mode/$f" \
-      --content-type application/octet-stream \
-      --cache-control "public, max-age=31536000, immutable"
-  done
-  aws --endpoint-url "$R2_ENDPOINT" s3 cp "manifests/ipaste-ocr-windows-x64-$mode.json" \
-    "s3://${R2_BUCKET}/${OCR_KEY_PREFIX}/ipaste-ocr-windows-x64-$mode.json" \
-    --content-type application/json \
-    --cache-control "public, max-age=60"
-done
+git checkout --orphan ocr-assets
+git rm -rf --quiet .
+mkdir -p ocr && cp -r ocr-spike/staging/paddle ocr/
+cp ocr-spike/staging/manifests/ipaste-ocr-windows-x64-*.json ocr/
+printf 'iPaste OCR v2 assets. Do not edit.\n' > README.md
+git add . && git commit -m "publish: paddle ocr v2 assets [skip ci]"
+git push --force origin ocr-assets
+# 然后在 Settings → Pages 把 source 设为 ocr-assets / (root)（工作流会用 API 自动做）
 ```
-
-This yields objects at `{ocr-prefix}/paddle/{mode}/{file}` — exactly
-`baseUrl + file.path` — and manifests at `{ocr-prefix}/ipaste-ocr-windows-x64-{mode}.json`,
-the filenames the installer fetches.
 
 ### Step 3 — GitHub Release (manifest fallback + archival copies)
 
@@ -315,6 +298,16 @@ for mode in fast best; do
     && echo "OK   github $mode manifest" || echo "FAIL github $mode manifest"
 done
 ```
+
+### 4.1 未来升级到 Cloudflare R2（可选）
+
+GitHub Pages 在中国大陆访问不稳定；若目标用户主要在大陆，建议后续升级
+R2（免费层 10GB/月足够，但开通需绑卡）。做法：仓库配置五个 R2 secrets
+（`R2_ACCOUNT_ID`/`R2_BUCKET`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/
+`IPASTE_OCR_R2_BASE_URL`，桶需公开读），然后用 R2 公开地址重跑 Step 1-2
+（直传保留 `paddle/{mode}/` 键结构，命令见本仓库 git 历史中本文件的 R2
+版本），并重传 Step 3 的 Release 清单。安装器无需改代码——manifest 的
+`baseUrl` 即下载源。
 
 ## 5. Conversion fallback (recorded, NOT used for this release)
 
