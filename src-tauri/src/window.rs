@@ -703,14 +703,17 @@ pub(crate) fn show_clip_viewer_window(
     app: &tauri::AppHandle,
     label: String,
     title: String,
+    auto_recognize: bool,
 ) -> Result<(), String> {
     if !label.starts_with(CLIP_VIEWER_WINDOW_PREFIX) {
         return Err("无效的放大窗口标签".to_string());
     }
 
+    // auto_recognize：主面板一键 OCR 入口——打开窗口即自动开始识别图片文字
     let url = format!(
-        "index.html?window=clip-viewer&label={}",
-        percent_encode_component(&label)
+        "index.html?window=clip-viewer&label={}{}",
+        percent_encode_component(&label),
+        if auto_recognize { "&auto-recognize=1" } else { "" }
     );
     show_auxiliary_window(
         app,

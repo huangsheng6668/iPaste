@@ -369,8 +369,8 @@ function cancelEditingClipName() {
   editingClipName.value = "";
 }
 
-async function openClipViewer(item: ClipViewItem) {
-  await ipasteApi.openClipViewer(item, originalClipId(item));
+async function openClipViewer(item: ClipViewItem, autoRecognize = false) {
+  await ipasteApi.openClipViewer(item, originalClipId(item), autoRecognize);
 }
 
 async function hidePanelFromUi() {
@@ -554,6 +554,7 @@ async function focusEditingClipName() {
         @copy="store.copyItem"
         @apply="store.applyItem"
         @expand="openClipViewer"
+        @ocr="(item) => openClipViewer(item, true)"
         @run-automation="runSelectedAction"
       />
     </div>

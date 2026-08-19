@@ -438,8 +438,10 @@ pub(crate) async fn open_clip_viewer(
     app: tauri::AppHandle,
     label: String,
     title: String,
+    auto_recognize: Option<bool>,
 ) -> Result<(), AppError> {
-    show_clip_viewer_window(&app, label, title).map_err(AppError::from)
+    show_clip_viewer_window(&app, label, title, auto_recognize.unwrap_or(false))
+        .map_err(AppError::from)
 }
 
 #[tauri::command]

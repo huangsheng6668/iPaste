@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   Maximize2,
   Palette,
+  ScanText,
   Type,
 } from "lucide-vue-next";
 import AutomationDetailPane from "./AutomationDetailPane.vue";
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   copy: [item: ClipViewItem];
   apply: [item: ClipViewItem];
   expand: [item: ClipViewItem];
+  ocr: [item: ClipViewItem];
   runAutomation: [action: AutomationAction];
 }>();
 
@@ -236,14 +238,26 @@ const linkHostname = computed(() => {
             :src="imageSrc"
             :alt="t('common.imagePreviewAlt')"
           >
-          <button
-            type="button"
-            class="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
-            @click="emit('expand', item)"
-          >
-            <Eye class="size-3.5" />
-            <span>{{ t("clip.expand") }}</span>
-          </button>
+          <div class="absolute bottom-2.5 right-2.5 flex items-center gap-1.5">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
+              :aria-label="t('clip.recognizeText')"
+              :data-tooltip="t('clip.recognizeText')"
+              @click="emit('ocr', item)"
+            >
+              <ScanText class="size-3.5" />
+              <span>{{ t("clip.recognizeText") }}</span>
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
+              @click="emit('expand', item)"
+            >
+              <Eye class="size-3.5" />
+              <span>{{ t("clip.expand") }}</span>
+            </button>
+          </div>
         </div>
 
         <!-- Color Preview Box with Format Converter Matrix -->

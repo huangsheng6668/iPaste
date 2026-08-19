@@ -468,14 +468,15 @@ export const ipasteApi = {
   closeClipViewer(label: string) {
     return call<void>("close_clip_viewer", { label });
   },
-  openClipViewer(item: ClipViewItem, originalClipId: string) {
+  openClipViewer(item: ClipViewItem, originalClipId: string, autoRecognize = false) {
     const label = `clip-viewer-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const payload: ClipViewerPayload = { label, originalClipId, item };
     localStorage.setItem(clipViewerStorageKey(label), JSON.stringify(payload));
 
+    const recognizeParam = autoRecognize ? "&auto-recognize=1" : "";
     if (!isTauri) {
       window.open(
-        `${window.location.origin}${window.location.pathname}?window=clip-viewer&label=${encodeURIComponent(label)}`,
+        `${window.location.origin}${window.location.pathname}?window=clip-viewer&label=${encodeURIComponent(label)}${recognizeParam}`,
         label,
         "width=840,height=620",
       );
@@ -485,6 +486,7 @@ export const ipasteApi = {
     return invoke<void>("open_clip_viewer", {
       label,
       title: item.displayName?.trim() || item.previewText || "iPaste",
+      autoRecognize,
     });
   },
   lanCreateSession(code: string | null = null) {

@@ -101,7 +101,8 @@ watch(imageSrc, () => {
 });
 
 function loadPayload() {
-  const label = new URLSearchParams(window.location.search).get("label");
+  const params = new URLSearchParams(window.location.search);
+  const label = params.get("label");
   if (!label) {
     error.value = t("viewer.payloadMissing");
     return;
@@ -119,6 +120,12 @@ function loadPayload() {
     draftText.value = payload.value.item.text;
   } catch {
     error.value = t("viewer.payloadInvalid");
+    return;
+  }
+
+  // 主面板「识别文字」一键入口：打开即自动识别
+  if (params.get("auto-recognize") === "1" && isImage.value) {
+    void recognizeImageText();
   }
 }
 
@@ -162,6 +169,23 @@ function handleViewerKeydown(event: KeyboardEvent) {
     return;
   }
 
+  // O：识别图片文字（无修饰键，仅图片模式且未在识别中）
+  if (
+    isImage.value
+    && !isRecognizingImage.value
+    && event.key.toLowerCase() === "o"
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !event.shiftKey
+    && !event.defaultPrevented
+    && !isEditableTarget(event.target)
+  ) {
+    event.preventDefault();
+    void recognizeImageText();
+    return;
+  }
+
   if (
     event.defaultPrevented
     || event.key !== "Escape"
@@ -180,6 +204,14 @@ function handleViewerKeydown(event: KeyboardEvent) {
   }
 
   void closeWindow();
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) return false;
+  return element.isContentEditable
+    || element.tagName === "INPUT"
+    || element.tagName === "TEXTAREA";
 }
 
 
