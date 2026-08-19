@@ -35,7 +35,7 @@ const fallbackAppInfo: AppInfo = {
 };
 const fallbackOcrInstallStatus: OcrInstallStatus = {
   installed: false,
-  engineId: "tesseract",
+  engineId: "paddle",
   engineVersion: null,
   mode: "fast",
   platform: "windows-x64",

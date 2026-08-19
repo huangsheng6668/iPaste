@@ -90,7 +90,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     });
   });
   const imageOcrLoadingText = computed(() =>
-    isMacOs ? t("viewer.ocrLoading.macos") : t("viewer.ocrLoading.tesseract"),
+    isMacOs ? t("viewer.ocrLoading.macos") : t("viewer.ocrLoading.engine"),
   );
   const imageOcrLines = computed<OcrLine[]>(() => {
     const words = imageOcrResult.value?.words ?? [];
