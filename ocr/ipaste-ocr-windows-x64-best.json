@@ -1,0 +1,32 @@
+{
+  "engine": {
+    "id": "paddle",
+    "version": "2.0.0",
+    "platform": "windows-x64",
+    "mode": "best",
+    "baseUrl": "https://huangsheng6668.github.io/iPaste/ocr/",
+    "files": [
+      {
+        "role": "det-model",
+        "name": "det.mnn",
+        "path": "paddle/best/det.mnn",
+        "size": 4760244,
+        "sha256": "326f846bb5c903282e116ea089e8796b67921586726cca9457730436a79684c3"
+      },
+      {
+        "role": "rec-model",
+        "name": "rec.mnn",
+        "path": "paddle/best/rec.mnn",
+        "size": 16531596,
+        "sha256": "c809800b09263a8d18c678c211e470ffc464cbb33db2e6bde0244766f3feb0db"
+      },
+      {
+        "role": "charset",
+        "name": "ppocr_keys_v5.txt",
+        "path": "paddle/best/ppocr_keys_v5.txt",
+        "size": 74008,
+        "sha256": "f2ed6bb20a850ce4767fa9b4622d9b282985ab7f0ea8f8c11abd790ca6d2ff94"
+      }
+    ]
+  }
+}
