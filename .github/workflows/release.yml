@@ -46,6 +46,10 @@ jobs:
         with:
           targets: ${{ matrix.rustTargets }}
 
+      - name: Install LLVM (libclang for bindgen)
+        if: runner.os == 'Windows'
+        run: choco install llvm -y --no-progress
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
