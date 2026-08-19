@@ -25,6 +25,12 @@ use objc2_app_kit::NSPasteboard;
 
 const IMAGE_FILE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "gif", "ico"];
 
+/// 图片解码上限：LAN 同步会接收对端发来的图片（单帧压缩后 ≤8MB），而 image
+/// 默认 Limits 无宽高限制、分配上限为非严格的 512MiB；显式收紧，防止恶意
+/// 压缩图在解码时分配超大位图。32k 边长覆盖多屏拼接截图，256MiB 覆盖 8K 位图。
+const IMAGE_MAX_DIMENSION: u32 = 32_768;
+const IMAGE_MAX_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
+
 pub(crate) fn spawn_clipboard_watcher(
     app: tauri::AppHandle,
     store: Store,
@@ -521,7 +527,17 @@ fn image_from_source_path(path: &Path) -> Result<ImageData<'static>, String> {
 }
 
 fn image_from_bytes(bytes: &[u8]) -> Result<ImageData<'static>, String> {
-    let decoded = image::load_from_memory(&bytes)
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(IMAGE_MAX_DIMENSION);
+    limits.max_image_height = Some(IMAGE_MAX_DIMENSION);
+    limits.max_alloc = Some(IMAGE_MAX_ALLOC_BYTES);
+
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| error.to_string())?;
+    reader.limits(limits);
+    let decoded = reader
+        .decode()
         .map_err(|error| error.to_string())?
         .to_rgba8();
     let width = decoded.width() as usize;
@@ -548,5 +564,30 @@ mod tests {
         // macOS 上文本剪贴板调 get_image 会返回 ConversionFailure 而非 ContentNotAvailable；
         // 必须把它当 fallback 信号，否则 watcher 会向用户抛英文错误。
         assert!(format_not_available(&ClipboardError::ConversionFailure));
+    }
+
+    fn encode_png(width: u32, height: u32) -> Vec<u8> {
+        let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_pixel(width, height, Rgba([0, 0, 0, 255]));
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(img.as_raw(), width, height, image::ColorType::Rgba8.into())
+            .expect("encode png");
+        png
+    }
+
+    #[test]
+    fn image_from_bytes_accepts_normal_image() {
+        let decoded = image_from_bytes(&encode_png(64, 64)).expect("正常图片应可解码");
+        assert_eq!((decoded.width, decoded.height), (64, 64));
+    }
+
+    #[test]
+    fn image_from_bytes_rejects_oversized_dimensions() {
+        // 宽度超过解码上限的 1 像素高 PNG：文件很小，但解码会分配超限位图
+        let png = encode_png(IMAGE_MAX_DIMENSION + 1, 1);
+        assert!(
+            image_from_bytes(&png).is_err(),
+            "超出尺寸上限的图片应被拒绝"
+        );
     }
 }

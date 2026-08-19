@@ -1015,14 +1015,17 @@ pub(crate) fn start_native_main_panel_drag(app: &tauri::AppHandle) -> Result<boo
             let Some(mtm) = objc2::MainThreadMarker::new() else {
                 return Ok(false);
             };
-            let guard = panel_state.lock().map_err(|error| error.to_string())?;
-            let Some(current) = *guard else {
-                return Ok(false);
+            let current = {
+                let guard = panel_state.lock().map_err(|error| error.to_string())?;
+                match *guard {
+                    Some(current) if current.visible => current,
+                    _ => return Ok(false),
+                }
             };
-            if !current.visible {
-                return Ok(false);
-            }
 
+            // performWindowDragWithEvent 会进入嵌套事件循环直到松开鼠标，必须
+            // 先释放 panel_state 锁：拖拽期间主线程处理任何需要该锁的任务
+            // （如快捷键唤起/隐藏面板）会与自身死锁。
             let panel = unsafe { &*(current.panel as *mut NSPanel) };
             let app = NSApplication::sharedApplication(mtm);
             let Some(event) = app.currentEvent() else {

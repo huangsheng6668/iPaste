@@ -60,11 +60,13 @@ pub(crate) fn update_registered_app_shortcut(
     state: &AppState,
     shortcut: &str,
 ) -> Result<(), String> {
-    let mut active_shortcut = state
+    // 注册/反注册不能在 active_shortcut 锁内进行：快捷键事件 handler 在主线程
+    // 锁同一把锁，而插件注册接口可能同步等待主线程，持锁等待会互相死锁。
+    let previous = state
         .active_shortcut
         .lock()
-        .map_err(|error| error.to_string())?;
-    let previous = active_shortcut.clone();
+        .map_err(|error| error.to_string())?
+        .clone();
 
     if previous == shortcut {
         if is_app_shortcut_enabled(state)? && !app.global_shortcut().is_registered(shortcut) {
@@ -95,7 +97,10 @@ pub(crate) fn update_registered_app_shortcut(
         return Err(error.to_string());
     }
 
-    *active_shortcut = shortcut.to_string();
+    *state
+        .active_shortcut
+        .lock()
+        .map_err(|error| error.to_string())? = shortcut.to_string();
     Ok(())
 }
 
