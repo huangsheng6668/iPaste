@@ -725,19 +725,30 @@ mod tests {
         assert!(is_usable_cached_manifest(&manifest_for("paddle", "det-model")));
     }
 
+    /// 测试用临时根目录：ensure_path_within 会按需创建目录，不能用 "/ocr"
+    /// 这类宿主机盘符根路径（会在仓库外留垃圾，且依赖盘符根目录可写）。
+    /// 每个测试独立 tag，避免并行测试互相清理对方目录。
+    fn temp_test_root(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("ipaste-installer-test-{tag}-{}", std::process::id()))
+    }
+
     #[test]
     fn paddle_model_paths_are_mode_scoped() {
         // 用 tauri::test 拿不到 AppHandle 时，测纯路径函数：
         // fn paddle_model_paths_under(root: &Path, mode: &str) -> Result<PaddleModelPaths, String>
-        let paths =
-            paddle_model_paths_under(std::path::Path::new("/ocr"), "fast").expect("fast 模式路径合法");
+        let root = temp_test_root("scoped");
+        let paths = paddle_model_paths_under(&root, "fast").expect("fast 模式路径合法");
         assert!(paths.det.ends_with("paddle/fast/det.mnn"));
         assert!(paths.rec.ends_with("paddle/fast/rec.mnn"));
         assert!(paths.charset.ends_with("paddle/fast/ppocr_keys_v5.txt"));
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
     fn paddle_model_paths_rejects_unsafe_mode() {
-        assert!(paddle_model_paths_under(std::path::Path::new("/ocr"), "../evil").is_err());
+        // clean_ocr_mode 在任何文件系统调用前即拒绝非法 mode
+        let root = temp_test_root("unsafe");
+        assert!(paddle_model_paths_under(&root, "../evil").is_err());
+        let _ = fs::remove_dir_all(&root);
     }
 }
