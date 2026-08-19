@@ -216,6 +216,15 @@ Publishes R2 objects + GitHub Release tag `ipaste-ocr-windows-v2`.
 **Never delete the v1 assets** (`ipaste-ocr-windows-v1` release and old R2
 `ipaste-ocr-*` objects) — rollback depends on them.
 
+**Release gate.** No Windows app release may be cut from this branch until
+step 2 has put the v2 manifests live on R2: a released build without the
+published v2 assets loses OCR entirely (the installer rejects the old v1
+manifests via `validate_ocr_manifest`, and the paddle model objects do not
+exist at any reachable URL). During publish-day QA, the
+`IPASTE_OCR_R2_BASE_URL` runtime override (read in `ocr_r2_base_urls`,
+`src-tauri/src/ocr/installer.rs`) points a dev build at staging to preview
+exactly what production will serve.
+
 Prerequisites (same secrets as `.github/workflows/release.yml` /
 `scripts/mirror-r2-release.mjs`): `R2_ACCOUNT_ID`, `R2_BUCKET`,
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `IPASTE_OCR_R2_BASE_URL`, and

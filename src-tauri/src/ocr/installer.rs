@@ -10,8 +10,11 @@ use crate::models::{OcrInstallStatus, OcrManifest, OcrManifestFile};
 use crate::util::{clean_ocr_mode, file_sha256, validate_relative_path};
 
 #[cfg(not(target_os = "macos"))]
+/// GitHub Release 兜底清单源：tag 必须与 scripts/ocr-models/README.md §4
+/// 发布流程创建的 `ipaste-ocr-windows-v2` 一致（v1 tag 下是旧 tesseract
+/// 清单，validate_ocr_manifest 会拒绝）。
 const OCR_GITHUB_RELEASE_BASE_URL: &str =
-    "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v1/";
+    "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v2/";
 #[cfg(not(target_os = "macos"))]
 const OCR_R2_BASE_URL: &str = env!("IPASTE_OCR_R2_BASE_URL");
 #[cfg(not(target_os = "macos"))]

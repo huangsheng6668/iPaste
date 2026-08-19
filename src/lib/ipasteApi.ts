@@ -39,7 +39,7 @@ const fallbackOcrInstallStatus: OcrInstallStatus = {
   engineVersion: null,
   mode: "fast",
   platform: "windows-x64",
-  manifestUrl: "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v1/ipaste-ocr-windows-x64-fast.json",
+  manifestUrl: "https://github.com/iPaste-app/iPaste/releases/download/ipaste-ocr-windows-v2/ipaste-ocr-windows-x64-fast.json",
   installDir: "",
   downloadedBytes: 0,
   totalBytes: 10_903_450,
@@ -421,7 +421,7 @@ export const ipasteApi = {
     return call<OcrInstallStatus>("install_ocr_assets", undefined, {
       ...fallbackOcrInstallStatus,
       installed: true,
-      engineVersion: "2.0.0-ppocr-v5-mobile-fp16",
+      engineVersion: "2.0.0",
       mode: fallbackOcrInstallStatus.mode,
       downloadedBytes: 10_903_450,
       totalBytes: 10_903_450,
