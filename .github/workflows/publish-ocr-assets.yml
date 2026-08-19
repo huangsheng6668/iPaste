@@ -66,19 +66,28 @@ jobs:
           git commit -m "publish: paddle ocr v2 assets [skip ci]"
           git push --force origin "$ASSETS_BRANCH"
 
-      - name: Enable GitHub Pages (idempotent)
+      - name: Ensure GitHub Pages enabled (idempotent)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # GITHUB_TOKEN 在部分仓库无权新建 Pages 站点（403）；已启用则直接通过，
+          # 未启用且建站失败则报错（此时需仓库管理员手动开一次 Pages）
+          code=$(curl -s -o /tmp/pages.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pages")
+          if [ "$code" = "200" ]; then echo "pages already enabled"; exit 0; fi
           code=$(curl -s -o /tmp/pages.json -w "%{http_code}" -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/pages" \
             -d "{\"source\":{\"branch\":\"$ASSETS_BRANCH\",\"path\":\"/\"}}")
           echo "enable pages -> HTTP $code"
-          # 201=已启用，409=已存在（幂等成功），201/409 之外的码才是失败
           if [ "$code" != "201" ] && [ "$code" != "409" ]; then
-            cat /tmp/pages.json; exit 1
+            cat /tmp/pages.json
+            curl -s -o /tmp/pages2.json -w "recheck -> %{http_code}\n" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/pages"
+            [ "$(cat /tmp/pages2.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status") is not None)' 2>/dev/null)" = "True" ] || exit 1
           fi
 
       - name: Create or refresh GitHub release (manifest fallback + archival copies)
