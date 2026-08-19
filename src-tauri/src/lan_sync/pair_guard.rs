@@ -64,12 +64,14 @@ impl PairGuard {
         self.states.lock().expect("pair guard poisoned").remove(&ip);
     }
 
-    /// 清理过期条目：超过 `STALE_AFTER` 无活动且从未/不再封禁的 IP。
-    /// 注意：曾被封禁（`blocked_until` 非空）的条目即便活动时间久也保留，
-    /// 需经 `record_success` 或封禁到期由调用方清理。
+    /// 清理过期条目：仅保留「封禁仍在生效」或「`STALE_AFTER` 内有活动」的 IP。
+    /// 封禁到期且无活动的条目会被清除——否则每个曾被封禁过的 IP 都会
+    /// 永久留在内存里（局域网攻击者可借此线性堆积条目）。持续攻击者的
+    /// `last_activity` 会不断刷新，其条目不会因此被提前清理。
     pub(crate) fn prune(&self, now: Instant) {
         self.states.lock().expect("pair guard poisoned").retain(|_, s| {
-            s.blocked_until.is_some() || now.duration_since(s.last_activity) < STALE_AFTER
+            s.blocked_until.map(|until| now < until).unwrap_or(false)
+                || now.duration_since(s.last_activity) < STALE_AFTER
         });
     }
 }
@@ -125,13 +127,29 @@ mod tests {
         for _ in 0..20 {
             let _ = g.record_failure(ip(), t);
         }
-        g.prune(t + STALE_AFTER + Duration::from_secs(1));
-        // 被封禁的条目即使活动时间久也必须保留
+        g.prune(t + Duration::from_secs(590));
+        // 封禁期内（blocked_until 未到）的条目必须保留
         assert!(g.is_blocked(ip(), t));
         // 未封禁的过期条目被清除
         let ip2: IpAddr = "192.168.1.60".parse().unwrap();
         let _ = g.record_failure(ip2, t);
         g.prune(t + STALE_AFTER + Duration::from_secs(1));
         assert_eq!(g.record_failure(ip2, t + STALE_AFTER + Duration::from_secs(2)), Duration::ZERO);
+    }
+
+    #[test]
+    fn prune_drops_entries_with_expired_block() {
+        let g = PairGuard::new();
+        let t = t0();
+        for _ in 0..20 {
+            let _ = g.record_failure(ip(), t);
+        }
+        // 封禁到期 + 超过 STALE_AFTER 无活动：条目应被清理，
+        // 否则每个曾被封禁过的 IP 都会永久占用内存（慢性泄漏）
+        let later = t + BLOCK_DURATION + STALE_AFTER + Duration::from_secs(1);
+        g.prune(later);
+        // 清理后重新失败应从零计数：单次失败不应再次触发封禁
+        let _ = g.record_failure(ip(), later);
+        assert!(!g.is_blocked(ip(), later));
     }
 }

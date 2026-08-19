@@ -27,6 +27,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -2218,6 +2219,7 @@ dependencies = [
 name = "ipaste"
 version = "0.5.2"
 dependencies = [
+ "aes",
  "aes-gcm",
  "arboard",
  "base64 0.22.1",
@@ -2227,6 +2229,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "hostname",
+ "http",
  "image",
  "keyring",
  "objc2",
@@ -2252,6 +2255,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "x25519-dalek",
+ "zeroize",
  "zip",
 ]
 

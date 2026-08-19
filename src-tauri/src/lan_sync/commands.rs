@@ -21,7 +21,7 @@ use crate::error::AppError;
 use crate::events::LanCategorySent;
 use crate::lan_sync::client::join_by_address;
 use crate::lan_sync::port::{get_port_conflict, kill_port_process, verify_port_owner};
-use crate::lan_sync::protocol::{normalize_pair_code, LAN_TCP_BASE_PORT};
+use crate::lan_sync::protocol::{normalize_pair_code, LAN_MAX_PAYLOAD, LAN_TCP_BASE_PORT};
 use crate::lan_sync::server::start_host;
 use crate::lan_sync::{ClipSource, ControlMsg, LanManagerExt, LanSessionInfo, LanStatus, PortConflict};
 use crate::models::AppState;
@@ -44,7 +44,13 @@ pub(crate) async fn lan_create_session(
     if let Err(error) = start_host(Arc::clone(&manager), state.store.clone(), code).await {
         let port = LAN_TCP_BASE_PORT;
         let detail = error.to_string();
-        return Err(match get_port_conflict(port).ok().flatten() {
+        // netstat/lsof + tasklist 是秒级阻塞子进程，不能占住 tokio worker
+        let conflict = tokio::task::spawn_blocking(move || get_port_conflict(port))
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .flatten();
+        return Err(match conflict {
             Some(conflict) => AppError::PortInUse {
                 port,
                 name: conflict.name,
@@ -254,24 +260,40 @@ pub(crate) async fn open_lan_sync(app: AppHandle) -> Result<(), AppError> {
 }
 
 /// 查询固定端口 `LAN_TCP_BASE_PORT` 的占用进程（用于 UI 提示与一键 kill）。
+/// async + spawn_blocking：同步命令默认在主线程执行，秒级 netstat/tasklist
+/// 子进程会直接冻结 UI。
 #[tauri::command]
-pub(crate) fn lan_get_port_conflict() -> Result<Option<PortConflict>, AppError> {
-    get_port_conflict(LAN_TCP_BASE_PORT).map_err(AppError::from)
+pub(crate) async fn lan_get_port_conflict() -> Result<Option<PortConflict>, AppError> {
+    tokio::task::spawn_blocking(|| get_port_conflict(LAN_TCP_BASE_PORT))
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
+        .map_err(AppError::from)
 }
 
 /// 结束占用固定端口的进程（前端弹窗确认后调用）。
 #[tauri::command]
-pub(crate) fn lan_kill_port_process(pid: u32) -> Result<(), AppError> {
-    // 后端复核：只有确实占用 45130 端口的进程才允许被结束
-    let conflict = get_port_conflict(LAN_TCP_BASE_PORT)?;
-    verify_port_owner(conflict, pid)?;
-    kill_port_process(pid).map_err(AppError::from)
+pub(crate) async fn lan_kill_port_process(pid: u32) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        // 后端复核：只有确实占用 45130 端口的进程才允许被结束
+        let conflict = get_port_conflict(LAN_TCP_BASE_PORT)?;
+        verify_port_owner(conflict, pid)?;
+        kill_port_process(pid).map_err(AppError::from)
+    })
+    .await
+    .map_err(|error| AppError::from(error.to_string()))?
 }
 
 /// 退出整个 App（前端在「占用进程是自身残留实例」等场景下调用）。
 #[tauri::command]
 pub(crate) fn lan_quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+/// 图片条目可发送的最大原始文件字节数：data url 前缀 + base64 放大（4/3）后
+/// 不得超过 `LAN_MAX_PAYLOAD`，否则对端会在帧解析时拒收（见 `parse_plaintext_frame`）。
+fn max_sendable_image_bytes() -> u64 {
+    let expanded = (LAN_MAX_PAYLOAD - "data:image/png;base64,".len()) as u64;
+    expanded / 4 * 3
 }
 
 /// 把待发送的条目内容编码成 LAN 同步 payload 字节。
@@ -284,6 +306,13 @@ pub(crate) fn lan_quit_app(app: AppHandle) {
 ///   处理「当前剪贴板图片」的方式一致，接收侧 `captured_item_from_payload` 能解码。
 fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>, String> {
     if clip_type == "image" {
+        // 读文件前先查大小：超限文件编码后必被对端拒收，整文件读入只浪费内存
+        let file_len = std::fs::metadata(text)
+            .map_err(|e| format!("读取图片文件失败：{e}"))?
+            .len();
+        if file_len > max_sendable_image_bytes() {
+            return Err(format!("图片文件过大（{file_len} 字节），超出局域网同步单帧上限"));
+        }
         let bytes = std::fs::read(text).map_err(|e| format!("读取图片文件失败：{e}"))?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
         Ok(format!("data:image/png;base64,{b64}").into_bytes())
@@ -376,6 +405,36 @@ mod tests {
         // 不存在的路径应返回可读错误，而非 panic 或发空 payload。
         let result = build_send_payload("image", "/definitely/not/here/xyz.png");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_send_payload_rejects_image_exceeding_frame_limit() {
+        // 8MB 原图 base64 放大后约 11MB，必超对端 8MB 单帧上限——
+        // 必须在读文件前拒绝，避免无意义的整文件读入与注定失败的传输
+        let dir = std::env::temp_dir().join(format!("ipaste-send-limit-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let big_path = dir.join("big.png");
+        std::fs::write(&big_path, vec![0u8; LAN_MAX_PAYLOAD]).unwrap();
+
+        let error = build_send_payload("image", big_path.to_str().unwrap())
+            .expect_err("超限图片应被拒绝");
+        assert!(error.contains("过大"), "got: {error}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn build_send_payload_allows_image_at_frame_limit() {
+        // 恰好编码后不超上限的文件应可正常构建 payload
+        let dir = std::env::temp_dir().join(format!("ipaste-send-bound-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("edge.png");
+        std::fs::write(&path, vec![0u8; max_sendable_image_bytes() as usize]).unwrap();
+
+        let payload = build_send_payload("image", path.to_str().unwrap()).unwrap();
+        assert!(payload.len() <= LAN_MAX_PAYLOAD);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 历史条目已加入分类：发送时携带分类名/颜色（接收端据此匹配/创建分类）。

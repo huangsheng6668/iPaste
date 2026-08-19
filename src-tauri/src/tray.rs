@@ -246,15 +246,21 @@ pub(crate) fn handle_append_copy_menu(app: &tauri::AppHandle, state: &AppState) 
 }
 
 pub(crate) fn handle_pause_capture_menu(app: &tauri::AppHandle, state: &AppState) {
-    if let Ok(mut listening) = state.is_listening.lock() {
+    // 锁只覆盖状态翻转：菜单文案（SQLite + FFI）与事件 emit 都可能阻塞，
+    // 不能连带卡住 clipboard watcher 等等待 is_listening 的线程
+    let listening = {
+        let Ok(mut listening) = state.is_listening.lock() else {
+            return;
+        };
         *listening = !*listening;
-        update_pause_capture_menu_label(state, *listening);
-        let _ = app.emit(
-            EVENT_LISTENING_CHANGED,
-            ListeningChanged {
-                is_listening: *listening,
-            },
-        );
-    }
+        *listening
+    };
+    update_pause_capture_menu_label(state, listening);
+    let _ = app.emit(
+        EVENT_LISTENING_CHANGED,
+        ListeningChanged {
+            is_listening: listening,
+        },
+    );
 }
 

@@ -1,8 +1,29 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use super::installer::{ocr_asset_dir, ocr_engine_dir};
 use crate::models::{ImageOcrResult, ImageOcrWord};
+
+/// Tesseract 单次识别超时：挂死的引擎不应永久占用 spawn_blocking 线程。
+const TESSERACT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// 等待子进程退出；超过 `timeout` 则 kill 并返回错误。
+/// 轮询 `try_wait` 而非阻塞 `wait`，才能在超时时主动终止挂死进程。
+fn wait_child_with_timeout(child: &mut std::process::Child, timeout: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Tesseract 识别超时".to_string());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn recognize_image_text_inner(
@@ -22,7 +43,7 @@ pub(crate) fn recognize_image_text_inner(
         return Err("请先在偏好设置中下载图片 OCR 资源".to_string());
     }
 
-    let output = Command::new(&tesseract)
+    let mut child = Command::new(&tesseract)
         .arg(&image_path)
         .arg("stdout")
         .arg("-l")
@@ -31,8 +52,15 @@ pub(crate) fn recognize_image_text_inner(
         .arg(&tessdata_dir)
         .arg("-c")
         .arg("tessedit_create_tsv=1")
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|error| format!("无法启动 Tesseract：{error}"))?;
+    wait_child_with_timeout(&mut child, TESSERACT_TIMEOUT)?;
+    // 子进程已退出（或被超时 kill 前的最后一次等待），此处仅回收并读取管道
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("读取 Tesseract 输出失败：{error}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -106,4 +134,51 @@ fn parse_tesseract_tsv_line(line: &str) -> Option<ImageOcrWord> {
 #[cfg(not(target_os = "macos"))]
 fn parse_tsv_number(value: &str) -> Option<f64> {
     value.parse::<f64>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 约 2 秒后自然退出的子进程（Windows 用 powershell，Unix 用 sleep）。
+    fn short_lived_child() -> std::process::Command {
+        #[cfg(windows)]
+        {
+            let mut cmd = std::process::Command::new("powershell");
+            cmd.args(["-NoProfile", "-Command", "Start-Sleep", "-Seconds", "2"]);
+            cmd
+        }
+        #[cfg(not(windows))]
+        {
+            let mut cmd = std::process::Command::new("sleep");
+            cmd.arg("2");
+            cmd
+        }
+    }
+
+    #[test]
+    fn wait_child_with_timeout_kills_process_exceeding_timeout() {
+        let mut child = short_lived_child().spawn().unwrap();
+        let started = Instant::now();
+        let result = wait_child_with_timeout(&mut child, Duration::from_millis(300));
+        assert!(result.is_err(), "超时应返回错误而非等待进程自然退出");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "超时后应立即 kill（实际耗时 {:?}）",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn wait_child_with_timeout_returns_when_process_exits() {
+        #[cfg(windows)]
+        let mut child = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "exit", "0"])
+            .spawn()
+            .unwrap();
+        #[cfg(not(windows))]
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+
+        wait_child_with_timeout(&mut child, Duration::from_secs(30)).unwrap();
+    }
 }

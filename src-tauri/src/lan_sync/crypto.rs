@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::Zeroizing;
 
 use crate::lan_sync::protocol::{LanMessage, LAN_MAX_PAYLOAD};
 
@@ -26,7 +27,8 @@ pub(crate) struct SecureConnection {
     stream: TcpStream,
     cipher: Aes256Gcm,
     /// 会话密钥原值，供 `into_split` 为读/写两半各重建一份无状态 cipher。
-    session_key: [u8; 32],
+    /// `Zeroizing`：连接整个生命周期（可能数小时）持有密钥，drop 时必须清零。
+    session_key: Zeroizing<[u8; 32]>,
 }
 
 const GUEST_PROOF_INFO: &[u8] = b"ipaste-lan-v4-guest";
@@ -162,7 +164,7 @@ async fn read_u32<R: AsyncReadExt + Unpin>(stream: &mut R) -> Result<u32, String
 
 impl SecureConnection {
     pub(crate) fn new(stream: TcpStream, key: [u8; 32]) -> Self {
-        Self { stream, cipher: cipher_from_key(&key), session_key: key }
+        Self { stream, cipher: cipher_from_key(&key), session_key: Zeroizing::new(key) }
     }
 
     pub(crate) async fn read_message(&mut self) -> Result<(LanMessage, Option<Vec<u8>>), String> {
@@ -232,11 +234,13 @@ pub(crate) struct SecureWriteHalf {
 
 impl SecureConnection {
     /// 拆成读/写两半，分别交给读任务与会话主循环。
-    /// cipher 无状态，两半各自从同一密钥重建，互不影响。
+    /// cipher 无状态，两半各自从同一密钥重建，互不影响；
+    /// 重建后 `session_key`（Zeroizing）随即 drop 并清零。
     pub(crate) fn into_split(self) -> (SecureReadHalf, SecureWriteHalf) {
-        let cipher = cipher_from_key(&self.session_key);
-        let cipher2 = cipher_from_key(&self.session_key);
-        let (read, write) = self.stream.into_split();
+        let SecureConnection { stream, session_key, .. } = self;
+        let cipher = cipher_from_key(&session_key);
+        let cipher2 = cipher_from_key(&session_key);
+        let (read, write) = stream.into_split();
         (SecureReadHalf { read, cipher }, SecureWriteHalf { write, cipher: cipher2 })
     }
 }
