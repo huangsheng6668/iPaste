@@ -23,10 +23,20 @@ const OCR_DIR: &str = "ocr";
 const OCR_ASSET_DIR: &str = "assets";
 #[cfg(not(target_os = "macos"))]
 const OCR_ENGINE_DIR: &str = "tesseract";
+/// v2 安装器引擎标识：manifest.engine.id 与缓存失效判定均以此为基准。
 #[cfg(not(target_os = "macos"))]
-const OCR_FAST_TOTAL_BYTES: u64 = 37_557_099;
+pub(crate) const OCR_ENGINE_ID: &str = "paddle";
+/// 单个 OCR 模式的模型文件布局（app-data 下相对 ocr 根目录）。
+/// fast/best 各自独立目录，切模式即重新下载。
 #[cfg(not(target_os = "macos"))]
-const OCR_BEST_TOTAL_BYTES: u64 = 59_452_879;
+pub(crate) const OCR_MODEL_DIR: &str = "paddle"; // → ocr/paddle/{mode}/
+#[cfg(not(target_os = "macos"))]
+const OCR_CHARSET_FILE: &str = "ppocr_keys_v5.txt";
+// Task 0 实测的默认体积兜底（manifest 拉取后以 manifest 为权威）
+#[cfg(not(target_os = "macos"))]
+const OCR_FAST_TOTAL_BYTES: u64 = 10_903_450;
+#[cfg(not(target_os = "macos"))]
+const OCR_BEST_TOTAL_BYTES: u64 = 21_384_230;
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn install_ocr_assets_inner(
@@ -37,10 +47,14 @@ pub(crate) fn install_ocr_assets_inner(
     emit_ocr_install_progress(app, "fetchingManifest", None, 0, 0);
     let manifest = fetch_ocr_manifest(&mode)?;
 
-    let asset_dir = ocr_asset_dir(app)?;
-    let download_dir = ocr_download_dir(app)?;
-    fs::create_dir_all(&asset_dir).map_err(|error| error.to_string())?;
-    fs::create_dir_all(&download_dir).map_err(|error| error.to_string())?;
+    // 进入下载循环前清理旧版残留（tesseract 引擎目录与 v1 下载/资产目录）；
+    // 清理失败不阻塞 v2 安装，模型文件按 file.path 落入独立的 ocr/paddle/{mode}/ 目录
+    for legacy_path in legacy_ocr_paths(app) {
+        if legacy_path.exists() {
+            let _ = fs::remove_dir_all(&legacy_path);
+        }
+    }
+
     let total_bytes = manifest_total_bytes(&manifest);
     let mut downloaded_bytes = 0_u64;
 
@@ -174,7 +188,7 @@ fn fetch_ocr_manifest_from_url(
 
 #[cfg(not(target_os = "macos"))]
 fn validate_ocr_manifest(manifest: &OcrManifest, mode: &str) -> Result<(), String> {
-    if manifest.engine.id != "tesseract" {
+    if manifest.engine.id != OCR_ENGINE_ID {
         return Err("OCR manifest 引擎不受支持".to_string());
     }
     if manifest.engine.mode.as_deref().unwrap_or(mode) != mode {
@@ -199,13 +213,13 @@ fn validate_ocr_manifest(manifest: &OcrManifest, mode: &str) -> Result<(), Strin
         if file.path.contains("..") {
             return Err(format!("OCR 文件路径不安全：{}", file.path));
         }
-        if file.role == "engine" && file.archive.as_deref() != Some("zip") {
-            return Err("OCR 引擎需要使用 portable zip 包".to_string());
+        // v2：仅接受 MNN 模型与字典三类角色，老清单（engine/language 等）直接拒绝
+        if !matches!(file.role.as_str(), "det-model" | "rec-model" | "charset") {
+            return Err(format!("OCR manifest 文件角色不受支持：{}", file.role));
         }
-        if let Some(archive) = &file.archive {
-            if archive != "zip" {
-                return Err(format!("OCR archive 类型不受支持：{archive}"));
-            }
+        // v2：模型为直接下载的裸文件，禁止 zip 等压缩包
+        if file.archive.is_some() {
+            return Err(format!("OCR 模型文件禁止使用压缩包：{}", file.name));
         }
         if let Some(install_dir) = &file.install_dir {
             validate_relative_path(install_dir)?;
@@ -226,7 +240,7 @@ pub(crate) fn ocr_install_status(app: &tauri::AppHandle, mode: &str) -> Result<O
             let install_dir = ocr_root_dir(app)?;
             Ok(OcrInstallStatus {
                 installed: false,
-                engine_id: "tesseract".to_string(),
+                engine_id: OCR_ENGINE_ID.to_string(),
                 engine_version: None,
                 mode: mode.clone(),
                 platform: ocr_platform().to_string(),
@@ -415,10 +429,13 @@ fn ocr_manifest_file_path(
     app: &tauri::AppHandle,
     file: &OcrManifestFile,
 ) -> Result<PathBuf, String> {
-    if file.role == "language" {
-        return Ok(ocr_asset_dir(app)?.join(&file.name));
-    }
-    Ok(ocr_manifest_install_dir(app, file)?.join(&file.name))
+    // v2：模型/字典均为无压缩包的直接下载，落点即 file.path 描述的
+    // ocr/paddle/{mode}/ 布局；路径安全在解析时兜底（缓存清单未经 validate）
+    let root = ocr_root_dir(app)?;
+    validate_relative_path(&file.path)?;
+    let resolved = root.join(&file.path);
+    ensure_path_within(&root, &resolved)?;
+    Ok(resolved)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -537,9 +554,14 @@ fn read_ocr_manifest_cache(
         return Ok(None);
     }
     let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str::<OcrManifest>(&content)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    let manifest =
+        serde_json::from_str::<OcrManifest>(&content).map_err(|error| error.to_string())?;
+    // 旧引擎（tesseract 时代）缓存一律视为无缓存，强制重新拉取 v2 清单，
+    // 避免老用户被旧缓存骗成「已安装」
+    if !is_usable_cached_manifest(&manifest) {
+        return Ok(None);
+    }
+    Ok(Some(manifest))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -583,4 +605,139 @@ fn ocr_download_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 fn ocr_manifest_cache_path(app: &tauri::AppHandle, mode: &str) -> Result<PathBuf, String> {
     let mode = clean_ocr_mode(mode.to_string())?;
     Ok(ocr_root_dir(app)?.join(format!("manifest-{mode}.json")))
+}
+
+/// 缓存清单可用性判定：引擎 id 不是当前 paddle 引擎的缓存一律作废。
+#[cfg(not(target_os = "macos"))]
+fn is_usable_cached_manifest(manifest: &OcrManifest) -> bool {
+    manifest.engine.id == OCR_ENGINE_ID
+}
+
+/// 单个 OCR 模式的模型文件布局（app-data 下相对 ocr 根目录）。
+/// Task 3 接入 paddle 引擎前暂无非测试读取方，allow(dead_code) 消除预留警告。
+#[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
+pub(crate) struct PaddleModelPaths {
+    pub(crate) det: PathBuf,
+    pub(crate) rec: PathBuf,
+    pub(crate) charset: PathBuf,
+}
+
+/// 纯路径版布局函数：返回 ocr/paddle/{mode}/det.mnn、rec.mnn、ppocr_keys_v5.txt。
+/// mode 必须过 clean_ocr_mode，非法值（含 "../evil"）返回 Err；
+/// 再经 validate_relative_path + ensure_path_within 双重防越界。
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn paddle_model_paths_under(
+    root: &Path,
+    mode: &str,
+) -> Result<PaddleModelPaths, String> {
+    let mode = clean_ocr_mode(mode.to_string())?;
+    let mode_dir_relative = format!("{OCR_MODEL_DIR}/{mode}");
+    validate_relative_path(&mode_dir_relative)?;
+    let mode_dir = root.join(mode_dir_relative);
+    ensure_path_within(root, &mode_dir)?;
+    Ok(PaddleModelPaths {
+        det: mode_dir.join("det.mnn"),
+        rec: mode_dir.join("rec.mnn"),
+        charset: mode_dir.join(OCR_CHARSET_FILE),
+    })
+}
+
+/// Task 3 接入 paddle 引擎前的预留入口，暂无非测试调用方。
+#[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
+pub(crate) fn paddle_model_paths(
+    app: &tauri::AppHandle,
+    mode: &str,
+) -> Result<PaddleModelPaths, String> {
+    paddle_model_paths_under(&ocr_root_dir(app)?, mode)
+}
+
+/// 旧版（tesseract 时代）残留目录：存在即代表需要清理。
+/// 返回 ocr/tesseract、ocr/downloads、ocr/assets 三个路径。
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn legacy_ocr_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let Ok(root) = ocr_root_dir(app) else {
+        return Vec::new();
+    };
+    vec![
+        root.join(OCR_ENGINE_DIR),
+        root.join("downloads"),
+        root.join(OCR_ASSET_DIR),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{OcrManifest, OcrManifestEngine, OcrManifestFile};
+
+    fn manifest_for(engine_id: &str, role: &str) -> OcrManifest {
+        OcrManifest {
+            engine: OcrManifestEngine {
+                id: engine_id.to_string(),
+                version: "1".to_string(),
+                platform: "windows-x64".to_string(),
+                mode: None,
+                base_url: "https://example.com/".to_string(),
+                files: vec![OcrManifestFile {
+                    role: role.to_string(),
+                    name: "det.mnn".to_string(),
+                    path: "paddle/fast/det.mnn".to_string(),
+                    size: 1,
+                    sha256: "00".repeat(32),
+                    archive: None,
+                    install_dir: None,
+                    entries: Vec::new(),
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn validate_accepts_paddle_model_manifest() {
+        assert!(validate_ocr_manifest(&manifest_for("paddle", "det-model"), "fast").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_legacy_tesseract_manifest() {
+        // 老清单直接拒绝，防止 R2 上 v1 URL 误配
+        assert!(validate_ocr_manifest(&manifest_for("tesseract", "det-model"), "fast").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_unknown_role() {
+        assert!(validate_ocr_manifest(&manifest_for("paddle", "engine"), "fast").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_zip_role_for_models() {
+        let mut m = manifest_for("paddle", "det-model");
+        m.engine.files[0].archive = Some("zip".to_string());
+        assert!(validate_ocr_manifest(&m, "fast").is_err());
+    }
+
+    #[test]
+    fn cached_manifest_with_wrong_engine_is_ignored() {
+        // 缓存失效判定抽成纯函数后测试：
+        // fn is_usable_cached_manifest(m: &OcrManifest) -> bool { m.engine.id == OCR_ENGINE_ID }
+        assert!(!is_usable_cached_manifest(&manifest_for("tesseract", "det-model")));
+        assert!(is_usable_cached_manifest(&manifest_for("paddle", "det-model")));
+    }
+
+    #[test]
+    fn paddle_model_paths_are_mode_scoped() {
+        // 用 tauri::test 拿不到 AppHandle 时，测纯路径函数：
+        // fn paddle_model_paths_under(root: &Path, mode: &str) -> Result<PaddleModelPaths, String>
+        let paths =
+            paddle_model_paths_under(std::path::Path::new("/ocr"), "fast").expect("fast 模式路径合法");
+        assert!(paths.det.ends_with("paddle/fast/det.mnn"));
+        assert!(paths.rec.ends_with("paddle/fast/rec.mnn"));
+        assert!(paths.charset.ends_with("paddle/fast/ppocr_keys_v5.txt"));
+    }
+
+    #[test]
+    fn paddle_model_paths_rejects_unsafe_mode() {
+        assert!(paddle_model_paths_under(std::path::Path::new("/ocr"), "../evil").is_err());
+    }
 }
