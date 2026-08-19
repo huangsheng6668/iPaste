@@ -10,6 +10,7 @@ use objc2::{
 use objc2_core_foundation::CGRect;
 use objc2_foundation::{NSArray, NSError, NSRange, NSString, NSURL};
 
+use super::tokens::{char_index_to_utf16, split_line_tokens};
 use crate::models::{ImageOcrResult, ImageOcrWord};
 
 
@@ -107,7 +108,7 @@ fn recognize_image_text_macos_inner(
         lines.push(line_text.clone());
 
         let line_confidence = macos_recognized_text_confidence(&candidate) as f64 * 100.0;
-        let tokens = macos_ocr_tokens(&line_text);
+        let tokens = split_line_tokens(&line_text);
         if tokens.is_empty() {
             if let Some(bounding_box) = macos_recognized_text_bounding_box(
                 &candidate,
@@ -129,8 +130,13 @@ fn recognize_image_text_macos_inner(
         }
 
         for (word_index, token) in tokens.into_iter().enumerate() {
+            // 共享分词器产出 char 偏移；Vision NSRange 需要 utf16 单位，这里换算。
+            let range = NSRange::new(
+                char_index_to_utf16(&line_text, token.char_start),
+                token.text.chars().map(char::len_utf16).sum::<usize>(),
+            );
             let bounding_box =
-                macos_recognized_text_bounding_box(&candidate, token.range).or_else(|| {
+                macos_recognized_text_bounding_box(&candidate, range).or_else(|| {
                     macos_recognized_text_bounding_box(
                         &candidate,
                         NSRange::new(0, candidate_string_utf16_len(&candidate)),
@@ -261,83 +267,7 @@ fn macos_ocr_word_from_bounding_box(
 }
 
 #[cfg(target_os = "macos")]
-#[derive(Debug)]
-struct MacOcrToken {
-    text: String,
-    range: NSRange,
-}
-
-#[cfg(target_os = "macos")]
-fn macos_ocr_tokens(text: &str) -> Vec<MacOcrToken> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut current_start = 0_usize;
-    let mut utf16_offset = 0_usize;
-    let mut current_is_cjk = false;
-
-    for char in text.chars() {
-        let char_len = char.len_utf16();
-        if char.is_whitespace() {
-            push_macos_ocr_token(&mut tokens, &mut current, current_start, utf16_offset);
-            utf16_offset += char_len;
-            current_is_cjk = false;
-            continue;
-        }
-
-        let is_cjk = is_cjk_char(char);
-        if current.is_empty() {
-            current_start = utf16_offset;
-            current_is_cjk = is_cjk;
-        } else if is_cjk || current_is_cjk {
-            push_macos_ocr_token(&mut tokens, &mut current, current_start, utf16_offset);
-            current_start = utf16_offset;
-            current_is_cjk = is_cjk;
-        }
-
-        current.push(char);
-        utf16_offset += char_len;
-
-        if is_cjk {
-            push_macos_ocr_token(&mut tokens, &mut current, current_start, utf16_offset);
-            current_is_cjk = false;
-        }
-    }
-
-    push_macos_ocr_token(&mut tokens, &mut current, current_start, utf16_offset);
-    tokens
-}
-
-#[cfg(target_os = "macos")]
-fn push_macos_ocr_token(
-    tokens: &mut Vec<MacOcrToken>,
-    current: &mut String,
-    start: usize,
-    end: usize,
-) {
-    let value = current.trim();
-    if !value.is_empty() && end > start {
-        tokens.push(MacOcrToken {
-            text: value.to_string(),
-            range: NSRange::new(start, end - start),
-        });
-    }
-    current.clear();
-}
-
-#[cfg(target_os = "macos")]
 fn candidate_string_utf16_len(candidate: &AnyObject) -> usize {
     let value: Retained<NSString> = unsafe { msg_send![candidate, string] };
     value.length()
-}
-
-#[cfg(target_os = "macos")]
-fn is_cjk_char(char: char) -> bool {
-    matches!(
-        char as u32,
-        0x3400..=0x4DBF
-            | 0x4E00..=0x9FFF
-            | 0xF900..=0xFAFF
-            | 0x3040..=0x30FF
-            | 0xAC00..=0xD7AF
-    )
 }
