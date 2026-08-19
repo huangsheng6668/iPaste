@@ -32,6 +32,8 @@ getrandom = "0.2"
 hkdf = "0.12"
 hmac = "0.12"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
+# PaddleOCR 进程内推理（MNN 后端）；版本以 Task 0 Windows 实测钉死
+ocr-rs = "=2.4.1"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 rusqlite = { version = "=0.32.1", features = ["bundled"] }

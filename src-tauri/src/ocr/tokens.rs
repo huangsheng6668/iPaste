@@ -62,6 +62,9 @@ fn push_line_token(tokens: &mut Vec<LineToken>, current: &mut String, start: usi
 }
 
 /// char 索引 → utf16 code unit 偏移（vision.rs 适配 Vision NSRange 用）。
+/// 仅 macOS Vision 管线调用，非 macOS 非测试构建无调用方，
+/// allow(dead_code) 消除平台性警告。
+#[allow(dead_code)]
 pub(crate) fn char_index_to_utf16(text: &str, char_index: usize) -> usize {
     text.chars().take(char_index).map(char::len_utf16).sum()
 }
@@ -96,6 +99,8 @@ mod tests {
         let texts: Vec<&str> = tokens.iter().map(|t| t.text.as_str()).collect();
         assert_eq!(texts, vec!["hello", "world"]);
         assert_eq!(tokens[1].char_start, 6);
+        assert_eq!(tokens[0].char_len, 5);
+        assert_eq!(tokens[1].char_len, 5);
     }
 
     #[test]

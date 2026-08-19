@@ -614,9 +614,7 @@ fn is_usable_cached_manifest(manifest: &OcrManifest) -> bool {
 }
 
 /// 单个 OCR 模式的模型文件布局（app-data 下相对 ocr 根目录）。
-/// Task 3 接入 paddle 引擎前暂无非测试读取方，allow(dead_code) 消除预留警告。
 #[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
 pub(crate) struct PaddleModelPaths {
     pub(crate) det: PathBuf,
     pub(crate) rec: PathBuf,
@@ -643,9 +641,8 @@ pub(crate) fn paddle_model_paths_under(
     })
 }
 
-/// Task 3 接入 paddle 引擎前的预留入口，暂无非测试调用方。
+/// paddle.rs::ensure_engine 消费：返回 app-data 下的模型文件布局。
 #[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
 pub(crate) fn paddle_model_paths(
     app: &tauri::AppHandle,
     mode: &str,

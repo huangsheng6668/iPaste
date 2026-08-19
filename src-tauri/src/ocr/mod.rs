@@ -1,6 +1,6 @@
 //! 图片 OCR：状态检测与调度（mod）+ Windows 资源安装器（installer）+
-//! Windows Tesseract 执行（tesseract）+ macOS Vision 管线（vision）+
-//! 跨平台行内分词（tokens）。
+//! Windows Paddle 识别管线（paddle）+ Windows Tesseract 执行（tesseract）+
+//! macOS Vision 管线（vision）+ 跨平台行内分词（tokens）。
 
 use tauri::Emitter;
 
@@ -16,14 +16,15 @@ use vision::MACOS_OCR_ENGINE_ID;
 pub(crate) mod installer;
 
 #[cfg(not(target_os = "macos"))]
+pub(crate) mod paddle;
+
+#[cfg(not(target_os = "macos"))]
 pub(crate) mod tesseract;
 
 #[cfg(target_os = "macos")]
 pub(crate) mod vision;
 
-/// 行内分词纯逻辑：macOS Vision 已接入；Windows Paddle 侧（后续任务）接入前
-/// 非测试构建无调用方，allow(dead_code) 消除平台性警告。
-#[allow(dead_code)]
+/// 行内分词纯逻辑：macOS Vision 与 Windows Paddle（paddle.rs）共用。
 pub(crate) mod tokens;
 
 fn ocr_platform() -> &'static str {
