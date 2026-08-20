@@ -210,9 +210,14 @@ mod tests {
 
     #[test]
     fn conflicting_shortcuts_are_rejected() {
-        // CommandOrControl 在 Windows 解析为 Ctrl：与 Ctrl+Shift+V 同 id
-        assert!(ensure_shortcut_not_conflicting("CommandOrControl+Shift+V", "Ctrl+Shift+V").is_err());
-        assert!(ensure_shortcut_not_conflicting("Ctrl+Shift+O", "CommandOrControl+Shift+O").is_err());
+        // CommandOrControl 在 Windows 解析为 Ctrl、macOS 为 Command：
+        // 等价断言必须用当前平台的显式修饰键写法，否则 macOS 上 id 不同导致断言反转
+        #[cfg(target_os = "macos")]
+        let (panel_alias, ocr_alias) = ("Command+Shift+V", "Command+Shift+O");
+        #[cfg(not(target_os = "macos"))]
+        let (panel_alias, ocr_alias) = ("Ctrl+Shift+V", "Ctrl+Shift+O");
+        assert!(ensure_shortcut_not_conflicting(panel_alias, "CommandOrControl+Shift+V").is_err());
+        assert!(ensure_shortcut_not_conflicting(ocr_alias, "CommandOrControl+Shift+O").is_err());
         assert!(ensure_shortcut_not_conflicting("CommandOrControl+Shift+V", "CommandOrControl+Shift+O").is_ok());
         assert!(ensure_shortcut_not_conflicting("Alt+S", "Alt+D").is_ok());
     }
