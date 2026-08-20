@@ -229,9 +229,10 @@ pub(crate) fn recognize_image_text_paddle(
     store: &crate::store::Store,
     image_path: String,
     profile: Option<String>,
+    language: Option<String>,
 ) -> Result<crate::models::ImageOcrResult, String> {
     let mode = store.settings()?.ocr_mode;
-    recognize_with_mode(app, &mode, image_path, profile)
+    recognize_with_mode(app, &mode, image_path, profile, language)
 }
 
 /// 降级入口：AppState 取不到（无法读设置）时由调度方按默认模式调用。
@@ -241,6 +242,7 @@ pub(crate) fn recognize_with_mode(
     mode: &str,
     image_path: String,
     profile: Option<String>,
+    language: Option<String>,
 ) -> Result<crate::models::ImageOcrResult, String> {
     let image_path = std::path::PathBuf::from(image_path);
     if !image_path.exists() {
@@ -285,7 +287,7 @@ pub(crate) fn recognize_with_mode(
     let language = if is_manga {
         "ja+zh+en".to_string()
     } else {
-        "zh-Hans+en".to_string()
+        language.unwrap_or_else(|| "zh-Hans+en".to_string())
     };
 
     Ok(crate::models::ImageOcrResult {

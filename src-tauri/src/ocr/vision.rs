@@ -17,12 +17,13 @@ use crate::models::{ImageOcrResult, ImageOcrWord};
 #[cfg(target_os = "macos")]
 pub(crate) const MACOS_OCR_ENGINE_ID: &str = "apple-vision";
 #[cfg(target_os = "macos")]
-const MACOS_OCR_LANGUAGE: &str = "zh-Hans+en";
-#[cfg(target_os = "macos")]
 const MACOS_OCR_RECOGNITION_LEVEL_ACCURATE: isize = 0;
 
 #[cfg(target_os = "macos")]
-pub(crate) fn recognize_image_text_macos(image_path: String) -> Result<ImageOcrResult, String> {
+pub(crate) fn recognize_image_text_macos(
+    image_path: String,
+    language: Option<String>,
+) -> Result<ImageOcrResult, String> {
     let image_path = PathBuf::from(image_path);
     if !image_path.exists() {
         return Err("图片文件不存在".to_string());
@@ -34,7 +35,9 @@ pub(crate) fn recognize_image_text_macos(image_path: String) -> Result<ImageOcrR
         return Err("图片尺寸无效".to_string());
     }
 
-    autoreleasepool(|_| recognize_image_text_macos_inner(&image_path, image_width, image_height))
+    autoreleasepool(|_| {
+        recognize_image_text_macos_inner(&image_path, image_width, image_height, language.as_deref())
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -42,6 +45,7 @@ fn recognize_image_text_macos_inner(
     image_path: &Path,
     image_width: u32,
     image_height: u32,
+    language: Option<&str>,
 ) -> Result<ImageOcrResult, String> {
     let url = NSURL::from_file_path(image_path).ok_or_else(|| "无法读取图片路径".to_string())?;
     let request_class = AnyClass::get(c"VNRecognizeTextRequest")
@@ -50,7 +54,7 @@ fn recognize_image_text_macos_inner(
         .ok_or_else(|| "当前 macOS 不支持系统图片 OCR".to_string())?;
 
     let request: Retained<AnyObject> = unsafe { msg_send![request_class, new] };
-    configure_macos_text_request(&request);
+    configure_macos_text_request(&request, language);
 
     let handler_alloc: *mut AnyObject = unsafe { msg_send![handler_class, alloc] };
     let handler_raw: *mut AnyObject = unsafe {
@@ -84,7 +88,7 @@ fn recognize_image_text_macos_inner(
         return Ok(ImageOcrResult {
             text: String::new(),
             engine: MACOS_OCR_ENGINE_ID.to_string(),
-            language: MACOS_OCR_LANGUAGE.to_string(),
+            language: language.unwrap_or("auto").to_string(),
             words: Vec::new(),
         });
     };
@@ -161,13 +165,15 @@ fn recognize_image_text_macos_inner(
     Ok(ImageOcrResult {
         text: lines.join("\n"),
         engine: MACOS_OCR_ENGINE_ID.to_string(),
-        language: MACOS_OCR_LANGUAGE.to_string(),
+        language: language.unwrap_or("auto").to_string(),
         words,
     })
 }
 
 #[cfg(target_os = "macos")]
-fn configure_macos_text_request(request: &AnyObject) {
+fn configure_macos_text_request(request: &AnyObject, language: Option<&str>) {
+    // 指定具体语言时收敛为单语并关闭自动检测（精度更高）；auto/未知保持 5 语 + 自动检测
+    let locale = language.and_then(crate::ocr::vision_language_locale);
     unsafe {
         let _: () = msg_send![
             request,
@@ -177,18 +183,26 @@ fn configure_macos_text_request(request: &AnyObject) {
         let supports_languages: Bool =
             msg_send![request, respondsToSelector: sel!(setRecognitionLanguages:)];
         if supports_languages.as_bool() {
-            let zh_hans = NSString::from_str("zh-Hans");
-            let zh_hant = NSString::from_str("zh-Hant");
-            let ja = NSString::from_str("ja-JP");
-            let ko = NSString::from_str("ko-KR");
-            let en = NSString::from_str("en-US");
-            let languages = NSArray::from_slice(&[&*zh_hans, &*zh_hant, &*ja, &*ko, &*en]);
+            let languages = match locale {
+                Some(locale) => NSArray::from_slice(&[&*NSString::from_str(locale)]),
+                None => {
+                    let zh_hans = NSString::from_str("zh-Hans");
+                    let zh_hant = NSString::from_str("zh-Hant");
+                    let ja = NSString::from_str("ja-JP");
+                    let ko = NSString::from_str("ko-KR");
+                    let en = NSString::from_str("en-US");
+                    NSArray::from_slice(&[&*zh_hans, &*zh_hant, &*ja, &*ko, &*en])
+                }
+            };
             let _: () = msg_send![request, setRecognitionLanguages: &*languages];
         }
         let supports_language_detection: Bool =
             msg_send![request, respondsToSelector: sel!(setAutomaticallyDetectsLanguage:)];
         if supports_language_detection.as_bool() {
-            let _: () = msg_send![request, setAutomaticallyDetectsLanguage: Bool::YES];
+            let _: () = msg_send![
+                request,
+                setAutomaticallyDetectsLanguage: Bool::new(locale.is_none())
+            ];
         }
     }
 }

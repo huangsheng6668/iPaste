@@ -158,6 +158,13 @@ pub(crate) fn clean_ocr_mode(mode: String) -> Result<String, String> {
     }
 }
 
+const OCR_LANGUAGES: [&str; 5] = ["auto", "zh-Hans", "zh-Hant", "en", "ja"];
+
+/// OCR 语言参数清洗：合法 id 原样返回，"auto" 与非法值归一为 None（等价自动检测）。
+pub(crate) fn clean_ocr_language(language: Option<String>) -> Option<String> {
+    language.filter(|value| value != "auto" && OCR_LANGUAGES.contains(&value.as_str()))
+}
+
 pub(crate) fn clean_language(language: String) -> Result<String, String> {
     let language = language.trim();
     if matches!(language, "en" | "zh-CN" | "ja" | "ko" | "es" | "fr" | "de") {
@@ -333,5 +340,15 @@ mod tests {
         assert_eq!(percent_encode_component("中"), "%E4%B8%AD");
         assert_eq!(percent_encode_component(""), "");
         assert_eq!(percent_encode_component("a?b#c"), "a%3Fb%23c");
+    }
+
+    #[test]
+    fn clean_ocr_language_normalizes_to_none() {
+        assert_eq!(clean_ocr_language(Some("ja".to_string())), Some("ja".to_string()));
+        assert_eq!(clean_ocr_language(Some("zh-Hant".to_string())), Some("zh-Hant".to_string()));
+        // auto 与非法值归一为 None（等价自动检测）
+        assert_eq!(clean_ocr_language(Some("auto".to_string())), None);
+        assert_eq!(clean_ocr_language(Some("korean".to_string())), None);
+        assert_eq!(clean_ocr_language(None), None);
     }
 }

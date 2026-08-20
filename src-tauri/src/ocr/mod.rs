@@ -141,11 +141,28 @@ pub(crate) fn remove_assets(
     }
 }
 
+/// OCR 语言 id → macOS Vision 识别语言（BCP 47）；auto/未知 → None（默认 5 语 + 自动检测）。
+/// 平台无关纯函数，Windows 构建下也参与单测。
+/// 仅 macOS Vision 管线（vision.rs）调用，非 macOS 非测试构建无调用方，
+/// allow(dead_code) 消除平台性警告（与 tokens.rs char_index_to_utf16 同法）。
+#[allow(dead_code)]
+pub(crate) fn vision_language_locale(language: &str) -> Option<&'static str> {
+    match language {
+        "zh-Hans" => Some("zh-Hans"),
+        "zh-Hant" => Some("zh-Hant"),
+        "en" => Some("en-US"),
+        "ja" => Some("ja-JP"),
+        _ => None,
+    }
+}
+
 pub(crate) async fn recognize_image(
     app: tauri::AppHandle,
     image_path: String,
     profile: Option<String>,
+    language: Option<String>,
 ) -> Result<ImageOcrResult, String> {
+    let language = crate::util::clean_ocr_language(language);
     let is_manga = profile
         .as_deref()
         .map(|p| p.eq_ignore_ascii_case("manga") || p.eq_ignore_ascii_case("japanese"))
@@ -166,9 +183,11 @@ pub(crate) async fn recognize_image(
     #[cfg(target_os = "macos")]
     {
         let _ = &app;
-        tokio::task::spawn_blocking(move || vision::recognize_image_text_macos(image_path))
-            .await
-            .map_err(|error| error.to_string())?
+        tokio::task::spawn_blocking(move || {
+            vision::recognize_image_text_macos(image_path, language)
+        })
+        .await
+        .map_err(|error| error.to_string())?
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -181,10 +200,33 @@ pub(crate) async fn recognize_image(
             .try_state::<crate::models::AppState>()
             .map(|state| state.store.clone());
         tokio::task::spawn_blocking(move || match store.as_ref() {
-            Some(store) => paddle::recognize_image_text_paddle(&app, store, image_path, profile),
-            None => paddle::recognize_with_mode(&app, DEFAULT_OCR_MODE, image_path, profile),
+            Some(store) => {
+                paddle::recognize_image_text_paddle(&app, store, image_path, profile, language)
+            }
+            None => paddle::recognize_with_mode(
+                &app,
+                DEFAULT_OCR_MODE,
+                image_path,
+                profile,
+                language,
+            ),
         })
         .await
         .map_err(|error| error.to_string())?
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::vision_language_locale;
+
+    #[test]
+    fn vision_language_locale_maps_supported_ids() {
+        assert_eq!(vision_language_locale("zh-Hans"), Some("zh-Hans"));
+        assert_eq!(vision_language_locale("zh-Hant"), Some("zh-Hant"));
+        assert_eq!(vision_language_locale("en"), Some("en-US"));
+        assert_eq!(vision_language_locale("ja"), Some("ja-JP"));
+        assert_eq!(vision_language_locale("auto"), None);
+        assert_eq!(vision_language_locale("korean"), None);
     }
 }

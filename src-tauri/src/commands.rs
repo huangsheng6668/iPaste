@@ -429,8 +429,9 @@ pub(crate) async fn recognize_image_text(
     _app: tauri::AppHandle,
     image_path: String,
     profile: Option<String>,
+    language: Option<String>,
 ) -> Result<ImageOcrResult, AppError> {
-    crate::ocr::recognize_image(_app, image_path, profile)
+    crate::ocr::recognize_image(_app, image_path, profile, language)
         .await
         .map_err(AppError::from)
 }
