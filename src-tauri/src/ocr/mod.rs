@@ -25,6 +25,9 @@ pub(crate) mod vision;
 /// 行内分词纯逻辑：macOS Vision 与 Windows Paddle（paddle.rs）共用。
 pub(crate) mod tokens;
 
+/// Manga-OCR (mocr) 专用日漫推理桥接器。
+pub(crate) mod mocr;
+
 fn ocr_platform() -> &'static str {
     #[cfg(target_os = "macos")]
     {
@@ -143,6 +146,22 @@ pub(crate) async fn recognize_image(
     image_path: String,
     profile: Option<String>,
 ) -> Result<ImageOcrResult, String> {
+    let is_manga = profile
+        .as_deref()
+        .map(|p| p.eq_ignore_ascii_case("manga") || p.eq_ignore_ascii_case("japanese"))
+        .unwrap_or(false);
+
+    if is_manga {
+        let img_path = image_path.clone();
+        if let Ok(Ok(mocr_res)) = tokio::task::spawn_blocking(move || {
+            mocr::recognize_image_text_mocr(&img_path)
+        })
+        .await
+        {
+            return Ok(mocr_res);
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         let _ = &app;
