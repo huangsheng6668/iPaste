@@ -239,19 +239,20 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
         frozen_frames.push(Some(frame));
     }
 
+    *state
+        .capture_session
+        .lock()
+        .map_err(|error| error.to_string())? = Some(CaptureSession {
+        overlay_labels: labels.clone(),
+        main_was_visible,
+        frozen_frames,
+    });
+
     if let Err(error) = overlay::show_overlay_windows(app, &labels) {
         end_session(app, &state.capture_session, true);
         return Err(error);
     }
 
-    *state
-        .capture_session
-        .lock()
-        .map_err(|error| error.to_string())? = Some(CaptureSession {
-        overlay_labels: labels,
-        main_was_visible,
-        frozen_frames,
-    });
     Ok(())
 }
 

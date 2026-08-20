@@ -44,6 +44,7 @@ pub(crate) fn clamp_rect_to_image(mut rect: PhysicalRect, image: &RgbaImage) -> 
 }
 
 /// 触发侧整屏冻结帧捕获：在任何遮罩窗存在之前调用，硬件加速视频此时仍正常合成。
+#[allow(dead_code)]
 pub(crate) fn capture_monitor_frame(monitor: &tauri::Monitor) -> Result<RgbaImage, String> {
     let mut frames = capture_all_monitor_frames(std::slice::from_ref(monitor))?;
     frames.pop().ok_or_else(|| "截屏结果为空".to_string())
