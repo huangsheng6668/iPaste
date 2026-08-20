@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::Store;
 use crate::models::{AppSettings, Category, CategoryItem, ClipPage, CloudSettings};
 use crate::{
-    DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_LANGUAGE, DEFAULT_OCR_MODE,
+    DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_LANGUAGE, DEFAULT_OCR_MODE, DEFAULT_OCR_SHORTCUT,
     DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_OPEN_BEHAVIOR, DEFAULT_RETENTION_DAYS, DEFAULT_SHORTCUT,
     CLIP_PAGE_SIZE,
     util::{
@@ -33,6 +33,16 @@ impl Store {
             .setting_value_with_conn(conn, "shortcut")?
             .and_then(|value| clean_shortcut(value).ok())
             .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+        let ocr_shortcut = self
+            .setting_value_with_conn(conn, "ocr_shortcut")?
+            .and_then(|value| clean_shortcut(value).ok())
+            .unwrap_or_else(|| DEFAULT_OCR_SHORTCUT.to_string());
+        // 防御历史脏数据：与面板快捷键同值时回落默认
+        let ocr_shortcut = if ocr_shortcut == shortcut {
+            DEFAULT_OCR_SHORTCUT.to_string()
+        } else {
+            ocr_shortcut
+        };
         let retention_days = conn
             .query_row(
                 "SELECT value FROM settings WHERE key = 'retention_days'",
@@ -74,6 +84,7 @@ impl Store {
 
         Ok(AppSettings {
             shortcut,
+            ocr_shortcut,
             retention_days,
             append_copy_timeout_minutes,
             panel_open_behavior,
@@ -89,6 +100,18 @@ impl Store {
         let conn = self.connect()?;
         conn.execute(
             "INSERT INTO settings (key, value) VALUES ('shortcut', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![shortcut],
+        )
+        .map_err(|error| error.to_string())?;
+        self.settings_with_conn(&conn)
+    }
+
+    pub(crate) fn update_ocr_shortcut(&self, shortcut: String) -> Result<AppSettings, String> {
+        let shortcut = clean_shortcut(shortcut)?;
+        let conn = self.connect()?;
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('ocr_shortcut', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![shortcut],
         )
@@ -255,6 +278,19 @@ mod tests {
         assert_eq!(s.ocr_mode, "best");
         assert_eq!(s.panel_open_behavior, "last_selected");
         assert_eq!(s.language, "zh-CN");
+    }
+
+    #[test]
+    fn ocr_shortcut_round_trip_and_conflict_fallback() {
+        let store = temp_store();
+
+        let s = store.update_ocr_shortcut("Alt+S".to_string()).unwrap();
+        assert_eq!(s.ocr_shortcut, "Alt+S");
+
+        // 存储值与面板快捷键同值时，读取侧回落默认，避免一个组合触发两个动作
+        let s = store.update_shortcut("Alt+S".to_string()).unwrap();
+        assert_eq!(s.shortcut, "Alt+S");
+        assert_eq!(s.ocr_shortcut, crate::DEFAULT_OCR_SHORTCUT);
     }
 }
 

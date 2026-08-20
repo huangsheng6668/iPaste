@@ -59,6 +59,7 @@ use crate::util::localized_text;
 use crate::window::{hide_main_window, show_main_window, MAIN_WINDOW};
 
 pub(crate) const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
+pub(crate) const DEFAULT_OCR_SHORTCUT: &str = "CommandOrControl+Shift+O";
 pub(crate) const PAUSE_CAPTURE_LABEL: &str = "暂停捕捉";
 pub(crate) const RESUME_CAPTURE_LABEL: &str = "恢复捕捉";
 pub(crate) const ENABLE_APPEND_COPY_LABEL: &str = "开启追加复制";

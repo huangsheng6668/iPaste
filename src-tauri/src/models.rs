@@ -152,6 +152,7 @@ pub(crate) enum SearchResult {
 #[ts(export)]
 pub(crate) struct AppSettings {
     pub(crate) shortcut: String,
+    pub(crate) ocr_shortcut: String,
     #[ts(type = "number")]
     pub(crate) retention_days: i64,
     #[ts(type = "number")]
@@ -231,6 +232,30 @@ pub(crate) struct ImageOcrWord {
     pub(crate) line_index: i64,
     #[ts(type = "number")]
     pub(crate) word_index: i64,
+}
+
+/// 截图 OCR：遮罩窗提交的框选区域（显示器内 CSS 逻辑像素，方向无关归一化前）。
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct ScreenshotSelection {
+    #[ts(type = "number")]
+    pub(crate) monitor_index: usize,
+    pub(crate) left: f64,
+    pub(crate) top: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+}
+
+/// 截图 OCR：结果窗凭 token 读取的载荷（AppState 内单读即删）。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct OcrResultPayload {
+    pub(crate) image_path: String,
+    pub(crate) item_id: String,
+    #[ts(type = "number")]
+    pub(crate) monitor_index: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
