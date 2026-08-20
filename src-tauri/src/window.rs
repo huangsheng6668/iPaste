@@ -40,6 +40,11 @@ pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) const SETTINGS_WINDOW: &str = "settings";
 pub(crate) const CLIP_VIEWER_WINDOW_PREFIX: &str = "clip-viewer-";
 pub(crate) const LAN_SYNC_WINDOW: &str = "lan-sync";
+/// 由后续截图 OCR 任务（overlay/命令层）消费，先允许 dead_code 消除前向启用警告。
+#[allow(dead_code)]
+pub(crate) const OCR_RESULT_WINDOW: &str = "ocr-result";
+#[allow(dead_code)]
+pub(crate) const OCR_OVERLAY_WINDOW_PREFIX: &str = "ocr-overlay-";
 const PANEL_GAP: i32 = 12;
 const SCREEN_MARGIN: i32 = 12;
 const MAIN_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
@@ -79,6 +84,15 @@ const LAN_SYNC_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
     height: 560.0,
     min_width: 360.0,
     min_height: 480.0,
+    max_width: None,
+    max_height: None,
+};
+#[allow(dead_code)]
+const OCR_RESULT_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
+    width: 520.0,
+    height: 420.0,
+    min_width: 360.0,
+    min_height: 260.0,
     max_width: None,
     max_height: None,
 };
@@ -611,6 +625,7 @@ struct AuxiliaryWindowConfig {
     decorations: bool,
     always_on_top: bool,
     near_main_window: bool,
+    monitor_index: Option<usize>,
 }
 
 fn show_auxiliary_window(
@@ -666,6 +681,16 @@ fn position_auxiliary_window(
     main_monitor: &Option<tauri::Monitor>,
     config: &AuxiliaryWindowConfig,
 ) -> Result<(), String> {
+    if let Some(index) = config.monitor_index {
+        if let Some(monitor) = app
+            .available_monitors()
+            .ok()
+            .and_then(|monitors| monitors.get(index).cloned())
+        {
+            position_window_centered_on_monitor(window, &monitor, config.geometry)?;
+            return Ok(());
+        }
+    }
     if config.near_main_window {
         position_clip_viewer_window(app, window)?;
         return Ok(());
@@ -679,22 +704,35 @@ fn position_auxiliary_window(
 }
 
 pub(crate) fn show_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
+    show_settings_window_with_tab(app, None)
+}
+
+/// 预检失败等场景直达指定设置 Tab（"ocr" / "permissions"）。
+pub(crate) fn show_settings_window_with_tab(
+    app: &tauri::AppHandle,
+    tab: Option<&str>,
+) -> Result<(), String> {
     let language = app
         .try_state::<AppState>()
         .and_then(|state| state.store.settings().ok())
         .map(|settings| settings.language)
         .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
+    let tab_suffix = tab
+        .filter(|tab| ["ocr", "permissions"].contains(tab))
+        .map(|tab| format!("&tab={tab}"))
+        .unwrap_or_default();
     let _ = hide_main_window(app);
     show_auxiliary_window(
         app,
         AuxiliaryWindowConfig {
             label: SETTINGS_WINDOW.to_string(),
-            url: "index.html?window=settings".to_string(),
+            url: format!("index.html?window=settings{tab_suffix}"),
             title: localized_text(&language, "settings_title").to_string(),
             geometry: SETTINGS_WINDOW_GEOMETRY,
             decorations: true,
             always_on_top: false,
             near_main_window: false,
+            monitor_index: None,
         },
     )
 }
@@ -725,6 +763,41 @@ pub(crate) fn show_clip_viewer_window(
             decorations: false,
             always_on_top: true,
             near_main_window: true,
+            monitor_index: None,
+        },
+    )
+}
+
+/// 截图 OCR 结果窗：销毁带旧 token 的既有窗口后按新 token 重建（单活跃会话）。
+/// 由后续截图 OCR 命令层任务消费，先允许 dead_code 消除前向启用警告。
+#[allow(dead_code)]
+pub(crate) fn show_ocr_result_window(
+    app: &tauri::AppHandle,
+    token: &str,
+    monitor_index: usize,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(OCR_RESULT_WINDOW) {
+        let _ = window.destroy();
+    }
+    let language = app
+        .try_state::<AppState>()
+        .and_then(|state| state.store.settings().ok())
+        .map(|settings| settings.language)
+        .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
+    show_auxiliary_window(
+        app,
+        AuxiliaryWindowConfig {
+            label: OCR_RESULT_WINDOW.to_string(),
+            url: format!(
+                "index.html?window=ocr-result&token={}",
+                percent_encode_component(token)
+            ),
+            title: localized_text(&language, "screenshot_ocr").to_string(),
+            geometry: OCR_RESULT_WINDOW_GEOMETRY,
+            decorations: false,
+            always_on_top: true,
+            near_main_window: false,
+            monitor_index: Some(monitor_index),
         },
     )
 }
@@ -740,6 +813,7 @@ pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String>
             decorations: false,
             always_on_top: true,
             near_main_window: false,
+            monitor_index: None,
         },
     )
 }
@@ -936,7 +1010,7 @@ fn fit_window_size_to_monitor(monitor: &tauri::Monitor, size: (i32, i32)) -> (i3
     (size.0.min(max_width), size.1.min(max_height))
 }
 
-fn monitor_for_point(app: &tauri::AppHandle, x: i32, y: i32) -> Result<tauri::Monitor, String> {
+pub(crate) fn monitor_for_point(app: &tauri::AppHandle, x: i32, y: i32) -> Result<tauri::Monitor, String> {
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
@@ -959,7 +1033,7 @@ fn monitor_for_point(app: &tauri::AppHandle, x: i32, y: i32) -> Result<tauri::Mo
         .ok_or_else(|| "未找到可用屏幕".to_string())
 }
 
-fn point_in_monitor(monitor: &tauri::Monitor, x: i32, y: i32) -> bool {
+pub(crate) fn point_in_monitor(monitor: &tauri::Monitor, x: i32, y: i32) -> bool {
     let position = monitor.position();
     let size = monitor.size();
     let left = position.x;
