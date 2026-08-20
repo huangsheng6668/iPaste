@@ -20,12 +20,13 @@ fn find_matching_xcap_monitor(target: &tauri::Monitor) -> Result<Monitor, String
         .ok_or_else(|| "未找到匹配的显示器".to_string())
 }
 
-fn clamp_rect_to_image(mut rect: PhysicalRect, image: &RgbaImage) -> PhysicalRect {
+pub(crate) fn clamp_rect_to_image(mut rect: PhysicalRect, image: &RgbaImage) -> PhysicalRect {
     rect.width = rect.width.min(image.width().saturating_sub(rect.x));
     rect.height = rect.height.min(image.height().saturating_sub(rect.y));
     rect
 }
 
+/// 提交侧旧截屏链路（现场二次截屏）；Task 2 改为裁剪冻结帧后删除本函数。
 pub(crate) fn capture_monitor_region(
     monitor: &tauri::Monitor,
     rect: PhysicalRect,
@@ -37,6 +38,14 @@ pub(crate) fn capture_monitor_region(
     let rect = clamp_rect_to_image(rect, &full);
     let cropped = image::imageops::crop_imm(&full, rect.x, rect.y, rect.width, rect.height).to_image();
     png_bytes(cropped)
+}
+
+/// 触发侧整屏冻结帧捕获：在任何遮罩窗存在之前调用，硬件加速视频此时仍正常合成。
+pub(crate) fn capture_monitor_frame(monitor: &tauri::Monitor) -> Result<RgbaImage, String> {
+    let xcap_monitor = find_matching_xcap_monitor(monitor)?;
+    xcap_monitor
+        .capture_image()
+        .map_err(|error| format!("截屏失败：{error}"))
 }
 
 pub(crate) fn png_bytes(image: RgbaImage) -> Result<Vec<u8>, String> {

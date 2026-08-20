@@ -26,11 +26,55 @@ use crate::window::{
 };
 
 /// 遮罩隐藏后等待合成器刷新，避免把遮罩截进图片。
+/// TODO(task-2): 提交侧改用冻结帧裁剪后删除本常量。
 const OVERLAY_HIDE_SETTLE_MS: u64 = 150;
+
+/// 主面板隐藏后等待合成器刷新：冻结帧捕获前面板不能入画。
+const PANEL_HIDE_SETTLE_MS: u64 = 120;
+/// 冻结帧显示文件目录（$APPDATA 下）；会话结束整目录删除。
+const OVERLAY_FRAME_DIR: &str = "ocr-overlay";
+/// 冻结帧显示 JPEG 质量：仅供遮罩背景显示，OCR 裁剪取内存无损帧。
+const FRAME_JPEG_QUALITY: u8 = 85;
 
 pub(crate) struct CaptureSession {
     pub(crate) overlay_labels: Vec<String>,
     pub(crate) main_was_visible: bool,
+    /// 每显示器整屏冻结帧（触发时捕获）；提交时按索引取出裁剪。
+    /// TODO(task-2): 提交侧接管读取前为只写字段，临时压制 dead_code 警告。
+    #[allow(dead_code)]
+    pub(crate) frozen_frames: Vec<Option<image::RgbaImage>>,
+}
+
+/// 冻结帧显示目录：先清空（吞掉崩溃残留）再重建。
+fn overlay_frame_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join(OVERLAY_FRAME_DIR);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|error| error.to_string())?;
+    }
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir)
+}
+
+fn write_frame_jpeg(path: &std::path::Path, frame: &image::RgbaImage) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|error| error.to_string())?;
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, FRAME_JPEG_QUALITY);
+    encoder
+        .encode_image(frame)
+        .map_err(|error| format!("冻结帧编码失败：{error}"))
+}
+
+fn frame_capture_failed(app: &tauri::AppHandle, session: &Arc<Mutex<Option<CaptureSession>>>) {
+    let _ = app.emit(
+        EVENT_OCR_SCREENSHOT_ERROR,
+        OcrScreenshotError {
+            code: "screenCaptureFailed".to_string(),
+        },
+    );
+    end_session(app, session, true);
 }
 
 fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static str> {
@@ -88,6 +132,9 @@ fn end_session(
     if restore_main && session.main_was_visible {
         let _ = show_main_window(app, MainWindowActivation::Activate);
     }
+    if let Ok(dir) = app.path().app_data_dir() {
+        let _ = std::fs::remove_dir_all(dir.join(OVERLAY_FRAME_DIR));
+    }
 }
 
 pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String> {
@@ -117,6 +164,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
         *session = Some(CaptureSession {
             overlay_labels: Vec::new(),
             main_was_visible,
+            frozen_frames: Vec::new(),
         });
     }
 
@@ -126,9 +174,48 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
             end_session(app, &state.capture_session, true);
             return Err(error);
         }
+        // 冻结帧捕获前等合成器把主面板从画面里刷掉
+        thread::sleep(Duration::from_millis(PANEL_HIDE_SETTLE_MS));
     }
 
-    let labels = match overlay::create_overlay_windows(app) {
+    // 逐显示器整屏捕获（此时无遮罩窗存在，硬件视频仍正常合成）
+    let monitors = app.available_monitors().map_err(|error| {
+        end_session(app, &state.capture_session, true);
+        error.to_string()
+    })?;
+    if monitors.is_empty() {
+        end_session(app, &state.capture_session, true);
+        return Err("未找到可用屏幕".to_string());
+    }
+    let frame_dir = match overlay_frame_dir(app) {
+        Ok(dir) => dir,
+        Err(error) => {
+            end_session(app, &state.capture_session, true);
+            return Err(error);
+        }
+    };
+    let mut frozen_frames = Vec::with_capacity(monitors.len());
+    let mut frame_paths = Vec::with_capacity(monitors.len());
+    for (index, monitor) in monitors.iter().enumerate() {
+        let frame = match screen::capture_monitor_frame(monitor) {
+            Ok(frame) => frame,
+            Err(error) => {
+                frame_capture_failed(app, &state.capture_session);
+                eprintln!("frozen frame capture failed: {error}");
+                return Ok(());
+            }
+        };
+        let path = frame_dir.join(format!("frozen-{index}.jpg"));
+        if let Err(error) = write_frame_jpeg(&path, &frame) {
+            frame_capture_failed(app, &state.capture_session);
+            eprintln!("frozen frame encode failed: {error}");
+            return Ok(());
+        }
+        frame_paths.push(path.to_string_lossy().to_string());
+        frozen_frames.push(Some(frame));
+    }
+
+    let labels = match overlay::create_overlay_windows(app, &frame_paths) {
         Ok(labels) => labels,
         Err(error) => {
             end_session(app, &state.capture_session, true);
@@ -142,6 +229,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
         .map_err(|error| error.to_string())? = Some(CaptureSession {
         overlay_labels: labels,
         main_was_visible,
+        frozen_frames,
     });
     Ok(())
 }

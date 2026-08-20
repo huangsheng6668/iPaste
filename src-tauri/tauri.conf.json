@@ -35,7 +35,8 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPDATA/clip-images/**"
+          "$APPDATA/clip-images/**",
+          "$APPDATA/ocr-overlay/**"
         ]
       }
     }

@@ -646,8 +646,11 @@ pub(crate) fn get_automation_run(
 }
 
 #[tauri::command]
-pub(crate) fn start_screenshot_ocr(app: tauri::AppHandle) -> Result<(), AppError> {
-    crate::capture::start_screenshot_ocr(&app).map_err(AppError::from)
+pub(crate) async fn start_screenshot_ocr(app: tauri::AppHandle) -> Result<(), AppError> {
+    tauri::async_runtime::spawn_blocking(move || crate::capture::start_screenshot_ocr(&app))
+        .await
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .map_err(AppError::from)
 }
 
 #[tauri::command]

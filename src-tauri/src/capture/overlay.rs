@@ -4,7 +4,10 @@ use tauri::{utils::config::Color, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::window::{point_in_monitor, OCR_OVERLAY_WINDOW_PREFIX};
 
-pub(crate) fn create_overlay_windows(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+pub(crate) fn create_overlay_windows(
+    app: &tauri::AppHandle,
+    frame_paths: &[String],
+) -> Result<Vec<String>, String> {
     let monitors = app.available_monitors().map_err(|error| error.to_string())?;
     if monitors.is_empty() {
         return Err("未找到可用屏幕".to_string());
@@ -13,7 +16,15 @@ pub(crate) fn create_overlay_windows(app: &tauri::AppHandle) -> Result<Vec<Strin
     let mut labels = Vec::with_capacity(monitors.len());
     for (index, monitor) in monitors.iter().enumerate() {
         let label = format!("{OCR_OVERLAY_WINDOW_PREFIX}{index}");
-        let url = format!("index.html?window=ocr-overlay&monitor={index}");
+        // frame_paths 来自触发侧较早的显示器枚举；拓扑中途变化时不越界 panic，
+        // 走错误路径交给 start_screenshot_ocr 的 end_session 收尾（会话卡死防护）。
+        let frame = frame_paths
+            .get(index)
+            .ok_or_else(|| format!("显示器拓扑变化：遮罩帧缺失 {index}"))?;
+        let url = format!(
+            "index.html?window=ocr-overlay&monitor={index}&frame={}",
+            crate::util::percent_encode_component(frame),
+        );
         let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
             .title("iPaste Screenshot OCR")
             .decorations(false)
