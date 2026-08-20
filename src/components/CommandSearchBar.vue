@@ -7,6 +7,7 @@ import {
   Clock,
   Download,
   Plus,
+  ScanText,
   Search,
   Settings,
   Wifi,
@@ -128,6 +129,10 @@ function onLanSync() {
   void ipasteApi.openLanSync();
 }
 
+function onScreenshotOcr() {
+  void ipasteApi.startScreenshotOcr();
+}
+
 function clearSearch() {
   emit("update:searchQuery", "");
   searchInputRef.value?.focus();
@@ -209,6 +214,16 @@ defineExpose({
           @click="emit('toggleAppendCopy')"
         >
           <ClipboardPlus class="size-3.5" />
+        </button>
+
+        <button
+          type="button"
+          class="icon-button"
+          :aria-label="t('topBar.screenshotOcr')"
+          :data-tooltip="t('topBar.screenshotOcr')"
+          @click="onScreenshotOcr"
+        >
+          <ScanText class="size-3.5" />
         </button>
 
         <button
