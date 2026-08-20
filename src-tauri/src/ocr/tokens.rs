@@ -72,11 +72,15 @@ pub(crate) fn char_index_to_utf16(text: &str, char_index: usize) -> usize {
 fn is_cjk_char(char: char) -> bool {
     matches!(
         char as u32,
-        0x3400..=0x4DBF
-            | 0x4E00..=0x9FFF
-            | 0xF900..=0xFAFF
-            | 0x3040..=0x30FF
-            | 0xAC00..=0xD7AF
+        0x3000..=0x303F // CJK Symbols and Punctuation
+            | 0x3040..=0x309F // Hiragana
+            | 0x30A0..=0x30FF // Katakana
+            | 0x31F0..=0x31FF // Katakana Phonetic Extensions
+            | 0x3400..=0x4DBF // CJK Unified Ideographs Extension A
+            | 0x4E00..=0x9FFF // CJK Unified Ideographs
+            | 0xF900..=0xFAFF // CJK Compatibility Ideographs
+            | 0xAC00..=0xD7AF // Hangul Syllables
+            | 0xFF00..=0xFFEF // Halfwidth and Fullwidth Forms
     )
 }
 
@@ -120,6 +124,13 @@ mod tests {
     fn split_line_tokens_korean_each_syllable_is_token() {
         let tokens = split_line_tokens("한국어");
         assert_eq!(tokens.len(), 3);
+    }
+
+    #[test]
+    fn split_line_tokens_japanese_with_punctuation() {
+        let tokens = split_line_tokens("「こんにちは！」");
+        let texts: Vec<&str> = tokens.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(texts, vec!["「", "こ", "ん", "に", "ち", "は", "！", "」"]);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use crate::ocr::installer::{paddle_model_paths, OCR_ENGINE_ID};
 use crate::ocr::tokens::split_line_tokens;
 
 /// 单行识别结果的纯数据形态（映射逻辑可脱离模型单测）。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PaddleLine {
     pub text: String,
     pub confidence: f64, // 0.0–1.0
@@ -96,21 +96,108 @@ pub(crate) fn paddle_lines_to_words(
     words
 }
 
-/// 进程级引擎缓存：键为 ocr_mode（fast/best），模式变更时重建。
-/// 模型加载约百毫秒级，识别频繁时避免重复构建；引擎 Box::leak 成
-/// 进程寿命单例换取无锁识别路径，模式切换时旧引擎随之泄漏（每次切换
-/// 最多泄漏一份模型，KB~MB 级，与 App 同生命周期，权衡后可接受）。
+/// 智能重排行级结果：
+/// - 竖排为主（或 Manga 模式）：按 X 轴从右向左（递减）分列，列内按 Y 轴从上往下（递增）排序；
+/// - 横排为主：按 Y 轴从上往下（递增）分行，行内按 X 轴从左向右（递增）排序。
+pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) -> Vec<PaddleLine> {
+    if lines.len() <= 1 {
+        return lines;
+    }
+
+    let vertical_count = lines.iter().filter(|l| l.height > l.width).count();
+    let is_mostly_vertical = is_manga_profile || (vertical_count * 2 >= lines.len());
+
+    if is_mostly_vertical {
+        // 竖排：按中心 X 坐标从右向左（降序）
+        let mut sorted = lines;
+        sorted.sort_by(|a, b| {
+            let cx_a = a.left + a.width / 2.0;
+            let cx_b = b.left + b.width / 2.0;
+            cx_b.partial_cmp(&cx_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // 将 X 坐标重叠相近的框聚合成同一竖列
+        let mut columns: Vec<Vec<PaddleLine>> = Vec::new();
+        for line in sorted {
+            let cx = line.left + line.width / 2.0;
+            let target_col = columns.iter_mut().find(|col| {
+                let col_cx: f64 =
+                    col.iter().map(|it| it.left + it.width / 2.0).sum::<f64>() / col.len() as f64;
+                let avg_w: f64 = col.iter().map(|it| it.width).sum::<f64>() / col.len() as f64;
+                let tolerance = avg_w.max(line.width) * 0.75;
+                (cx - col_cx).abs() <= tolerance
+            });
+            if let Some(col) = target_col {
+                col.push(line);
+            } else {
+                columns.push(vec![line]);
+            }
+        }
+
+        // 每列内部按 Y 坐标从上往下（升序）
+        let mut result = Vec::new();
+        for mut col in columns {
+            col.sort_by(|a, b| a.top.partial_cmp(&b.top).unwrap_or(std::cmp::Ordering::Equal));
+            result.extend(col);
+        }
+        result
+    } else {
+        // 横排：按中心 Y 坐标从上往下（升序）
+        let mut sorted = lines;
+        sorted.sort_by(|a, b| {
+            let cy_a = a.top + a.height / 2.0;
+            let cy_b = b.top + b.height / 2.0;
+            cy_a.partial_cmp(&cy_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // 将 Y 坐标重叠相近的框聚合成同一横行
+        let mut rows: Vec<Vec<PaddleLine>> = Vec::new();
+        for line in sorted {
+            let cy = line.top + line.height / 2.0;
+            let target_row = rows.iter_mut().find(|row| {
+                let row_cy: f64 =
+                    row.iter().map(|it| it.top + it.height / 2.0).sum::<f64>() / row.len() as f64;
+                let avg_h: f64 = col_avg_h(row);
+                let tolerance = avg_h.max(line.height) * 0.6;
+                (cy - row_cy).abs() <= tolerance
+            });
+            if let Some(row) = target_row {
+                row.push(line);
+            } else {
+                rows.push(vec![line]);
+            }
+        }
+
+        // 每行内部按 X 坐标从左向右（升序）
+        let mut result = Vec::new();
+        for mut row in rows {
+            row.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap_or(std::cmp::Ordering::Equal));
+            result.extend(row);
+        }
+        result
+    }
+}
+
+fn col_avg_h(items: &[PaddleLine]) -> f64 {
+    items.iter().map(|it| it.height).sum::<f64>() / items.len() as f64
+}
+
+/// 进程级引擎缓存：键为 "{mode}:{is_manga}"，模式变更时重建。
 #[cfg(not(target_os = "macos"))]
 static ENGINE: std::sync::Mutex<Option<(String, &'static ocr_rs::OcrEngine)>> =
     std::sync::Mutex::new(None);
 
 /// 取当前模式的引擎：命中缓存直接返回；否则校验模型齐全后构建并缓存。
-/// 仅在构建/查缓存时持锁，识别调用完全不持锁。
 #[cfg(not(target_os = "macos"))]
-fn ensure_engine(app: &tauri::AppHandle, mode: &str) -> Result<&'static ocr_rs::OcrEngine, String> {
+fn ensure_engine(
+    app: &tauri::AppHandle,
+    mode: &str,
+    is_manga: bool,
+) -> Result<&'static ocr_rs::OcrEngine, String> {
+    let cache_key = format!("{mode}:{is_manga}");
     let mut cache = ENGINE.lock().map_err(|error| error.to_string())?;
-    if let Some((cached_mode, engine)) = cache.as_ref() {
-        if cached_mode == mode {
+    if let Some((cached_key, engine)) = cache.as_ref() {
+        if cached_key == &cache_key {
             return Ok(engine);
         }
     }
@@ -120,24 +207,31 @@ fn ensure_engine(app: &tauri::AppHandle, mode: &str) -> Result<&'static ocr_rs::
         return Err("请先在偏好设置中下载图片 OCR 资源".to_string());
     }
 
-    let engine = ocr_rs::OcrEngine::new(&paths.det, &paths.rec, &paths.charset, None)
+    let mut config = ocr_rs::OcrEngineConfig::default();
+    if is_manga {
+        config.det_options.unclip_ratio = 1.32;
+        config.det_options.box_threshold = 0.45;
+        config.det_options.score_threshold = 0.25;
+        config.min_result_confidence = 0.35;
+    }
+
+    let engine = ocr_rs::OcrEngine::new(&paths.det, &paths.rec, &paths.charset, Some(config))
         .map_err(|error| format!("初始化 PaddleOCR 引擎失败：{error}"))?;
-    // 进程级单例：泄漏换取 &'static，识别无需持锁（见 ENGINE 注释）
     let engine: &'static ocr_rs::OcrEngine = Box::leak(Box::new(engine));
-    *cache = Some((mode.to_string(), engine));
+    *cache = Some((cache_key, engine));
     Ok(engine)
 }
 
 /// 命令入口（被 ocr/mod.rs::recognize_image 的非 macOS 分支调用，spawn_blocking 内执行）：
-/// 从 store 设置解析 ocr_mode 后进入识别管线。
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn recognize_image_text_paddle(
     app: &tauri::AppHandle,
     store: &crate::store::Store,
     image_path: String,
+    profile: Option<String>,
 ) -> Result<crate::models::ImageOcrResult, String> {
     let mode = store.settings()?.ocr_mode;
-    recognize_with_mode(app, &mode, image_path)
+    recognize_with_mode(app, &mode, image_path, profile)
 }
 
 /// 降级入口：AppState 取不到（无法读设置）时由调度方按默认模式调用。
@@ -146,6 +240,7 @@ pub(crate) fn recognize_with_mode(
     app: &tauri::AppHandle,
     mode: &str,
     image_path: String,
+    profile: Option<String>,
 ) -> Result<crate::models::ImageOcrResult, String> {
     let image_path = std::path::PathBuf::from(image_path);
     if !image_path.exists() {
@@ -153,14 +248,20 @@ pub(crate) fn recognize_with_mode(
     }
     let image = image::open(&image_path).map_err(|error| format!("无法读取图片：{error}"))?;
 
-    let engine = ensure_engine(app, mode)?;
+    let is_manga = profile
+        .as_deref()
+        .map(|p| p.eq_ignore_ascii_case("manga") || p.eq_ignore_ascii_case("japanese"))
+        .unwrap_or(false);
+
+    let engine = ensure_engine(app, mode, is_manga)?;
     let options = ocr_rs::RecognizeOptions::new()
-        .with_rotated_text_mode(ocr_rs::RotatedTextMode::Robust);
+        .with_rotated_text_mode(ocr_rs::RotatedTextMode::Robust)
+        .with_vertical_aspect_ratio(if is_manga { 1.15 } else { 1.3 });
     let items = engine
         .recognize_with_options(&image, &options)
         .map_err(|error| format!("PaddleOCR 识别失败：{error}"))?;
 
-    let lines: Vec<PaddleLine> = items
+    let raw_lines: Vec<PaddleLine> = items
         .iter()
         .map(|item| PaddleLine {
             text: item.text.clone(),
@@ -172,6 +273,7 @@ pub(crate) fn recognize_with_mode(
         })
         .collect();
 
+    let lines = sort_paddle_lines(raw_lines, is_manga);
     let words = paddle_lines_to_words(&lines, image.width(), image.height());
     let text = lines
         .iter()
@@ -180,10 +282,16 @@ pub(crate) fn recognize_with_mode(
         .collect::<Vec<_>>()
         .join("\n");
 
+    let language = if is_manga {
+        "ja+zh+en".to_string()
+    } else {
+        "zh-Hans+en".to_string()
+    };
+
     Ok(crate::models::ImageOcrResult {
         text,
         engine: OCR_ENGINE_ID.to_string(),
-        language: "zh-Hans+en".to_string(),
+        language,
         words,
     })
 }
@@ -217,7 +325,6 @@ mod tests {
     #[test]
     fn maps_lines_to_ordered_words_with_indices() {
         let words = paddle_lines_to_words(&[line("你好ab"), line("第二行")], 640, 480);
-        // 行 1：你/好/ab → 3 词；行 2：3 词
         assert_eq!(words.len(), 6);
         assert_eq!(words[0].text, "你");
         assert_eq!(words[0].block_index, 0);
@@ -238,8 +345,6 @@ mod tests {
         assert!((w.left - 10.0).abs() < 1e-6);
         assert!(w.left + w.width <= 10.0 + 100.0 + 1e-6);
 
-        // 拉丁连续串是 1 个 token，用 CJK 强制多 token：你好好 → 3 个 token，
-        // 各占 1/3 行宽
         let cjk = paddle_lines_to_words(&[line("你好好")], 640, 480);
         assert_eq!(cjk.len(), 3);
         let total: f64 = cjk.iter().map(|w| w.width).sum();
@@ -250,20 +355,51 @@ mod tests {
     #[test]
     fn vertical_lines_partition_proportional_boxes_vertically() {
         let words = paddle_lines_to_words(&[vertical_line("白日依山尽")], 640, 480);
-        // 5 个 CJK 字 → 5 个 word
         assert_eq!(words.len(), 5);
         assert_eq!(words[0].text, "白");
         assert_eq!(words[4].text, "尽");
         assert!((words[0].left - 20.0).abs() < 1e-6);
         assert!((words[0].width - 15.0).abs() < 1e-6);
         assert!((words[0].top - 10.0).abs() < 1e-6);
-        // unit = 100.0 / 5 = 20.0
         assert!((words[0].height - 20.0).abs() < 1e-6);
         assert!((words[1].top - 30.0).abs() < 1e-6);
         assert!((words[4].top - 90.0).abs() < 1e-6);
 
         let total_height: f64 = words.iter().map(|w| w.height).sum();
         assert!((total_height - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sort_paddle_lines_vertical_right_to_left_order() {
+        let col1 = PaddleLine {
+            text: "第一列（右）".to_string(),
+            confidence: 0.9,
+            left: 300.0,
+            top: 20.0,
+            width: 20.0,
+            height: 100.0,
+        };
+        let col2 = PaddleLine {
+            text: "第二列（中）".to_string(),
+            confidence: 0.9,
+            left: 200.0,
+            top: 25.0,
+            width: 20.0,
+            height: 100.0,
+        };
+        let col3 = PaddleLine {
+            text: "第三列（左）".to_string(),
+            confidence: 0.9,
+            left: 100.0,
+            top: 22.0,
+            width: 20.0,
+            height: 100.0,
+        };
+        // 输入逆序输入（从左到右）
+        let sorted = sort_paddle_lines(vec![col3, col2, col1], false);
+        assert_eq!(sorted[0].text, "第一列（右）");
+        assert_eq!(sorted[1].text, "第二列（中）");
+        assert_eq!(sorted[2].text, "第三列（左）");
     }
 
     #[test]

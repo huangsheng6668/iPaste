@@ -177,9 +177,12 @@ fn configure_macos_text_request(request: &AnyObject) {
         let supports_languages: Bool =
             msg_send![request, respondsToSelector: sel!(setRecognitionLanguages:)];
         if supports_languages.as_bool() {
-            let zh = NSString::from_str("zh-Hans");
+            let zh_hans = NSString::from_str("zh-Hans");
+            let zh_hant = NSString::from_str("zh-Hant");
+            let ja = NSString::from_str("ja-JP");
+            let ko = NSString::from_str("ko-KR");
             let en = NSString::from_str("en-US");
-            let languages = NSArray::from_slice(&[&*zh, &*en]);
+            let languages = NSArray::from_slice(&[&*zh_hans, &*zh_hant, &*ja, &*ko, &*en]);
             let _: () = msg_send![request, setRecognitionLanguages: &*languages];
         }
         let supports_language_detection: Bool =

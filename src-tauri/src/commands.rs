@@ -428,8 +428,9 @@ pub(crate) fn remove_ocr_assets(
 pub(crate) async fn recognize_image_text(
     _app: tauri::AppHandle,
     image_path: String,
+    profile: Option<String>,
 ) -> Result<ImageOcrResult, AppError> {
-    crate::ocr::recognize_image(_app, image_path)
+    crate::ocr::recognize_image(_app, image_path, profile)
         .await
         .map_err(AppError::from)
 }

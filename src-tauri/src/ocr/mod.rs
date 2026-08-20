@@ -141,6 +141,7 @@ pub(crate) fn remove_assets(
 pub(crate) async fn recognize_image(
     app: tauri::AppHandle,
     image_path: String,
+    profile: Option<String>,
 ) -> Result<ImageOcrResult, String> {
     #[cfg(target_os = "macos")]
     {
@@ -160,8 +161,8 @@ pub(crate) async fn recognize_image(
             .try_state::<crate::models::AppState>()
             .map(|state| state.store.clone());
         tokio::task::spawn_blocking(move || match store.as_ref() {
-            Some(store) => paddle::recognize_image_text_paddle(&app, store, image_path),
-            None => paddle::recognize_with_mode(&app, DEFAULT_OCR_MODE, image_path),
+            Some(store) => paddle::recognize_image_text_paddle(&app, store, image_path, profile),
+            None => paddle::recognize_with_mode(&app, DEFAULT_OCR_MODE, image_path, profile),
         })
         .await
         .map_err(|error| error.to_string())?

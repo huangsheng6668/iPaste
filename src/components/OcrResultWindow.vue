@@ -9,6 +9,7 @@ import type { ClipViewItem, OcrResultPayload } from "../types";
 const token = new URLSearchParams(window.location.search).get("token") ?? "";
 const status = ref<"loading" | "ready" | "empty" | "error" | "expired">("loading");
 const payload = ref<OcrResultPayload | null>(null);
+const selectedProfile = ref<"default" | "manga">("default");
 const text = ref("");
 const copied = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -16,6 +17,27 @@ let copiedTimer: number | null = null;
 
 const charCount = computed(() => text.value.length);
 const canCopy = computed(() => status.value === "ready" && text.value.trim().length > 0);
+
+async function runRecognition(profile: "default" | "manga") {
+  if (!payload.value?.imagePath) return;
+  status.value = "loading";
+  try {
+    const result = await ipasteApi.recognizeImageText(payload.value.imagePath, profile);
+    text.value = result.text;
+    status.value = result.text.trim() ? "ready" : "empty";
+    await nextTick();
+    textareaRef.value?.focus();
+    textareaRef.value?.select();
+  } catch {
+    status.value = "error";
+  }
+}
+
+function selectProfile(profile: "default" | "manga") {
+  if (selectedProfile.value === profile || status.value === "loading") return;
+  selectedProfile.value = profile;
+  void runRecognition(profile);
+}
 
 onMounted(async () => {
   document.addEventListener("keydown", handleKeydown, true);
@@ -34,16 +56,7 @@ onMounted(async () => {
     status.value = "expired";
     return;
   }
-  try {
-    const result = await ipasteApi.recognizeImageText(payload.value.imagePath);
-    text.value = result.text;
-    status.value = result.text.trim() ? "ready" : "empty";
-    await nextTick();
-    textareaRef.value?.focus();
-    textareaRef.value?.select();
-  } catch {
-    status.value = "error";
-  }
+  await runRecognition(selectedProfile.value);
 });
 
 onUnmounted(() => {
@@ -103,6 +116,26 @@ async function openImage() {
       <h1 class="ocr-result-title">
         {{ t("ocrScreenshot.title") }}
       </h1>
+      <div class="ocr-result-profiles">
+        <button
+          type="button"
+          class="ocr-profile-pill"
+          :class="{ active: selectedProfile === 'default' }"
+          :disabled="status === 'loading'"
+          @click="selectProfile('default')"
+        >
+          {{ t("ocrScreenshot.profileGeneral") }}
+        </button>
+        <button
+          type="button"
+          class="ocr-profile-pill"
+          :class="{ active: selectedProfile === 'manga' }"
+          :disabled="status === 'loading'"
+          @click="selectProfile('manga')"
+        >
+          {{ t("ocrScreenshot.profileManga") }}
+        </button>
+      </div>
       <button
         type="button"
         class="ocr-result-close"
@@ -205,6 +238,44 @@ async function openImage() {
 .ocr-result-title {
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+.ocr-result-profiles {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface-inset);
+  padding: 2px;
+  border-radius: var(--r-md);
+  margin-left: 8px;
+}
+
+.ocr-profile-pill {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+  user-select: none;
+}
+
+.ocr-profile-pill:hover:not(:disabled) {
+  color: var(--text-1);
+}
+
+.ocr-profile-pill.active {
+  background: var(--surface);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.ocr-profile-pill:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .ocr-result-close {
