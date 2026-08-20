@@ -121,7 +121,11 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     }
 
     if main_was_visible {
-        hide_main_window(app)?;
+        // 失败也必须收尾会话：占位已写入，直接 ? 返回会卡死后续所有触发。
+        if let Err(error) = hide_main_window(app) {
+            end_session(app, &state.capture_session, true);
+            return Err(error);
+        }
     }
 
     let labels = match overlay::create_overlay_windows(app) {

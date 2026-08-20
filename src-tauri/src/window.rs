@@ -40,8 +40,9 @@ pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) const SETTINGS_WINDOW: &str = "settings";
 pub(crate) const CLIP_VIEWER_WINDOW_PREFIX: &str = "clip-viewer-";
 pub(crate) const LAN_SYNC_WINDOW: &str = "lan-sync";
-/// 截图 OCR 结果窗标签：命令层按 token 重建窗口时使用。
-pub(crate) const OCR_RESULT_WINDOW: &str = "ocr-result";
+/// 截图 OCR 结果窗标签前缀：按 token 拼唯一标签（clip-viewer 同法），
+/// 规避同标签销毁-重建竞态（destroy 为异步消息，同标签 get-or-create 会复用垂死窗口）。
+pub(crate) const OCR_RESULT_WINDOW_PREFIX: &str = "ocr-result-";
 pub(crate) const OCR_OVERLAY_WINDOW_PREFIX: &str = "ocr-overlay-";
 const PANEL_GAP: i32 = 12;
 const SCREEN_MARGIN: i32 = 12;
@@ -765,14 +766,20 @@ pub(crate) fn show_clip_viewer_window(
     )
 }
 
-/// 截图 OCR 结果窗：销毁带旧 token 的既有窗口后按新 token 重建（单活跃会话）。
+/// 截图 OCR 结果窗：销毁旧结果窗后按「前缀+token」唯一标签重建（单活跃会话）。
 pub(crate) fn show_ocr_result_window(
     app: &tauri::AppHandle,
     token: &str,
     monitor_index: usize,
 ) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(OCR_RESULT_WINDOW) {
-        let _ = window.destroy();
+    // destroy() 是 fire-and-forget 事件循环消息：同标签立即 get-or-create 会复用
+    // 垂死窗口（旧 token URL）再被排队销毁。改用唯一标签规避；旧窗口按前缀
+    // 匹配清理即可，无需等待其销毁完成（新标签不受管理器内陈旧条目影响）。
+    let label = format!("{OCR_RESULT_WINDOW_PREFIX}{token}");
+    for window in app.webview_windows().values() {
+        if window.label().starts_with(OCR_RESULT_WINDOW_PREFIX) {
+            let _ = window.destroy();
+        }
     }
     let language = app
         .try_state::<AppState>()
@@ -782,7 +789,7 @@ pub(crate) fn show_ocr_result_window(
     show_auxiliary_window(
         app,
         AuxiliaryWindowConfig {
-            label: OCR_RESULT_WINDOW.to_string(),
+            label,
             url: format!(
                 "index.html?window=ocr-result&token={}",
                 percent_encode_component(token)
