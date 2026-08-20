@@ -1196,7 +1196,7 @@ export const messages = {
     "ocrScreenshot.charCount": "{count}자",
     "ocrScreenshot.payloadExpired": "결과가 만료되었습니다. 다시 캡처해 주세요.",
     "ocrScreenshot.recognizeFailed": "인식에 실패했습니다. 설정에서 OCR 리소스를 확인하세요.",
-    "ocrScreenshot.errorScreenRecordingPermission": "화면 기록 권한이 필요합니다. 설정 → 권限에서 활성화하세요.",
+    "ocrScreenshot.errorScreenRecordingPermission": "화면 기록 권한이 필요합니다. 설정 → 권한에서 활성화하세요.",
     "ocrScreenshot.errorOcrModelMissing": "OCR 리소스가 설치되지 않았습니다. 설정 → 이미지 OCR에서 다운로드하세요.",
     "ocrScreenshot.errorOcrUnsupported": "이 플랫폼은 OCR을 지원하지 않습니다.",
     "settings.shortcuts.ocr.title": "스크린샷 OCR 단축키",
