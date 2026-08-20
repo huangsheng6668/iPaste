@@ -24,6 +24,8 @@ pub(crate) const EVENT_PANEL_VISIBILITY_CHANGED: &str = "ipaste://panel-visibili
 pub(crate) const EVENT_SHORTCUT_OPENED: &str = "ipaste://shortcut-opened";
 /// 截图 OCR 触发预检失败（capture 发起，主窗口监听并 toast；code 见 capture/mod.rs）。
 pub(crate) const EVENT_OCR_SCREENSHOT_ERROR: &str = "ipaste://ocr-screenshot-error";
+// —— 截图 OCR 遮罩会话启动（Rust capture 发起，遮罩窗口监听）——
+pub(crate) const EVENT_OCR_OVERLAY_SESSION_START: &str = "ipaste://ocr-overlay-session-start";
 
 // —— OCR / 自动化（Rust 发起，设置窗口/主窗口监听）——
 pub(crate) const EVENT_OCR_INSTALL_PROGRESS: &str = "ipaste://ocr-install-progress";
@@ -59,6 +61,7 @@ const EVENT_TABLE: &[(&str, &str)] = &[
     ("panelVisibilityChanged", EVENT_PANEL_VISIBILITY_CHANGED),
     ("shortcutOpened", EVENT_SHORTCUT_OPENED),
     ("ocrScreenshotError", EVENT_OCR_SCREENSHOT_ERROR),
+    ("ocrOverlaySessionStart", EVENT_OCR_OVERLAY_SESSION_START),
     ("ocrInstallProgress", EVENT_OCR_INSTALL_PROGRESS),
     ("automationRunStarted", EVENT_AUTOMATION_RUN_STARTED),
     ("automationRunOutput", EVENT_AUTOMATION_RUN_OUTPUT),
@@ -122,6 +125,17 @@ pub(crate) struct SettingsChanged {
 #[ts(export)]
 pub(crate) struct OcrScreenshotError {
     pub(crate) code: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct OcrOverlaySessionStart {
+    #[ts(type = "number")]
+    pub(crate) monitor_index: usize,
+    pub(crate) frame_path: String,
+    #[ts(type = "number")]
+    pub(crate) timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -212,7 +226,7 @@ mod export_tests {
     fn export_bindings_events() {
         // 完整性守护：新增事件常量时必须同步登记到 EVENT_TABLE，否则 events.ts 会静默缺项
         // （CI 新鲜度检查无法发现「从未生成」的缺失）。
-        assert_eq!(EVENT_TABLE.len(), 22, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
+        assert_eq!(EVENT_TABLE.len(), 23, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
         let mut out = String::from(
             "// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.\n\
              // Run `npm run gen:types` to regenerate.\n\
@@ -234,7 +248,7 @@ mod export_tests {
     /// 且重复值会让 `as const` 的键类型静默合并，属最难肉眼发现的错配）。
     #[test]
     fn event_table_covers_all_consts() {
-        assert_eq!(EVENT_TABLE.len(), 22, "事件目录条目数偏离快照，需同步更新此断言");
+        assert_eq!(EVENT_TABLE.len(), 23, "事件目录条目数偏离快照，需同步更新此断言");
         let set: std::collections::HashSet<_> = EVENT_TABLE.iter().map(|(_, v)| *v).collect();
         assert_eq!(set.len(), EVENT_TABLE.len(), "EVENT_TABLE 存在重复的事件值");
     }
