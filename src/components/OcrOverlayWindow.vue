@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { t } from "../i18n";
+import { isTauri } from "../lib/env";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useRegionSelection } from "../composables/useRegionSelection";
+import { IPASTE_EVENTS } from "../types/generated/events";
+import type { OcrOverlaySessionStart } from "../types/generated/OcrOverlaySessionStart";
 
 const monitorIndex = Number(new URLSearchParams(window.location.search).get("monitor") ?? "0");
-const frameSrc = (() => {
-  const framePath = new URLSearchParams(window.location.search).get("frame");
-  return framePath ? convertFileSrc(framePath) : "";
-})();
+const initialFramePath = new URLSearchParams(window.location.search).get("frame");
+const frameSrc = ref(initialFramePath ? convertFileSrc(initialFramePath) : "");
 const { rect, isSelecting, beginSelection, updateSelection, endSelection } = useRegionSelection();
 const submitFailed = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
+let unlistenSessionStart: UnlistenFn | null = null;
 
 function onPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
@@ -58,12 +61,26 @@ function onKeydown(event: KeyboardEvent) {
   cancel();
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("keydown", onKeydown, true);
+
+  if (isTauri) {
+    unlistenSessionStart = await listen<OcrOverlaySessionStart>(
+      IPASTE_EVENTS.ocrOverlaySessionStart,
+      (event) => {
+        if (event.payload.monitorIndex !== monitorIndex) return;
+        submitFailed.value = false;
+        endSelection();
+        frameSrc.value = `${convertFileSrc(event.payload.framePath)}?t=${event.payload.timestamp}`;
+      },
+    );
+  }
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown, true);
+  unlistenSessionStart?.();
+  unlistenSessionStart = null;
 });
 </script>
 
