@@ -155,8 +155,8 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
 
       const left = Math.min(...selectedWords.map((word) => word.left));
       const right = Math.max(...selectedWords.map((word) => word.left + word.width));
-      const top = line.top;
-      const bottom = line.top + line.height;
+      const top = Math.min(...selectedWords.map((word) => word.top));
+      const bottom = Math.max(...selectedWords.map((word) => word.top + word.height));
       return [{
         key: `${line.key}:${selectedWords[0].selectionIndex}:${selectedWords[selectedWords.length - 1].selectionIndex}`,
         left: Math.max(0, left - 2),

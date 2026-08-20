@@ -19,7 +19,9 @@ pub(crate) struct PaddleLine {
 }
 
 /// 行级结果 → 词级 ImageOcrWord：
-/// 每行 split_line_tokens 切词；行内 token 按 char 数比例横向切分行框；
+/// 每行 split_line_tokens 切词；
+/// - 横向文本（height <= width）：token 按 char 数比例横向切分行框；
+/// - 纵向文本（height > width）：token 按 char 数比例纵向切分行框；
 /// blockIndex=0, paragraphIndex=0, lineIndex=行号, wordIndex=token 序号；
 /// confidence 映射到 0–100。
 pub(crate) fn paddle_lines_to_words(
@@ -38,28 +40,56 @@ pub(crate) fn paddle_lines_to_words(
             continue;
         }
 
-        // 比例切分：unit = 行宽 / 行 char 总数（token 含空白间隔，均摊到每 char）
-        let unit = line.width / line.text.chars().count() as f64;
-        for (word_index, token) in tokens.iter().enumerate() {
-            let left = (line.left + token.char_start as f64 * unit).clamp(0.0, image_width);
-            let width = (token.char_len as f64 * unit)
-                .max(1.0)
-                .min((image_width - left).max(1.0));
-            let top = line.top.clamp(0.0, image_height);
-            let height = line.height.max(1.0).min((image_height - top).max(1.0));
+        let char_count = line.text.chars().count() as f64;
+        let is_vertical = line.height > line.width;
 
-            words.push(crate::models::ImageOcrWord {
-                text: token.text.clone(),
-                left,
-                top,
-                width,
-                height,
-                confidence: (line.confidence * 100.0).clamp(0.0, 100.0),
-                block_index: 0,
-                paragraph_index: 0,
-                line_index: line_index as i64,
-                word_index: word_index as i64,
-            });
+        if is_vertical {
+            let unit = line.height / char_count;
+            for (word_index, token) in tokens.iter().enumerate() {
+                let left = line.left.clamp(0.0, image_width);
+                let width = line.width.max(1.0).min((image_width - left).max(1.0));
+                let top = (line.top + token.char_start as f64 * unit).clamp(0.0, image_height);
+                let height = (token.char_len as f64 * unit)
+                    .max(1.0)
+                    .min((image_height - top).max(1.0));
+
+                words.push(crate::models::ImageOcrWord {
+                    text: token.text.clone(),
+                    left,
+                    top,
+                    width,
+                    height,
+                    confidence: (line.confidence * 100.0).clamp(0.0, 100.0),
+                    block_index: 0,
+                    paragraph_index: 0,
+                    line_index: line_index as i64,
+                    word_index: word_index as i64,
+                });
+            }
+        } else {
+            // 比例切分：unit = 行宽 / 行 char 总数（token 含空白间隔，均摊到每 char）
+            let unit = line.width / char_count;
+            for (word_index, token) in tokens.iter().enumerate() {
+                let left = (line.left + token.char_start as f64 * unit).clamp(0.0, image_width);
+                let width = (token.char_len as f64 * unit)
+                    .max(1.0)
+                    .min((image_width - left).max(1.0));
+                let top = line.top.clamp(0.0, image_height);
+                let height = line.height.max(1.0).min((image_height - top).max(1.0));
+
+                words.push(crate::models::ImageOcrWord {
+                    text: token.text.clone(),
+                    left,
+                    top,
+                    width,
+                    height,
+                    confidence: (line.confidence * 100.0).clamp(0.0, 100.0),
+                    block_index: 0,
+                    paragraph_index: 0,
+                    line_index: line_index as i64,
+                    word_index: word_index as i64,
+                });
+            }
         }
     }
 
@@ -124,8 +154,10 @@ pub(crate) fn recognize_with_mode(
     let image = image::open(&image_path).map_err(|error| format!("无法读取图片：{error}"))?;
 
     let engine = ensure_engine(app, mode)?;
+    let options = ocr_rs::RecognizeOptions::new()
+        .with_rotated_text_mode(ocr_rs::RotatedTextMode::Robust);
     let items = engine
-        .recognize(&image)
+        .recognize_with_options(&image, &options)
         .map_err(|error| format!("PaddleOCR 识别失败：{error}"))?;
 
     let lines: Vec<PaddleLine> = items
@@ -171,6 +203,17 @@ mod tests {
         }
     }
 
+    fn vertical_line(text: &str) -> PaddleLine {
+        PaddleLine {
+            text: text.to_string(),
+            confidence: 0.95,
+            left: 20.0,
+            top: 10.0,
+            width: 15.0,
+            height: 100.0,
+        }
+    }
+
     #[test]
     fn maps_lines_to_ordered_words_with_indices() {
         let words = paddle_lines_to_words(&[line("你好ab"), line("第二行")], 640, 480);
@@ -202,6 +245,25 @@ mod tests {
         let total: f64 = cjk.iter().map(|w| w.width).sum();
         assert!((total - 100.0).abs() < 1e-6);
         assert!(cjk[1].left >= cjk[0].left + cjk[0].width - 1e-6);
+    }
+
+    #[test]
+    fn vertical_lines_partition_proportional_boxes_vertically() {
+        let words = paddle_lines_to_words(&[vertical_line("白日依山尽")], 640, 480);
+        // 5 个 CJK 字 → 5 个 word
+        assert_eq!(words.len(), 5);
+        assert_eq!(words[0].text, "白");
+        assert_eq!(words[4].text, "尽");
+        assert!((words[0].left - 20.0).abs() < 1e-6);
+        assert!((words[0].width - 15.0).abs() < 1e-6);
+        assert!((words[0].top - 10.0).abs() < 1e-6);
+        // unit = 100.0 / 5 = 20.0
+        assert!((words[0].height - 20.0).abs() < 1e-6);
+        assert!((words[1].top - 30.0).abs() < 1e-6);
+        assert!((words[4].top - 90.0).abs() < 1e-6);
+
+        let total_height: f64 = words.iter().map(|w| w.height).sum();
+        assert!((total_height - 100.0).abs() < 1e-6);
     }
 
     #[test]
