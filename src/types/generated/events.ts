@@ -9,6 +9,7 @@ export const IPASTE_EVENTS = {
   settingsChanged: "ipaste://settings-changed",
   panelVisibilityChanged: "ipaste://panel-visibility-changed",
   shortcutOpened: "ipaste://shortcut-opened",
+  ocrScreenshotError: "ipaste://ocr-screenshot-error",
   ocrInstallProgress: "ipaste://ocr-install-progress",
   automationRunStarted: "ipaste://automation-run-started",
   automationRunOutput: "ipaste://automation-run-output",
