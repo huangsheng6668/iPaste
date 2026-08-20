@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useRegionSelection } from "../composables/useRegionSelection";
 
 const monitorIndex = Number(new URLSearchParams(window.location.search).get("monitor") ?? "0");
+const frameSrc = (() => {
+  const framePath = new URLSearchParams(window.location.search).get("frame");
+  return framePath ? convertFileSrc(framePath) : "";
+})();
 const { rect, isSelecting, beginSelection, updateSelection, endSelection } = useRegionSelection();
 const submitFailed = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
@@ -71,6 +76,12 @@ onUnmounted(() => {
     @pointerup="onPointerUp"
     @contextmenu.prevent="cancel"
   >
+    <img
+      v-if="frameSrc"
+      class="ocr-overlay-frame"
+      :src="frameSrc"
+      alt=""
+    >
     <div
       v-if="!isSelecting"
       class="ocr-overlay-dim"
@@ -108,6 +119,17 @@ onUnmounted(() => {
   cursor: crosshair;
   user-select: none;
   touch-action: none;
+  background: #000;
+}
+
+.ocr-overlay-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
 }
 
 .ocr-overlay-dim {
