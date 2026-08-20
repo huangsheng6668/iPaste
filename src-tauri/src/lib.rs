@@ -32,6 +32,7 @@ use crate::commands::{
     update_category, delete_category, add_clip_to_category, remove_category_item, delete_clip,
     clear_clips, rename_clip, update_clip_content, set_clip_pinned, copy_clip, set_listening,
     set_append_copy_enabled, update_settings, update_append_copy_timeout, update_shortcut,
+    update_ocr_shortcut,
     set_app_shortcut_enabled, update_panel_open_behavior, update_panel_layout, update_ocr_mode,
     update_language, update_cloud_settings, disable_cloud_sync, test_cloud_settings, get_app_info,
     get_ocr_install_status, install_ocr_assets, remove_ocr_assets, recognize_image_text,
@@ -167,6 +168,7 @@ pub fn run() {
             update_settings,
             update_append_copy_timeout,
             update_shortcut,
+            update_ocr_shortcut,
             set_app_shortcut_enabled,
             update_panel_open_behavior,
             update_panel_layout,
@@ -228,6 +230,13 @@ pub fn run() {
                 true,
                 Some(settings.shortcut.as_str()),
             )?;
+            let ocr_menu_item = MenuItem::with_id(
+                app,
+                "screenshot-ocr",
+                localized_text(&settings.language, "screenshot_ocr"),
+                true,
+                Some(settings.ocr_shortcut.as_str()),
+            )?;
             let append_copy_menu_item = MenuItem::with_id(
                 app,
                 "append-copy",
@@ -271,6 +280,8 @@ pub fn run() {
                 target_app_bundle_id: Arc::new(Mutex::new(None)),
                 main_window_activation: Arc::new(Mutex::new(MainWindowActivation::Activate)),
                 active_shortcut: Arc::new(Mutex::new(settings.shortcut.clone())),
+                active_ocr_shortcut: Arc::new(Mutex::new(settings.ocr_shortcut.clone())),
+                ocr_menu_item: ocr_menu_item.clone(),
                 is_app_shortcut_enabled: Arc::new(Mutex::new(true)),
                 #[cfg(target_os = "macos")]
                 main_panel_state: Arc::new(Mutex::new(None)),
@@ -300,6 +311,7 @@ pub fn run() {
                 settings.language.as_str(),
             )?;
             register_app_shortcut(app.handle(), &settings.shortcut)?;
+            register_app_shortcut(app.handle(), &settings.ocr_shortcut)?;
             show_main_window(app.handle(), MainWindowActivation::Activate)?;
             Ok(())
         })

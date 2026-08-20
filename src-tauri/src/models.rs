@@ -380,6 +380,8 @@ pub struct AppState {
     pub target_app_bundle_id: Arc<Mutex<Option<String>>>,
     pub main_window_activation: Arc<Mutex<MainWindowActivation>>,
     pub active_shortcut: Arc<Mutex<String>>,
+    pub active_ocr_shortcut: Arc<Mutex<String>>,
+    pub ocr_menu_item: MenuItem<Wry>,
     pub is_app_shortcut_enabled: Arc<Mutex<bool>>,
     #[cfg(target_os = "macos")]
     pub main_panel_state: Arc<Mutex<Option<MainPanelState>>>,

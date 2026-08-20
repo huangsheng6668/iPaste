@@ -269,8 +269,35 @@ pub(crate) fn update_shortcut(
     shortcut: String,
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
+    let active_ocr_shortcut = state
+        .active_ocr_shortcut
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .clone();
+    crate::shortcut::ensure_shortcut_not_conflicting(&shortcut, &active_ocr_shortcut)
+        .map_err(AppError::from)?;
     update_registered_app_shortcut(&app, &state, &shortcut)?;
     let settings = state.store.update_shortcut(shortcut)?;
+    emit_settings_changed(&app, &settings);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub(crate) fn update_ocr_shortcut(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    shortcut: String,
+) -> Result<AppSettings, AppError> {
+    let shortcut = clean_shortcut(shortcut)?;
+    let active_panel_shortcut = state
+        .active_shortcut
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .clone();
+    crate::shortcut::ensure_shortcut_not_conflicting(&shortcut, &active_panel_shortcut)
+        .map_err(AppError::from)?;
+    crate::shortcut::update_registered_ocr_shortcut(&app, &state, &shortcut)?;
+    let settings = state.store.update_ocr_shortcut(shortcut)?;
     emit_settings_changed(&app, &settings);
     Ok(settings)
 }
