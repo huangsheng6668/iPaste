@@ -9,6 +9,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::ShortcutState;
 
 mod automation;
+mod capture;
 mod clipboard;
 mod commands;
 pub(crate) mod error;
