@@ -433,8 +433,8 @@ export const ipasteApi = {
   removeOcrAssets() {
     return call<OcrInstallStatus>("remove_ocr_assets", undefined, fallbackOcrInstallStatus);
   },
-  recognizeImageText(imagePath: string, profile?: string) {
-    return call<ImageOcrResult>("recognize_image_text", { imagePath, profile }, {
+  recognizeImageText(imagePath: string, profile?: string, language?: string) {
+    return call<ImageOcrResult>("recognize_image_text", { imagePath, profile, language }, {
       text: "iPaste image OCR test Select text from image 2026",
       engine: "paddle",
       language: "zh-Hans+en",
