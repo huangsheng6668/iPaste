@@ -25,10 +25,6 @@ use crate::window::{
     MAIN_WINDOW,
 };
 
-/// 遮罩隐藏后等待合成器刷新，避免把遮罩截进图片。
-/// TODO(task-2): 提交侧改用冻结帧裁剪后删除本常量。
-const OVERLAY_HIDE_SETTLE_MS: u64 = 150;
-
 /// 主面板隐藏后等待合成器刷新：冻结帧捕获前面板不能入画。
 const PANEL_HIDE_SETTLE_MS: u64 = 120;
 /// 冻结帧显示文件目录（$APPDATA 下）；会话结束整目录删除。
@@ -40,8 +36,6 @@ pub(crate) struct CaptureSession {
     pub(crate) overlay_labels: Vec<String>,
     pub(crate) main_was_visible: bool,
     /// 每显示器整屏冻结帧（触发时捕获）；提交时按索引取出裁剪。
-    /// TODO(task-2): 提交侧接管读取前为只写字段，临时压制 dead_code 警告。
-    #[allow(dead_code)]
     pub(crate) frozen_frames: Vec<Option<image::RgbaImage>>,
 }
 
@@ -272,46 +266,49 @@ pub(crate) async fn submit_screenshot_selection(
         }
     };
 
-    // 1) 截屏前先隐藏全部遮罩（保留窗口，销毁留给会话收尾统一做）
-    {
-        let labels: Vec<String> = capture_session
-            .lock()
-            .ok()
-            .and_then(|guard| {
-                guard
-                    .as_ref()
-                    .map(|session| session.overlay_labels.clone())
+    // 1) 从会话取出该显示器的冻结帧（触发时捕获的整屏画面）
+    let frame = capture_session
+        .lock()
+        .ok()
+        .and_then(|mut guard| {
+            guard.as_mut().and_then(|session| {
+                session
+                    .frozen_frames
+                    .get_mut(selection.monitor_index)
+                    .and_then(|frame| frame.take())
             })
-            .unwrap_or_default();
-        for label in &labels {
-            if let Some(window) = app.get_webview_window(label) {
-                let _ = window.hide();
-            }
+        });
+    let frame = match frame {
+        Some(frame) => frame,
+        None => {
+            end_session(&app, &capture_session, true);
+            return Err(AppError::internal("冻结帧不可用"));
         }
-    }
+    };
 
-    // 2) 物理 px 收敛；过小视为取消
+    // 2) 物理 px 收敛（以冻结帧自身尺寸为准）；过小视为取消
     let rect = selection::to_physical_rect(
         &selection,
         monitor.scale_factor(),
-        monitor.size().width,
-        monitor.size().height,
+        frame.width(),
+        frame.height(),
     );
     if selection::is_too_small(rect) {
         end_session(&app, &capture_session, true);
         return Ok(());
     }
 
-    // 3) 截屏 + 裁剪 + PNG（阻塞工作放 spawn_blocking）
-    let capture_monitor = monitor.clone();
-    let captured = tokio::task::spawn_blocking(move || {
-        thread::sleep(Duration::from_millis(OVERLAY_HIDE_SETTLE_MS));
-        screen::capture_monitor_region(&capture_monitor, rect)
+    // 3) 裁剪冻结帧 + PNG（无二次截屏、无等待；失败仍需收尾会话）
+    let png = match tokio::task::spawn_blocking(move || {
+        let rect = screen::clamp_rect_to_image(rect, &frame);
+        let cropped = image::imageops::crop_imm(&frame, rect.x, rect.y, rect.width, rect.height)
+            .to_image();
+        screen::png_bytes(cropped)
     })
     .await
     .map_err(|error| AppError::internal(error.to_string()))
-    .and_then(|result| result.map_err(AppError::from));
-    let png = match captured {
+    .and_then(|result| result.map_err(AppError::from))
+    {
         Ok(png) => png,
         Err(error) => {
             end_session(&app, &capture_session, true);
