@@ -8,6 +8,7 @@ import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import OcrOverlayWindow from "./components/OcrOverlayWindow.vue";
+import OcrResultWindow from "./components/OcrResultWindow.vue";
 import ErrorToast from "./components/ErrorToast.vue";
 import LanSyncPanel from "./components/LanSyncPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
@@ -39,6 +40,7 @@ const isSettingsWindow = new URLSearchParams(window.location.search).get("window
 const isClipViewerWindow = new URLSearchParams(window.location.search).get("window") === "clip-viewer";
 const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
 const isOcrOverlayWindow = new URLSearchParams(window.location.search).get("window") === "ocr-overlay";
+const isOcrResultWindow = new URLSearchParams(window.location.search).get("window") === "ocr-result";
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const isPreservingCurrentApp = ref(false);
 const editingClipKey = ref<string | null>(null);
@@ -200,6 +202,7 @@ onMounted(async () => {
   if (isSettingsWindow) return;
   if (isLanSyncWindow) return;
   if (isOcrOverlayWindow) return;
+  if (isOcrResultWindow) return;
 
   document.addEventListener("keydown", handleKeydown, true);
   document.addEventListener("keyup", handleKeyup, true);
@@ -231,6 +234,7 @@ onUnmounted(() => {
   if (isSettingsWindow) return;
   if (isLanSyncWindow) return;
   if (isOcrOverlayWindow) return;
+  if (isOcrResultWindow) return;
 
   document.removeEventListener("keydown", handleKeydown, true);
   document.removeEventListener("keyup", handleKeyup, true);
@@ -455,6 +459,7 @@ async function focusEditingClipName() {
   <ClipViewerWindow v-else-if="isClipViewerWindow" />
   <LanSyncPanel v-else-if="isLanSyncWindow" />
   <OcrOverlayWindow v-else-if="isOcrOverlayWindow" />
+  <OcrResultWindow v-else-if="isOcrResultWindow" />
 
   <main
     v-else
