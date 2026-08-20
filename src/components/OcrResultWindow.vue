@@ -4,12 +4,19 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import {
+  OCR_LANGUAGE_OPTIONS,
+  loadOcrLanguage,
+  saveOcrLanguage,
+  type OcrLanguageId,
+} from "../lib/ocrLanguages";
 import type { ClipViewItem, OcrResultPayload } from "../types";
 
 const token = new URLSearchParams(window.location.search).get("token") ?? "";
 const status = ref<"loading" | "ready" | "empty" | "error" | "expired">("loading");
 const payload = ref<OcrResultPayload | null>(null);
 const selectedProfile = ref<"default" | "manga">("default");
+const selectedOcrLanguage = ref<OcrLanguageId>(loadOcrLanguage());
 const text = ref("");
 const copied = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -22,7 +29,11 @@ async function runRecognition(profile: "default" | "manga") {
   if (!payload.value?.imagePath) return;
   status.value = "loading";
   try {
-    const result = await ipasteApi.recognizeImageText(payload.value.imagePath, profile);
+    const result = await ipasteApi.recognizeImageText(
+      payload.value.imagePath,
+      profile,
+      selectedOcrLanguage.value,
+    );
     text.value = result.text;
     status.value = result.text.trim() ? "ready" : "empty";
     await nextTick();
@@ -37,6 +48,15 @@ function selectProfile(profile: "default" | "manga") {
   if (selectedProfile.value === profile || status.value === "loading") return;
   selectedProfile.value = profile;
   void runRecognition(profile);
+}
+
+function selectLanguage(event: Event) {
+  if (status.value === "loading") return;
+  const value = (event.target as HTMLSelectElement).value as OcrLanguageId;
+  if (value === selectedOcrLanguage.value) return;
+  selectedOcrLanguage.value = value;
+  saveOcrLanguage(value);
+  void runRecognition(selectedProfile.value);
 }
 
 onMounted(async () => {
@@ -136,6 +156,21 @@ async function openImage() {
           {{ t("ocrScreenshot.profileManga") }}
         </button>
       </div>
+      <select
+        class="ocr-language-select"
+        :value="selectedOcrLanguage"
+        :disabled="status === 'loading'"
+        :aria-label="t('ocr.languageLabel')"
+        @change="selectLanguage"
+      >
+        <option
+          v-for="option in OCR_LANGUAGE_OPTIONS"
+          :key="option.id"
+          :value="option.id"
+        >
+          {{ t(option.labelKey) }}
+        </option>
+      </select>
       <button
         type="button"
         class="ocr-result-close"
@@ -274,6 +309,22 @@ async function openImage() {
 }
 
 .ocr-profile-pill:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ocr-language-select {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.ocr-language-select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
