@@ -529,6 +529,24 @@ pub(crate) fn open_accessibility_settings() -> Result<(), AppError> {
 }
 
 #[tauri::command]
+pub(crate) fn open_screen_recording_settings() -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn screen_capture_permission_status() -> Result<bool, AppError> {
+    Ok(crate::capture::screen::has_screen_capture_permission())
+}
+
+#[tauri::command]
 pub(crate) fn enable_autostart(app: tauri::AppHandle) -> Result<bool, AppError> {
     app.autolaunch()
         .enable()

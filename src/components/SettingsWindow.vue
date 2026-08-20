@@ -23,7 +23,13 @@ import type { AppInfo } from "../types";
 
 const store = useIpasteStore();
 type SettingsTab = "general" | "shortcuts" | "ocr" | "dataManagement" | "permissions" | "about";
-const activeTab = ref<SettingsTab>("general");
+const validTabs = new Set<SettingsTab>([
+  "general", "shortcuts", "ocr", "dataManagement", "permissions", "about",
+]);
+const requestedTab = new URLSearchParams(window.location.search).get("tab") as SettingsTab | null;
+const activeTab = ref<SettingsTab>(
+  requestedTab && validTabs.has(requestedTab) ? requestedTab : "general",
+);
 const appInfo = ref<AppInfo | null>(null);
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const updater = useUpdater();

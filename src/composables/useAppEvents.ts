@@ -1,6 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/env";
 import { IPASTE_EVENTS } from "../types/generated/events";
+import { t } from "../i18n";
+import type { I18nKey } from "../i18n";
+import { useUiStore } from "../stores/uiStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type {
   AppendCopyChangedEvent,
@@ -22,6 +25,8 @@ type IpasteStore = ReturnType<typeof useIpasteStore>;
  */
 export async function useAppEvents(store: IpasteStore): Promise<void> {
   if (!isTauri) return;
+
+  const ui = useUiStore();
 
   await listen<CapturedEvent>(IPASTE_EVENTS.clipboardCaptured, (event) => {
     store.upsertClip(event.payload.clip, event.payload.clipTotalCount, event.payload.wasInserted);
@@ -74,6 +79,16 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   // 捕获失败此前是死事件（Rust 发、无人听）：保留排障信号但不打扰 UI。
   await listen<{ message?: string }>(IPASTE_EVENTS.captureError, (event) => {
     console.warn("[ipaste] clipboard capture error:", event.payload);
+  });
+
+  // 截图 OCR 预检失败（权限/资源/平台）：设置窗由 Rust 侧直达对应 Tab，这里补 toast
+  await listen<{ code: string }>(IPASTE_EVENTS.ocrScreenshotError, (event) => {
+    const keyByCode: Record<string, I18nKey> = {
+      screenRecordingPermission: "ocrScreenshot.errorScreenRecordingPermission",
+      ocrModelMissing: "ocrScreenshot.errorOcrModelMissing",
+      ocrUnsupported: "ocrScreenshot.errorOcrUnsupported",
+    };
+    ui.pushToast(t(keyByCode[event.payload.code] ?? "ocrScreenshot.recognizeFailed"));
   });
 
   await listen<AutomationRunStartedEvent>(IPASTE_EVENTS.automationRunStarted, (event) => {

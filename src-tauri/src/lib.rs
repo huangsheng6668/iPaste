@@ -42,7 +42,8 @@ use crate::commands::{
     sync_cloud_now, sync_cloud_in_background, list_automations, create_automation,
     update_automation, delete_automation, run_automation, get_automation_run, show_panel,
     show_settings, open_clip_viewer, close_clip_viewer, hide_panel, hide_settings,
-    open_accessibility_settings, enable_autostart, disable_autostart, is_autostart_enabled,
+    open_accessibility_settings, open_screen_recording_settings, screen_capture_permission_status,
+    enable_autostart, disable_autostart, is_autostart_enabled,
     set_main_window_dragging, start_main_window_drag, apply_clip,
 };
 use crate::events::EVENT_SHORTCUT_OPENED;
@@ -224,6 +225,8 @@ pub fn run() {
             hide_panel,
             hide_settings,
             open_accessibility_settings,
+            open_screen_recording_settings,
+            screen_capture_permission_status,
             enable_autostart,
             disable_autostart,
             is_autostart_enabled,
