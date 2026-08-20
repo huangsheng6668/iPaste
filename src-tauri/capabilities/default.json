@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "settings", "clip-viewer-*", "lan-sync"],
+  "windows": ["main", "settings", "clip-viewer-*", "lan-sync", "ocr-overlay-*", "ocr-result"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

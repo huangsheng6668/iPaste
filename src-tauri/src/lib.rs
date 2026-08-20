@@ -25,6 +25,7 @@ mod window;
 mod cloud;
 mod lan_sync;
 
+use crate::capture::start_screenshot_ocr as run_screenshot_ocr_capture;
 use crate::clipboard::spawn_clipboard_watcher;
 use crate::commands::{
     get_snapshot, list_clips, search_with_fallback, list_categories, list_category_items,
@@ -36,6 +37,8 @@ use crate::commands::{
     set_app_shortcut_enabled, update_panel_open_behavior, update_panel_layout, update_ocr_mode,
     update_language, update_cloud_settings, disable_cloud_sync, test_cloud_settings, get_app_info,
     get_ocr_install_status, install_ocr_assets, remove_ocr_assets, recognize_image_text,
+    start_screenshot_ocr, submit_screenshot_selection, cancel_screenshot_ocr,
+    get_ocr_result_payload,
     sync_cloud_now, sync_cloud_in_background, list_automations, create_automation,
     update_automation, delete_automation, run_automation, get_automation_run, show_panel,
     show_settings, open_clip_viewer, close_clip_viewer, hide_panel, hide_settings,
@@ -121,25 +124,45 @@ pub fn run() {
                     let Some(state) = app.try_state::<AppState>() else {
                         return;
                     };
-                    let Ok(active_shortcut) =
-                        state.active_shortcut.lock().map(|value| value.clone())
-                    else {
-                        return;
+                    let (active_shortcut, active_ocr_shortcut) = {
+                        let panel = state
+                            .active_shortcut
+                            .lock()
+                            .map(|value| value.clone())
+                            .ok();
+                        let ocr = state
+                            .active_ocr_shortcut
+                            .lock()
+                            .map(|value| value.clone())
+                            .ok();
+                        match (panel, ocr) {
+                            (Some(panel), Some(ocr)) => (panel, ocr),
+                            _ => return,
+                        }
                     };
-                    if !shortcut_matches(shortcut, &active_shortcut) {
+
+                    if shortcut_matches(shortcut, &active_shortcut) {
+                        remember_target_app_for_paste(app);
+                        let app = app.clone();
+                        thread::spawn(move || {
+                            // 使用 Activate 模式：native panel（PreserveCurrentApp）模式下
+                            // iPaste 从不激活，粘贴时无法通过任何 API 把 key window 转移给
+                            // 目标应用（诊断确认 key window 悬空、AX 设置只读、open -b 无效）。
+                            // Activate 模式下面板隐藏时系统自动把激活和键盘焦点还给目标应用。
+                            let _ = show_main_window(&app, MainWindowActivation::Activate);
+                            let _ = app.emit(EVENT_SHORTCUT_OPENED, active_shortcut);
+                        });
                         return;
                     }
 
-                    remember_target_app_for_paste(app);
-                    let app = app.clone();
-                    thread::spawn(move || {
-                        // 使用 Activate 模式：native panel（PreserveCurrentApp）模式下
-                        // iPaste 从不激活，粘贴时无法通过任何 API 把 key window 转移给
-                        // 目标应用（诊断确认 key window 悬空、AX 设置只读、open -b 无效）。
-                        // Activate 模式下面板隐藏时系统自动把激活和键盘焦点还给目标应用。
-                        let _ = show_main_window(&app, MainWindowActivation::Activate);
-                        let _ = app.emit(EVENT_SHORTCUT_OPENED, active_shortcut);
-                    });
+                    if shortcut_matches(shortcut, &active_ocr_shortcut) {
+                        let app = app.clone();
+                        thread::spawn(move || {
+                            if let Err(error) = run_screenshot_ocr_capture(&app) {
+                                eprintln!("screenshot ocr start failed: {error}");
+                            }
+                        });
+                    }
                 })
                 .build(),
         )
@@ -182,6 +205,10 @@ pub fn run() {
             install_ocr_assets,
             remove_ocr_assets,
             recognize_image_text,
+            start_screenshot_ocr,
+            submit_screenshot_selection,
+            cancel_screenshot_ocr,
+            get_ocr_result_payload,
             sync_cloud_now,
             sync_cloud_in_background,
             list_automations,
@@ -283,6 +310,8 @@ pub fn run() {
                 active_ocr_shortcut: Arc::new(Mutex::new(settings.ocr_shortcut.clone())),
                 ocr_menu_item: ocr_menu_item.clone(),
                 is_app_shortcut_enabled: Arc::new(Mutex::new(true)),
+                capture_session: Arc::new(Mutex::new(None)),
+                ocr_result_payloads: Arc::new(Mutex::new(std::collections::HashMap::new())),
                 #[cfg(target_os = "macos")]
                 main_panel_state: Arc::new(Mutex::new(None)),
             };
@@ -304,6 +333,7 @@ pub fn run() {
             build_tray(
                 app.handle(),
                 show_menu_item,
+                ocr_menu_item.clone(),
                 append_copy_menu_item,
                 pause_capture_menu_item,
                 settings_menu_item,
@@ -350,6 +380,14 @@ pub fn run() {
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => handle_show_menu(app),
+            "screenshot-ocr" => {
+                let app = app.clone();
+                thread::spawn(move || {
+                    if let Err(error) = run_screenshot_ocr_capture(&app) {
+                        eprintln!("screenshot ocr start failed: {error}");
+                    }
+                });
+            }
             "settings" => handle_settings_menu(app),
             "append-copy" => {
                 if let Some(state) = app.try_state::<AppState>() {

@@ -12,7 +12,8 @@ use crate::events::{EVENT_LISTENING_CHANGED, ListeningChanged};
 use crate::models::{
     AppInfo, AppSettings, AppSnapshot, AppState, AutomationAction, AutomationInput,
     AutomationRunDetail, AutomationRunSummary, Category, CategoryItem, CategoryWithItem,
-    ClipPage, ClipUpdate, ImageOcrResult, MainWindowActivation, OcrInstallStatus, SearchResult,
+    ClipPage, ClipUpdate, ImageOcrResult, MainWindowActivation, OcrInstallStatus,
+    OcrResultPayload, ScreenshotSelection, SearchResult,
 };
 use crate::paste::paste_to_previous_app;
 use crate::shortcut::{
@@ -622,4 +623,35 @@ pub(crate) fn get_automation_run(
 ) -> Result<AutomationRunDetail, AppError> {
     let conn = state.store.connect()?;
     state.store.get_automation_run_detail(&conn, &run_id).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub(crate) fn start_screenshot_ocr(app: tauri::AppHandle) -> Result<(), AppError> {
+    crate::capture::start_screenshot_ocr(&app).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub(crate) async fn submit_screenshot_selection(
+    app: tauri::AppHandle,
+    selection: ScreenshotSelection,
+) -> Result<(), AppError> {
+    crate::capture::submit_screenshot_selection(app, selection).await
+}
+
+#[tauri::command]
+pub(crate) fn cancel_screenshot_ocr(app: tauri::AppHandle) -> Result<(), AppError> {
+    crate::capture::cancel_screenshot_ocr(&app).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub(crate) fn get_ocr_result_payload(
+    state: tauri::State<'_, AppState>,
+    token: String,
+) -> Result<OcrResultPayload, AppError> {
+    state
+        .ocr_result_payloads
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .remove(&token)
+        .ok_or_else(|| AppError::internal("结果载荷不存在或已过期"))
 }

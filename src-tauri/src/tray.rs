@@ -133,6 +133,7 @@ fn spawn_append_copy_timeout(
 pub(crate) fn build_tray(
     app: &tauri::AppHandle,
     show: MenuItem<tauri::Wry>,
+    screenshot_ocr: MenuItem<tauri::Wry>,
     append_copy: MenuItem<tauri::Wry>,
     pause: MenuItem<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
@@ -142,7 +143,7 @@ pub(crate) fn build_tray(
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
-        &[&show, &append_copy, &settings, &pause, &separator, &quit],
+        &[&show, &screenshot_ocr, &append_copy, &settings, &pause, &separator, &quit],
     )?;
 
     let mut tray = TrayIconBuilder::with_id("ipaste")
@@ -189,6 +190,9 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
     let _ = state
         .show_menu_item
         .set_text(localized_text(language, "open_ipaste"));
+    let _ = state
+        .ocr_menu_item
+        .set_text(localized_text(language, "screenshot_ocr"));
     let _ = state
         .settings_menu_item
         .set_text(localized_text(language, "settings"));

@@ -383,6 +383,8 @@ pub struct AppState {
     pub active_ocr_shortcut: Arc<Mutex<String>>,
     pub ocr_menu_item: MenuItem<Wry>,
     pub is_app_shortcut_enabled: Arc<Mutex<bool>>,
+    pub capture_session: Arc<Mutex<Option<crate::capture::CaptureSession>>>,
+    pub ocr_result_payloads: Arc<Mutex<std::collections::HashMap<String, OcrResultPayload>>>,
     #[cfg(target_os = "macos")]
     pub main_panel_state: Arc<Mutex<Option<MainPanelState>>>,
 }

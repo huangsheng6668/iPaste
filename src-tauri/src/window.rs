@@ -40,10 +40,8 @@ pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) const SETTINGS_WINDOW: &str = "settings";
 pub(crate) const CLIP_VIEWER_WINDOW_PREFIX: &str = "clip-viewer-";
 pub(crate) const LAN_SYNC_WINDOW: &str = "lan-sync";
-/// 由后续截图 OCR 任务（overlay/命令层）消费，先允许 dead_code 消除前向启用警告。
-#[allow(dead_code)]
+/// 截图 OCR 结果窗标签：命令层按 token 重建窗口时使用。
 pub(crate) const OCR_RESULT_WINDOW: &str = "ocr-result";
-#[allow(dead_code)]
 pub(crate) const OCR_OVERLAY_WINDOW_PREFIX: &str = "ocr-overlay-";
 const PANEL_GAP: i32 = 12;
 const SCREEN_MARGIN: i32 = 12;
@@ -87,7 +85,6 @@ const LAN_SYNC_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
     max_width: None,
     max_height: None,
 };
-#[allow(dead_code)]
 const OCR_RESULT_WINDOW_GEOMETRY: WindowGeometry = WindowGeometry {
     width: 520.0,
     height: 420.0,
@@ -769,8 +766,6 @@ pub(crate) fn show_clip_viewer_window(
 }
 
 /// 截图 OCR 结果窗：销毁带旧 token 的既有窗口后按新 token 重建（单活跃会话）。
-/// 由后续截图 OCR 命令层任务消费，先允许 dead_code 消除前向启用警告。
-#[allow(dead_code)]
 pub(crate) fn show_ocr_result_window(
     app: &tauri::AppHandle,
     token: &str,
