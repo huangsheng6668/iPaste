@@ -473,7 +473,7 @@ html.dark .clip-viewer-shell {
   line-height: 1.35;
 }
 
-.ocr-language-select {
+.viewer-image-ocr-heading .ocr-language-select {
   flex: 0 0 auto;
   align-self: flex-start;
   padding: 2px 6px;
@@ -485,7 +485,7 @@ html.dark .clip-viewer-shell {
   cursor: pointer;
 }
 
-.ocr-language-select:disabled {
+.viewer-image-ocr-heading .ocr-language-select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

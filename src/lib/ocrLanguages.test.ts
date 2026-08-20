@@ -62,7 +62,6 @@ describe("loadOcrLanguage / saveOcrLanguage", () => {
 
 describe("ocrLanguageLabel", () => {
   it("maps option ids and engine composite strings", () => {
-    expect(ocrLanguageLabel("auto")).toBe(ocrLanguageLabel("auto"));
     const labels = new Set(OCR_LANGUAGE_OPTIONS.map((option) => ocrLanguageLabel(option.id)));
     expect(labels.size).toBe(OCR_LANGUAGE_OPTIONS.length);
     expect(ocrLanguageLabel("zh-Hans+en")).not.toBe("zh-Hans+en");

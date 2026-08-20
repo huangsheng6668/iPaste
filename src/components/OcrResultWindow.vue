@@ -7,6 +7,7 @@ import { ipasteApi } from "../lib/ipasteApi";
 import {
   OCR_LANGUAGE_OPTIONS,
   loadOcrLanguage,
+  normalizeOcrLanguage,
   saveOcrLanguage,
   type OcrLanguageId,
 } from "../lib/ocrLanguages";
@@ -52,10 +53,10 @@ function selectProfile(profile: "default" | "manga") {
 
 function selectLanguage(event: Event) {
   if (status.value === "loading") return;
-  const value = (event.target as HTMLSelectElement).value as OcrLanguageId;
-  if (value === selectedOcrLanguage.value) return;
-  selectedOcrLanguage.value = value;
-  saveOcrLanguage(value);
+  const next = normalizeOcrLanguage((event.target as HTMLSelectElement).value);
+  if (!next || next === selectedOcrLanguage.value) return;
+  selectedOcrLanguage.value = next;
+  saveOcrLanguage(next);
   void runRecognition(selectedProfile.value);
 }
 
