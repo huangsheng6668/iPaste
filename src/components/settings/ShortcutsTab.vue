@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle2, Keyboard, RotateCcw, Save } from "lucide-vue-next";
+import { AlertCircle, CheckCircle2, Keyboard, RotateCcw, Save, ScanText } from "lucide-vue-next";
 import { t } from "../../i18n";
 import { useShortcutRecorder } from "../../composables/useShortcutRecorder";
 
@@ -14,7 +14,19 @@ const {
   startRecordingShortcut,
   saveShortcut,
   restoreDefaultShortcut,
-} = useShortcutRecorder();
+} = useShortcutRecorder("panel");
+
+const {
+  shortcutRecording: ocrRecording,
+  shortcutMessage: ocrMessage,
+  shortcutError: ocrError,
+  isSavingShortcut: isSavingOcrShortcut,
+  formattedShortcutDraft: formattedOcrDraft,
+  canSaveShortcut: canSaveOcrShortcut,
+  startRecordingShortcut: startRecordingOcrShortcut,
+  saveShortcut: saveOcrShortcut,
+  restoreDefaultShortcut: restoreDefaultOcrShortcut,
+} = useShortcutRecorder("ocr");
 </script>
 
 <template>
@@ -84,6 +96,74 @@ const {
           class="size-4"
         />
         <span>{{ shortcutError || shortcutMessage }}</span>
+      </p>
+    </section>
+
+    <section class="settings-panel settings-column-panel">
+      <div class="settings-panel-heading">
+        <div class="settings-icon settings-icon-teal">
+          <ScanText class="size-5" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <h2 class="text-sm font-semibold text-[var(--text-1)]">
+            {{ t("settings.shortcuts.ocr.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-[var(--text-2)]">
+            {{ t("settings.shortcuts.ocr.description") }}
+          </p>
+        </div>
+      </div>
+
+      <div class="settings-shortcut-recorder">
+        <button
+          type="button"
+          class="shortcut-capture-button"
+          :class="{
+            'shortcut-capture-button-recording': ocrRecording,
+            'shortcut-recording-glow': ocrRecording,
+          }"
+          :aria-pressed="ocrRecording"
+          @click="startRecordingOcrShortcut"
+        >
+          <Keyboard class="size-4" />
+          <span>{{ ocrRecording ? t("settings.shortcuts.recording") : formattedOcrDraft }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="settings-action-button"
+          :disabled="isSavingOcrShortcut"
+          @click="restoreDefaultOcrShortcut"
+        >
+          <RotateCcw class="size-4" />
+          <span>{{ t("settings.shortcuts.restoreDefault") }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="settings-action-button settings-action-button-primary"
+          :disabled="!canSaveOcrShortcut"
+          @click="saveOcrShortcut"
+        >
+          <Save class="size-4" />
+          <span>{{ isSavingOcrShortcut ? t("common.saving") : t("common.save") }}</span>
+        </button>
+      </div>
+
+      <p
+        v-if="ocrError || ocrMessage"
+        class="settings-message"
+        :class="{ 'settings-message-error': ocrError }"
+      >
+        <CheckCircle2
+          v-if="ocrMessage && !ocrError"
+          class="size-4"
+        />
+        <AlertCircle
+          v-else
+          class="size-4"
+        />
+        <span>{{ ocrError || ocrMessage }}</span>
       </p>
     </section>
 

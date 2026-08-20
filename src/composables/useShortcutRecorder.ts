@@ -5,12 +5,19 @@ import { formatShortcut } from "../lib/format";
 import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 
-const DEFAULT_SHORTCUT = "CommandOrControl+Shift+V";
+export type ShortcutKind = "panel" | "ocr";
+
+const DEFAULT_SHORTCUTS: Record<ShortcutKind, string> = {
+  panel: "CommandOrControl+Shift+V",
+  ocr: "CommandOrControl+Shift+O",
+};
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 
-export function useShortcutRecorder() {
+export function useShortcutRecorder(kind: ShortcutKind = "panel") {
   const store = useIpasteStore();
-  const shortcutDraft = ref(store.shortcut || DEFAULT_SHORTCUT);
+  const defaultShortcut = () => DEFAULT_SHORTCUTS[kind];
+  const currentShortcut = () => (kind === "panel" ? store.shortcut : store.ocrShortcut) || defaultShortcut();
+  const shortcutDraft = ref(currentShortcut());
   const shortcutRecording = ref(false);
   const shortcutMessage = ref<string | null>(null);
   const shortcutError = ref<string | null>(null);
@@ -20,32 +27,36 @@ export function useShortcutRecorder() {
   // store.load() 在父组件 onMounted 完成；用 watch 让 draft 跟随已加载的 store.shortcut，
   // 替代原先在 onMounted 里手动调用的 resetShortcutForm()，规避子父挂载时序。
   watch(
-    () => store.shortcut,
+    () => (kind === "panel" ? store.shortcut : store.ocrShortcut),
     (value) => {
-      shortcutDraft.value = value || DEFAULT_SHORTCUT;
+      shortcutDraft.value = value || defaultShortcut();
     },
   );
 
-  const formattedShortcutDraft = computed(() => formatShortcut(shortcutDraft.value || store.shortcut));
+  const formattedShortcutDraft = computed(() => formatShortcut(shortcutDraft.value || currentShortcut()));
   const canSaveShortcut = computed(() =>
-    Boolean(shortcutDraft.value && shortcutDraft.value !== store.shortcut && !isSavingShortcut.value),
+    Boolean(shortcutDraft.value && shortcutDraft.value !== currentShortcut() && !isSavingShortcut.value),
   );
-  const fixedShortcuts = computed(() => [
-    { keys: [formatShortcut("CommandOrControl+F")], action: t("settings.shortcuts.focusSearch") },
-    { keys: ["↑", "↓", "←", "→"], action: t("settings.shortcuts.moveCards") },
-    { keys: [isMacOs ? "Cmd" : "Ctrl"], action: t("settings.shortcuts.quickPreview") },
-    { keys: ["Enter"], action: t("settings.shortcuts.pasteSelected") },
-    { keys: ["Esc"], action: t("settings.shortcuts.closePanelOrMenu") },
-    { keys: [formatShortcut("CommandOrControl+1")], action: t("settings.shortcuts.switchHistory") },
-    { keys: [formatShortcut("CommandOrControl+2")], action: t("settings.shortcuts.switchFirstCategory") },
-    {
-      keys: [`${formatShortcut("CommandOrControl+3")} ... ${formatShortcut("CommandOrControl+9")}`],
-      action: t("settings.shortcuts.switchMoreCategories"),
-    },
-  ]);
+  const fixedShortcuts = computed(() =>
+    kind === "panel"
+      ? [
+          { keys: [formatShortcut("CommandOrControl+F")], action: t("settings.shortcuts.focusSearch") },
+          { keys: ["↑", "↓", "←", "→"], action: t("settings.shortcuts.moveCards") },
+          { keys: [isMacOs ? "Cmd" : "Ctrl"], action: t("settings.shortcuts.quickPreview") },
+          { keys: ["Enter"], action: t("settings.shortcuts.pasteSelected") },
+          { keys: ["Esc"], action: t("settings.shortcuts.closePanelOrMenu") },
+          { keys: [formatShortcut("CommandOrControl+1")], action: t("settings.shortcuts.switchHistory") },
+          { keys: [formatShortcut("CommandOrControl+2")], action: t("settings.shortcuts.switchFirstCategory") },
+          {
+            keys: [`${formatShortcut("CommandOrControl+3")} ... ${formatShortcut("CommandOrControl+9")}`],
+            action: t("settings.shortcuts.switchMoreCategories"),
+          },
+        ]
+      : [],
+  );
 
   function resetShortcutForm() {
-    shortcutDraft.value = store.shortcut || DEFAULT_SHORTCUT;
+    shortcutDraft.value = currentShortcut();
     shortcutMessage.value = null;
     shortcutError.value = null;
   }
@@ -163,8 +174,12 @@ export function useShortcutRecorder() {
     shortcutError.value = null;
     isSavingShortcut.value = true;
     try {
-      await store.updateShortcut(shortcutDraft.value);
-      shortcutDraft.value = store.shortcut;
+      if (kind === "panel") {
+        await store.updateShortcut(shortcutDraft.value);
+      } else {
+        await store.updateOcrShortcut(shortcutDraft.value);
+      }
+      shortcutDraft.value = currentShortcut();
       shortcutMessage.value = t("settings.shortcuts.saved");
     } catch (unknownError) {
       shortcutError.value = errorMessage(unknownError);
@@ -175,7 +190,7 @@ export function useShortcutRecorder() {
 
   function restoreDefaultShortcut() {
     void stopRecordingShortcut({ restoreAppShortcut: true });
-    shortcutDraft.value = DEFAULT_SHORTCUT;
+    shortcutDraft.value = defaultShortcut();
     shortcutMessage.value = null;
     shortcutError.value = null;
   }
