@@ -152,9 +152,10 @@ pub(crate) async fn recognize_image(
         .unwrap_or(false);
 
     if is_manga {
+        let app_handle = app.clone();
         let img_path = image_path.clone();
         if let Ok(Ok(mocr_res)) = tokio::task::spawn_blocking(move || {
-            mocr::recognize_image_text_mocr(&img_path)
+            mocr::recognize_image_text_mocr(Some(&app_handle), &img_path)
         })
         .await
         {

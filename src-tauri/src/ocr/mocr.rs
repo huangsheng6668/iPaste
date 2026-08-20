@@ -63,30 +63,50 @@ except Exception as e:
     sys.exit(1)
 "#;
 
+use tauri::Manager;
+
 /// 尝试使用 Manga-OCR 识别图片
-pub(crate) fn recognize_image_text_mocr(image_path: &str) -> Result<ImageOcrResult, String> {
+pub(crate) fn recognize_image_text_mocr(
+    app: Option<&tauri::AppHandle>,
+    image_path: &str,
+) -> Result<ImageOcrResult, String> {
     let image = Path::new(image_path);
     if !image.exists() {
         return Err("图片文件不存在".to_string());
     }
 
-    let python_bin = find_python_executable()
-        .ok_or_else(|| "未找到支持 Manga-OCR 的 Python 环境".to_string())?;
+    let python_bin = find_python_executable(app)
+        .ok_or_else(|| "未找到支持 Manga-OCR 的 Python 环境或独立引擎".to_string())?;
 
-    let model_path = find_mocr_model_path().unwrap_or_default();
+    let model_path = find_mocr_model_path(app).unwrap_or_default();
 
-    let mut cmd = Command::new(python_bin);
-    cmd.arg("-c")
-        .arg(EMBEDDED_MOCR_SCRIPT)
-        .arg(image_path)
-        .arg(model_path);
+    let is_standalone = python_bin
+        .file_name()
+        .map(|n| {
+            let s = n.to_string_lossy().to_lowercase();
+            s.starts_with("mocr") || s.starts_with("manga")
+        })
+        .unwrap_or(false);
+
+    let mut cmd = Command::new(&python_bin);
+    if is_standalone {
+        cmd.arg(image_path);
+        if !model_path.is_empty() {
+            cmd.arg(&model_path);
+        }
+    } else {
+        cmd.arg("-c")
+            .arg(EMBEDDED_MOCR_SCRIPT)
+            .arg(image_path)
+            .arg(&model_path);
+    }
 
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     let output = cmd
         .output()
-        .map_err(|e| format!("执行 Manga-OCR Python 进程失败：{e}"))?;
+        .map_err(|e| format!("执行 Manga-OCR 进程失败：{e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -148,8 +168,62 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// 查找可用的 Python 可执行文件
-fn find_python_executable() -> Option<PathBuf> {
+/// 查找可用的 Python 可执行文件或便携式独立 mocr 运行时
+fn find_python_executable(app_handle: Option<&tauri::AppHandle>) -> Option<PathBuf> {
+    // 0. 最高优先级：App 托管的便携式运行环境 / sidecar (app_data_dir/ocr/mocr/)
+    if let Some(app) = app_handle {
+        if let Ok(app_dir) = app.path().app_data_dir() {
+            let mocr_dir = app_dir.join("ocr").join("mocr");
+            #[cfg(windows)]
+            {
+                let candidates = [
+                    mocr_dir.join("mocr.exe"),
+                    mocr_dir.join("mocr_engine.exe"),
+                    mocr_dir.join("python.exe"),
+                    mocr_dir.join("Scripts").join("python.exe"),
+                ];
+                for c in candidates {
+                    if c.exists() {
+                        return Some(c);
+                    }
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                let candidates = [
+                    mocr_dir.join("mocr"),
+                    mocr_dir.join("bin").join("python"),
+                    mocr_dir.join("python"),
+                ];
+                for c in candidates {
+                    if c.exists() {
+                        return Some(c);
+                    }
+                }
+            }
+        }
+
+        // 尝试 App 资源打包目录 (resources/mocr/)
+        if let Ok(res_dir) = app.path().resource_dir() {
+            let mocr_res = res_dir.join("resources").join("mocr");
+            #[cfg(windows)]
+            {
+                let c = mocr_res.join("mocr.exe");
+                if c.exists() {
+                    return Some(c);
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                let c = mocr_res.join("mocr");
+                if c.exists() {
+                    return Some(c);
+                }
+            }
+        }
+    }
+
+    // 1. 自定义环境变量
     if let Ok(p) = std::env::var("MOCR_PYTHON_PATH") {
         let path = PathBuf::from(p);
         if path.exists() {
@@ -159,6 +233,7 @@ fn find_python_executable() -> Option<PathBuf> {
 
     let mut candidates = Vec::new();
 
+    // 2. 本地开发环境发现
     if let Some(home) = home_dir() {
         #[cfg(windows)]
         {
@@ -193,7 +268,7 @@ fn find_python_executable() -> Option<PathBuf> {
         }
     }
 
-    // 尝试系统 PATH 中的 python
+    // 3. 尝试系统 PATH 中的 python
     for cmd in ["python", "python3", "py"] {
         if let Ok(out) = Command::new(cmd).arg("--version").output() {
             if out.status.success() {
@@ -206,13 +281,29 @@ fn find_python_executable() -> Option<PathBuf> {
 }
 
 /// 查找本地 Manga-OCR 权重目录
-fn find_mocr_model_path() -> Option<String> {
+fn find_mocr_model_path(app_handle: Option<&tauri::AppHandle>) -> Option<String> {
+    // 0. 最高优先级：App 托管的便携式模型目录 (app_data_dir/ocr/mocr/)
+    if let Some(app) = app_handle {
+        if let Ok(app_dir) = app.path().app_data_dir() {
+            let mocr_model_dir = app_dir.join("ocr").join("mocr").join("models");
+            if mocr_model_dir.exists() {
+                return Some(mocr_model_dir.to_string_lossy().to_string());
+            }
+            let mocr_dir = app_dir.join("ocr").join("mocr");
+            if mocr_dir.join("config.json").exists() {
+                return Some(mocr_dir.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 1. 自定义环境变量
     if let Ok(p) = std::env::var("MOCR_MODEL_PATH") {
         if Path::new(&p).exists() {
             return Some(p);
         }
     }
 
+    // 2. 本地开发目录
     let candidates = [
         PathBuf::from(r"E:\github_project\manga-translator-ui\models\ocr\manga_ocr"),
         home_dir()
@@ -235,14 +326,13 @@ mod tests {
 
     #[test]
     fn test_find_python_or_none() {
-        // 确保不会 panic
-        let _ = find_python_executable();
-        let _ = find_mocr_model_path();
+        let _ = find_python_executable(None);
+        let _ = find_mocr_model_path(None);
     }
 
     #[test]
     fn test_rejects_missing_image() {
-        let res = recognize_image_text_mocr("non_existent_file.png");
+        let res = recognize_image_text_mocr(None, "non_existent_file.png");
         assert!(res.is_err());
     }
 }
