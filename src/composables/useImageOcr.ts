@@ -1,5 +1,12 @@
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import { t } from "../i18n";
+import {
+  loadOcrLanguage,
+  normalizeOcrLanguage,
+  ocrLanguageLabel,
+  saveOcrLanguage,
+  type OcrLanguageId,
+} from "../lib/ocrLanguages";
 import { ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
 import type { ClipViewItem, ImageOcrResult, ImageOcrWord } from "../types";
@@ -65,6 +72,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
   const imageOcrError = ref<string | null>(null);
   const imageOcrSelection = ref<OcrSelectionRange | null>(null);
   const isImageOcrPanelCollapsed = ref(false);
+  const selectedOcrLanguage = ref<OcrLanguageId>(loadOcrLanguage());
   let imageOcrDragState: {
     pointerId: number;
     startIndex: number;
@@ -86,7 +94,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     if (!imageOcrResult.value) return "";
     return t("viewer.ocrSummary", {
       count: imageOcrResult.value.words.length,
-      language: imageOcrResult.value.language,
+      language: ocrLanguageLabel(imageOcrResult.value.language),
     });
   });
   const imageOcrLoadingText = computed(() =>
@@ -492,12 +500,25 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     isImageOcrPanelCollapsed.value = false;
     clearImageTextSelection();
     try {
-      imageOcrResult.value = await ipasteApi.recognizeImageText(options.item.value.text);
+      imageOcrResult.value = await ipasteApi.recognizeImageText(
+        options.item.value.text,
+        undefined,
+        selectedOcrLanguage.value,
+      );
     } catch (unknownError) {
       imageOcrError.value = errorMessage(unknownError);
     } finally {
       isRecognizingImage.value = false;
     }
+  }
+
+  async function changeOcrLanguage(language: string) {
+    if (isRecognizingImage.value) return;
+    const next = normalizeOcrLanguage(language);
+    if (!next || next === selectedOcrLanguage.value) return;
+    selectedOcrLanguage.value = next;
+    saveOcrLanguage(next);
+    await recognizeImageText();
   }
 
   async function pasteImageOcrText() {
@@ -525,6 +546,8 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     imageOcrSelectionText,
     imageOcrText,
     recognizeImageText,
+    selectedOcrLanguage,
+    changeOcrLanguage,
     pasteImageOcrText,
     toggleImageOcrPanel,
     startImageOcrSelection,

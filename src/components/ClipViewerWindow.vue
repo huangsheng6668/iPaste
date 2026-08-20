@@ -24,6 +24,7 @@ import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
 import { clipImageSrc } from "../lib/clipMedia";
+import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
 import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { formatTime, typeLabel } from "../lib/format";
@@ -57,6 +58,7 @@ const {
   showImageOcrPanel, ocrTextLayerStyle, imageOcrSummary, imageOcrLoadingText,
   imageOcrLines, imageOcrWords, selectedImageOcrWordIndexes, imageOcrSelectionHighlights, imageOcrSelectionText,
   imageOcrText, recognizeImageText, pasteImageOcrText, toggleImageOcrPanel,
+  selectedOcrLanguage, changeOcrLanguage,
   startImageOcrSelection, moveImageOcrSelection, finishImageOcrSelection,
   endImageOcrSelection,
   clearImageTextSelection, resetOcrState,
@@ -522,6 +524,21 @@ function handleViewerResize() {
                     {{ t("viewer.ocrFailed") }}
                   </p>
                 </div>
+                <select
+                  class="ocr-language-select"
+                  :value="selectedOcrLanguage"
+                  :disabled="isRecognizingImage"
+                  :aria-label="t('ocr.languageLabel')"
+                  @change="changeOcrLanguage(($event.target as HTMLSelectElement).value)"
+                >
+                  <option
+                    v-for="option in OCR_LANGUAGE_OPTIONS"
+                    :key="option.id"
+                    :value="option.id"
+                  >
+                    {{ t(option.labelKey) }}
+                  </option>
+                </select>
                 <button
                   v-if="imageOcrResult?.text"
                   type="button"
