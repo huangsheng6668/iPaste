@@ -25,7 +25,7 @@ pub(crate) fn create_overlay_windows(
             "index.html?window=ocr-overlay&monitor={index}&frame={}",
             crate::util::percent_encode_component(frame),
         );
-        let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        let window = match WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
             .title("iPaste Screenshot OCR")
             .decorations(false)
             .transparent(true)
@@ -34,27 +34,52 @@ pub(crate) fn create_overlay_windows(
             .skip_taskbar(true)
             .visible(false)
             .build()
-            .map_err(|error| error.to_string())?;
+        {
+            Ok(window) => window,
+            Err(error) => {
+                destroy_built_windows(app, &labels);
+                return Err(error.to_string());
+            }
+        };
+        // 先登记再定位：后续失败路径经 labels 一并销毁本窗，避免残留
+        labels.push(label);
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
         // builder.position 是逻辑坐标，混合 DPI 下不可靠：建窗后按物理坐标钉住
-        window
-            .set_position(*monitor.position())
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(tauri::PhysicalSize::new(
-                monitor.size().width,
-                monitor.size().height,
-            ))
-            .map_err(|error| error.to_string())?;
-        labels.push(label);
+        match window.set_position(*monitor.position()) {
+            Ok(_) => {}
+            Err(error) => {
+                destroy_built_windows(app, &labels);
+                return Err(error.to_string());
+            }
+        }
+        match window.set_size(tauri::PhysicalSize::new(
+            monitor.size().width,
+            monitor.size().height,
+        )) {
+            Ok(_) => {}
+            Err(error) => {
+                destroy_built_windows(app, &labels);
+                return Err(error.to_string());
+            }
+        }
     }
 
     for label in &labels {
         if let Some(window) = app.get_webview_window(label) {
-            window.show().map_err(|error| error.to_string())?;
-            window
-                .set_always_on_top(true)
-                .map_err(|error| error.to_string())?;
+            match window.show() {
+                Ok(_) => {}
+                Err(error) => {
+                    destroy_built_windows(app, &labels);
+                    return Err(error.to_string());
+                }
+            }
+            match window.set_always_on_top(true) {
+                Ok(_) => {}
+                Err(error) => {
+                    destroy_built_windows(app, &labels);
+                    return Err(error.to_string());
+                }
+            }
         }
     }
 
@@ -85,4 +110,13 @@ fn focus_label_for(app: &tauri::AppHandle, x: i32, y: i32, labels: &[String]) ->
         }
     }
     labels[0].clone()
+}
+
+/// 建窗中途失败时销毁已建窗口，避免全屏置顶残留（labels 为已建列表，返回 Err 交给会话清理臂）。
+fn destroy_built_windows(app: &tauri::AppHandle, labels: &[String]) {
+    for label in labels {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.destroy();
+        }
+    }
 }

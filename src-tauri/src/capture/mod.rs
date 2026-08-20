@@ -68,7 +68,16 @@ fn frame_capture_failed(app: &tauri::AppHandle, session: &Arc<Mutex<Option<Captu
             code: "screenCaptureFailed".to_string(),
         },
     );
+    let main_was_visible = session
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|session| session.main_was_visible))
+        .unwrap_or(false);
     end_session(app, session, true);
+    if !main_was_visible {
+        // 面板隐藏时（快捷键/托盘触发）toast 无处渲染：强制唤出主面板承载失败反馈
+        let _ = show_main_window(app, MainWindowActivation::Activate);
+    }
 }
 
 fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static str> {
