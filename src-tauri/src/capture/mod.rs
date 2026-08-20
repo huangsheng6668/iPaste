@@ -14,7 +14,8 @@ use tauri::{Emitter, Manager};
 
 use crate::error::AppError;
 use crate::events::{
-    ClipboardCaptured, EVENT_CLIPBOARD_CAPTURED, EVENT_OCR_SCREENSHOT_ERROR, OcrScreenshotError,
+    ClipboardCaptured, EVENT_CLIPBOARD_CAPTURED, EVENT_OCR_OVERLAY_SESSION_START,
+    EVENT_OCR_SCREENSHOT_ERROR, OcrOverlaySessionStart, OcrScreenshotError,
 };
 use crate::models::{
     AppState, CapturedClipboardItem, MainWindowActivation, OcrResultPayload, ScreenshotSelection,
@@ -117,7 +118,7 @@ fn preflight_failed(app: &tauri::AppHandle, code: &str) {
     }
 }
 
-/// 结束会话：销毁遮罩。restore_main 为 true 时（取消/失败路径）恢复主面板触发前可见性；
+/// 结束会话：隐藏遮罩窗口（保持实例常驻）。restore_main 为 true 时（取消/失败路径）恢复主面板触发前可见性；
 /// 成功路径传 false——结果窗接管焦点，主面板保持隐藏（规格约定）。
 fn end_session(
     app: &tauri::AppHandle,
@@ -127,11 +128,7 @@ fn end_session(
     let Some(session) = session.lock().ok().and_then(|mut guard| guard.take()) else {
         return;
     };
-    for label in &session.overlay_labels {
-        if let Some(window) = app.get_webview_window(label) {
-            let _ = window.destroy();
-        }
-    }
+    overlay::hide_overlay_windows(app, &session.overlay_labels);
     if restore_main && session.main_was_visible {
         let _ = show_main_window(app, MainWindowActivation::Activate);
     }
@@ -163,7 +160,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
         if session.is_some() {
             return Ok(()); // 已在截图会话中，忽略重复触发
         }
-        // 先占位再建窗：建窗/隐窗可能等待主线程，不能持锁阻塞
+        // 先占位再建窗/同步：避免持锁阻塞
         *session = Some(CaptureSession {
             overlay_labels: Vec::new(),
             main_was_visible,
@@ -181,15 +178,35 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
         thread::sleep(Duration::from_millis(PANEL_HIDE_SETTLE_MS));
     }
 
-    // 逐显示器整屏捕获（此时无遮罩窗存在，硬件视频仍正常合成）
-    let monitors = app.available_monitors().map_err(|error| {
-        end_session(app, &state.capture_session, true);
-        error.to_string()
-    })?;
+    let monitors = match app.available_monitors() {
+        Ok(monitors) => monitors,
+        Err(error) => {
+            end_session(app, &state.capture_session, true);
+            return Err(error.to_string());
+        }
+    };
     if monitors.is_empty() {
         end_session(app, &state.capture_session, true);
         return Err("未找到可用屏幕".to_string());
     }
+
+    let labels = match overlay::sync_overlay_windows(app, &monitors) {
+        Ok(labels) => labels,
+        Err(error) => {
+            end_session(app, &state.capture_session, true);
+            return Err(error);
+        }
+    };
+
+    let frames = match screen::capture_all_monitor_frames(&monitors) {
+        Ok(frames) => frames,
+        Err(error) => {
+            frame_capture_failed(app, &state.capture_session);
+            eprintln!("frozen frame capture failed: {error}");
+            return Ok(());
+        }
+    };
+
     let frame_dir = match overlay_frame_dir(app) {
         Ok(dir) => dir,
         Err(error) => {
@@ -197,34 +214,35 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
             return Err(error);
         }
     };
-    let mut frozen_frames = Vec::with_capacity(monitors.len());
-    let mut frame_paths = Vec::with_capacity(monitors.len());
-    for (index, monitor) in monitors.iter().enumerate() {
-        let frame = match screen::capture_monitor_frame(monitor) {
-            Ok(frame) => frame,
-            Err(error) => {
-                frame_capture_failed(app, &state.capture_session);
-                eprintln!("frozen frame capture failed: {error}");
-                return Ok(());
-            }
-        };
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let mut frozen_frames = Vec::with_capacity(frames.len());
+    for (index, frame) in frames.into_iter().enumerate() {
         let path = frame_dir.join(format!("frozen-{index}.jpg"));
         if let Err(error) = write_frame_jpeg(&path, &frame) {
             frame_capture_failed(app, &state.capture_session);
             eprintln!("frozen frame encode failed: {error}");
             return Ok(());
         }
-        frame_paths.push(path.to_string_lossy().to_string());
+        let _ = app.emit(
+            EVENT_OCR_OVERLAY_SESSION_START,
+            OcrOverlaySessionStart {
+                monitor_index: index,
+                frame_path: path.to_string_lossy().to_string(),
+                timestamp,
+            },
+        );
         frozen_frames.push(Some(frame));
     }
 
-    let labels = match overlay::create_overlay_windows(app, &frame_paths) {
-        Ok(labels) => labels,
-        Err(error) => {
-            end_session(app, &state.capture_session, true);
-            return Err(error);
-        }
-    };
+    if let Err(error) = overlay::show_overlay_windows(app, &labels) {
+        end_session(app, &state.capture_session, true);
+        return Err(error);
+    }
 
     *state
         .capture_session
@@ -258,6 +276,13 @@ pub(crate) async fn submit_screenshot_selection(
         state.ocr_result_payloads.clone(),
         state.store.clone(),
     );
+
+    // 提前隐藏遮罩窗口以提供即时响应
+    if let Ok(guard) = capture_session.lock() {
+        if let Some(session) = guard.as_ref() {
+            overlay::hide_overlay_windows(&app, &session.overlay_labels);
+        }
+    }
 
     let monitor = match app
         .available_monitors()
@@ -365,8 +390,7 @@ pub(crate) async fn submit_screenshot_selection(
         );
     }
 
-    // 6) 结束会话（成功路径 restore_main = false，主面板保持隐藏）——在返回前销毁遮罩，
-    //    invoke 响应可能随遮罩 webview 销毁而丢失，属预期（后续步骤全由 Rust 完成）
+    // 6) 结束会话（成功路径 restore_main = false，主面板保持隐藏）
     end_session(&app, &capture_session, false);
     show_ocr_result_window(&app, &token, selection.monitor_index).map_err(AppError::from)?;
     Ok(())

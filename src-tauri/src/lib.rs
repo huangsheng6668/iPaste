@@ -346,6 +346,14 @@ pub fn run() {
             register_app_shortcut(app.handle(), &settings.shortcut)?;
             register_app_shortcut(app.handle(), &settings.ocr_shortcut)?;
             show_main_window(app.handle(), MainWindowActivation::Activate)?;
+
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                if let Err(error) = crate::capture::overlay::prewarm_overlay_windows(&app_handle) {
+                    eprintln!("overlay window prewarm failed: {error}");
+                }
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {
