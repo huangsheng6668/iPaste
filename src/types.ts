@@ -34,6 +34,8 @@ import type { CloudSettings } from "./types/generated/CloudSettings";
 import type { OcrInstallProgress } from "./types/generated/OcrInstallProgress";
 import type { ImageOcrResult } from "./types/generated/ImageOcrResult";
 import type { ImageOcrWord } from "./types/generated/ImageOcrWord";
+import type { ScreenshotSelection } from "./types/generated/ScreenshotSelection";
+import type { OcrResultPayload } from "./types/generated/OcrResultPayload";
 import type { LanRole } from "./types/generated/LanRole";
 import type { LanStatus } from "./types/generated/LanStatus";
 import type { LanSessionInfo } from "./types/generated/LanSessionInfo";
@@ -97,6 +99,7 @@ export type AutomationAction = Omit<AutomationActionGen, "lastRun"> & { lastRun:
 // —— 直接再导出（形状与前端现状一致）——
 
 export type { AppInfo, AutomationInput, CloudSettings, ClipUpdate, OcrInstallProgress, ImageOcrResult, ImageOcrWord };
+export type { ScreenshotSelection, OcrResultPayload };
 export type { LanRole, LanStatus, LanSessionInfo, PortConflict, Category };
 export type { LanPairRequest, LanSessionReady, LanDisconnected, LanClipReceived, LanJoinFailed };
 export type { LanClipReceiveFailed, LanGuestRejected, LanCategorySent, LanCategoryReceived };

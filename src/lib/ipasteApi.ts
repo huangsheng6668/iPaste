@@ -23,7 +23,9 @@ import type {
   Language,
   OcrMode,
   OcrInstallStatus,
+  OcrResultPayload,
   PortConflict,
+  ScreenshotSelection,
   SearchResult,
 } from "../types";
 import { clipMatchesSearch } from "./clipSearch";
@@ -137,6 +139,7 @@ const mockSnapshot: AppSnapshot = {
   isAppendCopyEnabled: false,
   settings: {
     shortcut: "CommandOrControl+Shift+V",
+    ocrShortcut: "CommandOrControl+Shift+O",
     retentionDays: 30,
     appendCopyTimeoutMinutes: 1,
     panelOpenBehavior: "history",
@@ -437,6 +440,27 @@ export const ipasteApi = {
       language: "zh-Hans+en",
       words: [],
     });
+  },
+  startScreenshotOcr() {
+    return call<void>("start_screenshot_ocr");
+  },
+  submitScreenshotSelection(selection: ScreenshotSelection) {
+    return call<void>("submit_screenshot_selection", { selection });
+  },
+  cancelScreenshotOcr() {
+    return call<void>("cancel_screenshot_ocr");
+  },
+  getOcrResultPayload(token: string) {
+    return call<OcrResultPayload | null>("get_ocr_result_payload", { token }, null);
+  },
+  updateOcrShortcut(shortcut: string) {
+    return call<AppSettings>("update_ocr_shortcut", { shortcut }, mockSettings({ ocrShortcut: shortcut }));
+  },
+  openScreenRecordingSettings() {
+    return call<void>("open_screen_recording_settings");
+  },
+  screenCapturePermissionStatus() {
+    return call<boolean>("screen_capture_permission_status", undefined, true);
   },
   showPanel() {
     return call<void>("show_panel");

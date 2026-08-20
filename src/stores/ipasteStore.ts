@@ -57,6 +57,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const runningAutomationLogs = ref<Record<string, { stdout: string; stderr: string }>>({});
   const closePanelRequested = ref(false);
   const shortcut = ref("CommandOrControl+Shift+V");
+  const ocrShortcut = ref("CommandOrControl+Shift+O");
   const isListening = ref(true);
   const isAppendCopyEnabled = ref(false);
   const isLoading = ref(false);
@@ -418,6 +419,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
     applySettings(settings);
   }
 
+  async function updateOcrShortcut(value: string) {
+    const settings = await ipasteApi.updateOcrShortcut(value);
+    applySettings(settings);
+  }
+
   async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
     const settings = await ipasteApi.updatePanelOpenBehavior(behavior);
     applySettings(settings);
@@ -518,6 +524,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   function applySettings(settings: AppSettings) {
     shortcut.value = settings.shortcut;
+    ocrShortcut.value = settings.ocrShortcut || "CommandOrControl+Shift+O";
     retentionDays.value = settings.retentionDays;
     appendCopyTimeoutMinutes.value = settings.appendCopyTimeoutMinutes;
     panelOpenBehavior.value = settings.panelOpenBehavior;
@@ -654,6 +661,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     selectedIndex,
     search,
     shortcut,
+    ocrShortcut,
     isListening,
     isAppendCopyEnabled,
     isLoading,
@@ -699,6 +707,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     updateRetentionDays,
     updateAppendCopyTimeout,
     updateShortcut,
+    updateOcrShortcut,
     updatePanelOpenBehavior,
     updatePanelLayout,
     updateOcrMode,
