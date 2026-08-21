@@ -12,7 +12,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(windows)]
 use tokio::process::Command as TokioCommand;
 
 use tokio::{
