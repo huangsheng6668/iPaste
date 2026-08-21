@@ -5,6 +5,7 @@ pub(crate) mod screen;
 pub(crate) mod selection;
 
 use std::{
+    io::Write,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -30,8 +31,6 @@ use crate::window::{
 const PANEL_HIDE_SETTLE_MS: u64 = 120;
 /// 冻结帧显示文件目录（$APPDATA 下）；会话结束整目录删除。
 const OVERLAY_FRAME_DIR: &str = "ocr-overlay";
-/// 冻结帧显示 JPEG 质量：仅供遮罩背景显示，OCR 裁剪取内存无损帧。
-const FRAME_JPEG_QUALITY: u8 = 85;
 
 pub(crate) struct CaptureSession {
     pub(crate) overlay_labels: Vec<String>,
@@ -54,12 +53,24 @@ fn overlay_frame_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
     Ok(dir)
 }
 
-fn write_frame_jpeg(path: &std::path::Path, frame: &image::RgbaImage) -> Result<(), String> {
+/// 冻结帧写盘：BMP 无压缩（像素直拷）。此前用 JPEG 时纯软编码整屏帧单帧可达数秒，
+/// 是截图遮罩出现的卡顿主因；BMP 仅作遮罩背景显示，OCR 裁剪仍取内存无损帧。
+/// encoder 逐像素小写入，必须套大缓冲聚合系统调用，否则 4K 帧写入仍需数秒。
+fn write_frame_bmp(path: &std::path::Path, frame: &image::RgbaImage) -> Result<(), String> {
     let file = std::fs::File::create(path).map_err(|error| error.to_string())?;
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, FRAME_JPEG_QUALITY);
+    let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
+    let mut encoder = image::codecs::bmp::BmpEncoder::new(&mut writer);
     encoder
-        .encode_image(frame)
-        .map_err(|error| format!("冻结帧编码失败：{error}"))
+        .encode(
+            frame.as_raw(),
+            frame.width(),
+            frame.height(),
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|error| format!("冻结帧编码失败：{error}"))?;
+    writer
+        .flush()
+        .map_err(|error| format!("冻结帧写盘失败：{error}"))
 }
 
 fn frame_capture_failed(app: &tauri::AppHandle, session: &Arc<Mutex<Option<CaptureSession>>>) {
@@ -222,8 +233,8 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
 
     let mut frozen_frames = Vec::with_capacity(frames.len());
     for (index, frame) in frames.into_iter().enumerate() {
-        let path = frame_dir.join(format!("frozen-{index}.jpg"));
-        if let Err(error) = write_frame_jpeg(&path, &frame) {
+        let path = frame_dir.join(format!("frozen-{index}.bmp"));
+        if let Err(error) = write_frame_bmp(&path, &frame) {
             frame_capture_failed(app, &state.capture_session);
             eprintln!("frozen frame encode failed: {error}");
             return Ok(());
