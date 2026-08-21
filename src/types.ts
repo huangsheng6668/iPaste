@@ -88,7 +88,7 @@ export type AppSettings = Omit<AppSettingsGen, "panelOpenBehavior" | "panelLayou
   language: Language;
 };
 
-export type OcrInstallStatus = Omit<OcrInstallStatusGen, "mode"> & { mode: OcrMode };
+export type OcrInstallStatus = Omit<OcrInstallStatusGen, "mode"> & { mode: OcrMode | "mocr" };
 
 export type AutomationRunSummary = Omit<AutomationRunSummaryGen, "status"> & { status: AutomationStatus };
 

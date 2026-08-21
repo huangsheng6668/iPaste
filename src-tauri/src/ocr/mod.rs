@@ -27,6 +27,10 @@ pub(crate) mod tokens;
 
 /// Manga-OCR (mocr) 专用日漫推理桥接器。
 pub(crate) mod mocr;
+/// Manga-OCR 的 ONNX 本地推理引擎（无 Python 依赖，主路径）。
+pub(crate) mod mocr_onnx;
+/// Manga-OCR 模型安装器（设置页「日语 · 漫画」模型下载）。
+pub(crate) mod mocr_installer;
 
 fn ocr_platform() -> &'static str {
     #[cfg(target_os = "macos")]
@@ -141,6 +145,28 @@ pub(crate) fn remove_assets(
     }
 }
 
+// —— Manga-OCR 模型资产管理（设置页下载/删除/状态）——
+
+pub(crate) fn mocr_install_status(
+    app: &tauri::AppHandle,
+) -> Result<OcrInstallStatus, String> {
+    mocr_installer::mocr_install_status(app)
+}
+
+pub(crate) async fn install_mocr_assets(app: tauri::AppHandle) -> Result<OcrInstallStatus, String> {
+    tokio::task::spawn_blocking(move || mocr_installer::install_mocr_assets_inner(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// 删除 mocr 模型：先结束常驻推理进程（Windows 下文件被占用删不掉），再清目录。
+pub(crate) async fn remove_mocr_assets(app: tauri::AppHandle) -> Result<OcrInstallStatus, String> {
+    mocr::shutdown_server().await;
+    tokio::task::spawn_blocking(move || mocr_installer::remove_mocr_assets_inner(&app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// OCR 语言 id → macOS Vision 识别语言（BCP 47）；auto/未知 → None（默认 5 语 + 自动检测）。
 /// 平台无关纯函数，Windows 构建下也参与单测。
 /// 仅 macOS Vision 管线（vision.rs）调用，非 macOS 非测试构建无调用方，
@@ -169,6 +195,8 @@ pub(crate) async fn recognize_image(
         .unwrap_or(false);
 
     if is_manga {
+        // mocr.rs 内部按引擎可用性调度：ONNX sidecar（主）→ Python 常驻（回退）；
+        // 全部失败则落入下方 Paddle manga 管线
         let app_handle = app.clone();
         let img_path = image_path.clone();
         if let Ok(mocr_res) = mocr::recognize_image_text_mocr(Some(&app_handle), &img_path).await {

@@ -1,11 +1,14 @@
 // 为发布流程重建 ocr-spike/staging：从钉定 commit 下载 5 个模型/字典文件，
-// 按 sha256 + 字节数门禁校验后落成 paddle/{fast,best}/ 布局。
+// 按 sha256 + 字节数门禁校验后落成 paddle/{fast,best}/ 布局；
+// mocr 部分（--mocr-dir，指向 export-mocr-onnx.py 的输出目录）按该目录
+// export-meta.json 校验后拷入 mocr/models/（encoder/decoder/vocab 三件套）。
 // CI（publish-ocr-assets.yml）与本地均可运行：
-//   node scripts/ocr-models/prepare-staging.mjs                       # 从 GitHub 下载
+//   node scripts/ocr-models/prepare-staging.mjs                       # 仅 paddle（从上游下载）
 //   node scripts/ocr-models/prepare-staging.mjs --models-dir <dir>    # 用本地 rust-paddle-ocr models/
-// 哈希来源：scripts/ocr-models/README.md §1（Task 0/4 实测，权威）。
+//   node scripts/ocr-models/prepare-staging.mjs --mocr-dir <dir>      # 追加 mocr onnx 导出产物
+// 哈希来源：scripts/ocr-models/README.md §1/§5（实测，权威）。
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const SOURCE_COMMIT = "2d0a7e582b955cc6627091765560a78776bcce5c";
@@ -51,7 +54,7 @@ const FILES = [
 ];
 
 function parseArgs(argv) {
-  const args = { out: "ocr-spike/staging", modelsDir: null };
+  const args = { out: "ocr-spike/staging", modelsDir: null, mocrDir: null };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--out") {
@@ -60,6 +63,9 @@ function parseArgs(argv) {
     } else if (value === "--models-dir") {
       args.modelsDir = argv[++index];
       if (!args.modelsDir) fail(`--models-dir requires a directory`);
+    } else if (value === "--mocr-dir") {
+      args.mocrDir = argv[++index];
+      if (!args.mocrDir) fail(`--mocr-dir requires a directory`);
     } else {
       fail(`Unknown argument: ${value}`);
     }
@@ -88,9 +94,9 @@ function verify(file, buffer) {
   }
 }
 
-async function loadFile(file, modelsDir) {
-  if (modelsDir) {
-    return readFile(path.join(modelsDir, file.source));
+async function loadFile(file, args) {
+  if (args.modelsDir && file.dest.startsWith("paddle/")) {
+    return readFile(path.join(args.modelsDir, file.source));
   }
 
   const response = await fetch(`${RAW_BASE}/${file.source}`);
@@ -98,6 +104,40 @@ async function loadFile(file, modelsDir) {
     fail(`Downloading ${file.source}: HTTP ${response.status}`);
   }
   return Buffer.from(await response.arrayBuffer());
+}
+
+/// mocr：从导出目录（export-mocr-onnx.py 产物）按 export-meta.json 门禁拷入 staging。
+async function stageMocr(args) {
+  if (!args.mocrDir) {
+    console.log("mocr staging skipped (--mocr-dir not provided)");
+    return;
+  }
+  const metaPath = path.join(args.mocrDir, "export-meta.json");
+  let meta;
+  try {
+    meta = JSON.parse(await readFile(metaPath, "utf8"));
+  } catch (error) {
+    fail(`--mocr-dir must be an export-mocr-onnx.py output dir: ${error.message}`);
+  }
+  for (const key of ["encoder", "decoder", "vocab"]) {
+    const entry = meta[key];
+    if (!entry?.file || !entry.bytes || !entry.sha256) {
+      fail(`export-meta.json missing "${key}" entry`);
+    }
+    const source = path.join(args.mocrDir, entry.file);
+    const buffer = await readFile(source);
+    if (buffer.byteLength !== entry.bytes) {
+      fail(`${entry.file}: size mismatch — expected ${entry.bytes}, got ${buffer.byteLength}`);
+    }
+    const actual = sha256(buffer);
+    if (actual !== entry.sha256) {
+      fail(`${entry.file}: sha256 mismatch — expected ${entry.sha256}, got ${actual}`);
+    }
+    const destPath = path.join(args.out, "mocr", "models", entry.file);
+    await mkdir(path.dirname(destPath), { recursive: true });
+    await copyFile(source, destPath);
+    console.log(`ok mocr/models/${entry.file} (${entry.bytes} bytes)`);
+  }
 }
 
 async function main() {
@@ -115,7 +155,7 @@ async function main() {
       // 不存在则重新获取
     }
 
-    const buffer = await loadFile(file, args.modelsDir);
+    const buffer = await loadFile(file, args);
     verify(file, buffer);
     await mkdir(path.dirname(destPath), { recursive: true });
     await writeFile(destPath, buffer);
@@ -125,6 +165,7 @@ async function main() {
   await stat(path.join(args.out, "manifests")).catch(() =>
     mkdir(path.join(args.out, "manifests"), { recursive: true }),
   );
+  await stageMocr(args);
   console.log(`staging ready at ${args.out}`);
 }
 

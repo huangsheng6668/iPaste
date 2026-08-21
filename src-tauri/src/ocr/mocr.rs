@@ -114,6 +114,39 @@ static MODEL_CANDIDATE: OnceLock<Option<String>> = OnceLock::new();
 
 use tauri::Manager;
 
+/// 推理引擎进程形态：ONNX sidecar 为主路径（无 Python 依赖，模型来自设置页下载），
+/// 本地 Python 常驻服务为回退（开发者/高级用户环境）。
+#[derive(Clone)]
+enum MocrEngine {
+    /// (sidecar exe, onnx models dir)
+    OnnxSidecar(PathBuf, PathBuf),
+    /// (python exe, HF 权重目录)
+    Python(PathBuf),
+}
+
+/// 引擎解析：onnx 三件套 + 同目录 sidecar 就绪 → OnnxSidecar；否则退回 Python 发现。
+fn resolve_engine(app: Option<&tauri::AppHandle>) -> Option<MocrEngine> {
+    if let Some(app) = app {
+        if let (Some(sidecar), Some(models_dir)) =
+            (super::mocr_onnx::sidecar_path(), super::mocr_onnx::installed_model_dir(app))
+        {
+            return Some(MocrEngine::OnnxSidecar(sidecar, models_dir));
+        }
+    }
+    let python_bin = cached_python_executable(app)?;
+    Some(MocrEngine::Python(python_bin))
+}
+
+impl MocrEngine {
+    /// 行协议请求里的 model 字段：onnx → models 目录；python → HF 权重目录。
+    fn model_arg(&self, app: Option<&tauri::AppHandle>) -> String {
+        match self {
+            MocrEngine::OnnxSidecar(_, models_dir) => models_dir.to_string_lossy().to_string(),
+            MocrEngine::Python(_) => cached_mocr_model_path(app).unwrap_or_default(),
+        }
+    }
+}
+
 /// 尝试使用 Manga-OCR 识别图片（async：进程 IO 全异步，CPU 推理在子进程侧）。
 pub(crate) async fn recognize_image_text_mocr(
     app: Option<&tauri::AppHandle>,
@@ -124,36 +157,36 @@ pub(crate) async fn recognize_image_text_mocr(
         return Err("图片文件不存在".to_string());
     }
 
-    let python_bin = cached_python_executable(app)
-        .ok_or_else(|| "未找到支持 Manga-OCR 的 Python 环境或独立引擎".to_string())?;
+    let engine = resolve_engine(app)
+        .ok_or_else(|| "未找到支持 Manga-OCR 的推理引擎（ONNX 模型或 Python 环境）".to_string())?;
 
-    let model_path = cached_mocr_model_path(app).unwrap_or_default();
-
-    let is_standalone = python_bin
-        .file_name()
-        .map(|n| {
-            let s = n.to_string_lossy().to_lowercase();
-            s.starts_with("mocr") || s.starts_with("manga")
-        })
-        .unwrap_or(false);
-
-    if is_standalone {
-        // 独立引擎不受本仓协议约束，保持一次性调用
-        let mut args: Vec<&str> = vec![image_path];
-        if !model_path.is_empty() {
-            args.push(&model_path);
+    if let MocrEngine::Python(python_bin) = &engine {
+        let is_standalone = python_bin
+            .file_name()
+            .map(|n| {
+                let s = n.to_string_lossy().to_lowercase();
+                s.starts_with("mocr") || s.starts_with("manga")
+            })
+            .unwrap_or(false);
+        if is_standalone {
+            // 独立引擎不受本仓协议约束，保持一次性调用
+            let model_path = engine.model_arg(app);
+            let mut args: Vec<&str> = vec![image_path];
+            if !model_path.is_empty() {
+                args.push(&model_path);
+            }
+            let output = run_once(python_bin, &args).await?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return Err(format!("Manga-OCR 执行出错：{stderr} {stdout}"));
+            }
+            return parse_standalone_output(&String::from_utf8_lossy(&output.stdout));
         }
-        let output = run_once(&python_bin, &args).await?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(format!("Manga-OCR 执行出错：{stderr} {stdout}"));
-        }
-        return parse_standalone_output(&String::from_utf8_lossy(&output.stdout));
     }
 
-    let payload = serde_json::json!({ "image": image_path, "model": model_path });
-    let stdout_line = request_via_server(app, &payload).await?;
+    let payload = serde_json::json!({ "image": image_path, "model": engine.model_arg(app) });
+    let stdout_line = request_via_server(app, &engine, &payload).await?;
     finish_from_server_line(&stdout_line)
 }
 
@@ -210,24 +243,16 @@ pub(crate) async fn prewarm_server(app: &tauri::AppHandle) {
     if guard.is_some() {
         return; // 已就绪或预热中
     }
-    let Some(python_bin) = cached_python_executable(Some(app)) else {
+    let Some(engine) = resolve_engine(Some(app)) else {
         return;
     };
-    let is_standalone = python_bin
-        .file_name()
-        .map(|n| {
-            let s = n.to_string_lossy().to_lowercase();
-            s.starts_with("mocr") || s.starts_with("manga")
-        })
-        .unwrap_or(false);
-    if is_standalone {
+    if matches!(engine, MocrEngine::Python(ref python_bin) if is_standalone_executable(python_bin)) {
         return; // 独立引擎无行协议，无可预热
     }
-    let Ok(mut server) = spawn_server(&python_bin).await else {
+    let Ok(mut server) = spawn_server(&engine).await else {
         return;
     };
-    let model_path = cached_mocr_model_path(Some(app)).unwrap_or_default();
-    let payload = serde_json::json!({ "warmup": true, "model": model_path });
+    let payload = serde_json::json!({ "warmup": true, "model": engine.model_arg(Some(app)) });
     if send_request(&mut server, &payload).await.is_err() {
         server.shutdown();
         return;
@@ -250,7 +275,8 @@ pub(crate) async fn shutdown_server() {
 /// 写请求行 → 等待一行响应。进程死亡/超时等不可恢复错误会回收服务并返回 Err
 /// （上层回退 Paddle manga 管线），下次调用重新冷启动。
 async fn request_via_server(
-    app: Option<&tauri::AppHandle>,
+    _app: Option<&tauri::AppHandle>,
+    engine: &MocrEngine,
     payload: &serde_json::Value,
 ) -> Result<String, String> {
     let cell = MOCR_SERVER.get_or_init(|| tokio::sync::Mutex::new(None));
@@ -263,9 +289,7 @@ async fn request_via_server(
         }
     }
     if guard.is_none() {
-        let python_bin = cached_python_executable(app)
-            .ok_or_else(|| "未找到支持 Manga-OCR 的 Python 环境或独立引擎".to_string())?;
-        *guard = Some(spawn_server(&python_bin).await?);
+        *guard = Some(spawn_server(engine).await?);
     }
 
     let server = guard.as_mut().expect("server just ensured");
@@ -335,9 +359,19 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// 独立引擎可执行名判定（mocr*/manga* 前缀，一次性调用语义）。
+fn is_standalone_executable(path: &Path) -> bool {
+    path.file_name()
+        .map(|n| {
+            let s = n.to_string_lossy().to_lowercase();
+            s.starts_with("mocr") || s.starts_with("manga")
+        })
+        .unwrap_or(false)
+}
+
 /// 子进程统一构造入口：可执行文件仅接受 find_python_executable 白名单
-/// 候选（conda/App 托管/资源目录）中 exists() 命中的路径，argv 数组式
-/// 传参、不经 shell，无命令注入面。
+/// 候选（conda/App 托管/资源目录）或随应用分发的 mocr_engine sidecar，
+/// argv 数组式传参、不经 shell，无命令注入面。
 fn build_mocr_command(python_bin: &Path) -> TokioCommand {
     let mut cmd = TokioCommand::new(python_bin);
     #[cfg(windows)]
@@ -355,10 +389,17 @@ async fn run_once(python_bin: &Path, args: &[&str]) -> Result<std::process::Outp
 }
 
 /// 启动常驻推理服务进程（stdin/stdout 管道）。
-async fn spawn_server(python_bin: &Path) -> Result<MocrServer, String> {
-    let mut child = build_mocr_command(python_bin)
-        .arg("-c")
-        .arg(MOCR_SERVER_SCRIPT)
+async fn spawn_server(engine: &MocrEngine) -> Result<MocrServer, String> {
+    let mut cmd = match engine {
+        // sidecar 自带行协议主循环，直接启动即可
+        MocrEngine::OnnxSidecar(sidecar, _) => build_mocr_command(sidecar),
+        MocrEngine::Python(python_bin) => {
+            let mut cmd = build_mocr_command(python_bin);
+            cmd.arg("-c").arg(MOCR_SERVER_SCRIPT);
+            cmd
+        }
+    };
+    let mut child = cmd
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -395,7 +436,7 @@ fn cached_mocr_model_path(app_handle: Option<&tauri::AppHandle>) -> Option<Strin
 }
 
 /// 查找可用的 Python 可执行文件或便携式独立 mocr 运行时
-fn find_python_executable(app_handle: Option<&tauri::AppHandle>) -> Option<PathBuf> {
+pub(crate) fn find_python_executable(app_handle: Option<&tauri::AppHandle>) -> Option<PathBuf> {
     // 0. 最高优先级：App 托管的便携式运行环境 / sidecar (app_data_dir/ocr/mocr/)
     if let Some(app) = app_handle {
         if let Ok(app_dir) = app.path().app_data_dir() {

@@ -48,6 +48,19 @@ const fallbackOcrInstallStatus: OcrInstallStatus = {
   missingFiles: [],
 };
 
+const fallbackMocrInstallStatus: OcrInstallStatus = {
+  installed: false,
+  engineId: "mocr",
+  engineVersion: null,
+  mode: "mocr",
+  platform: "windows-x64",
+  manifestUrl: "https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-mocr-v1/ipaste-ocr-mocr-v1.json",
+  installDir: "",
+  downloadedBytes: 0,
+  totalBytes: 460_790_482,
+  missingFiles: [],
+};
+
 const mockCategories: Category[] = [
   {
     id: "dev",
@@ -432,6 +445,19 @@ export const ipasteApi = {
   },
   removeOcrAssets() {
     return call<OcrInstallStatus>("remove_ocr_assets", undefined, fallbackOcrInstallStatus);
+  },
+  mocrInstallStatus() {
+    return call<OcrInstallStatus>("get_mocr_install_status", undefined, fallbackMocrInstallStatus);
+  },
+  installMocrAssets() {
+    return call<OcrInstallStatus>("install_mocr_assets", undefined, {
+      ...fallbackMocrInstallStatus,
+      installed: true,
+      downloadedBytes: 460_790_482,
+    });
+  },
+  removeMocrAssets() {
+    return call<OcrInstallStatus>("remove_mocr_assets", undefined, fallbackMocrInstallStatus);
   },
   recognizeImageText(imagePath: string, profile?: string, language?: string) {
     return call<ImageOcrResult>("recognize_image_text", { imagePath, profile, language }, {

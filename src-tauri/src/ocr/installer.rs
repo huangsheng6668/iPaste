@@ -325,7 +325,7 @@ fn ocr_manifest_url_for_base(base_url: &str, mode: &str) -> String {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn ocr_r2_base_urls() -> Vec<String> {
+pub(crate) fn ocr_r2_base_urls() -> Vec<String> {
     let mut base_urls = Vec::new();
 
     if let Ok(base_url) = std::env::var("IPASTE_OCR_R2_BASE_URL") {
@@ -413,7 +413,7 @@ fn ocr_manifest_file_path(
 }
 
 #[cfg(not(target_os = "macos"))]
-fn ensure_path_within(root: &Path, path: &Path) -> Result<(), String> {
+pub(crate) fn ensure_path_within(root: &Path, path: &Path) -> Result<(), String> {
     let root = root
         .canonicalize()
         .or_else(|_| {
@@ -585,6 +585,7 @@ mod tests {
                     path: "paddle/fast/det.mnn".to_string(),
                     size: 1,
                     sha256: "00".repeat(32),
+                    url: None,
                     archive: None,
                     install_dir: None,
                     entries: Vec::new(),

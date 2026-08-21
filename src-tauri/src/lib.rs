@@ -37,6 +37,7 @@ use crate::commands::{
     set_app_shortcut_enabled, update_panel_open_behavior, update_panel_layout, update_ocr_mode,
     update_language, update_cloud_settings, disable_cloud_sync, test_cloud_settings, get_app_info,
     get_ocr_install_status, install_ocr_assets, remove_ocr_assets, recognize_image_text,
+    get_mocr_install_status, install_mocr_assets, remove_mocr_assets,
     start_screenshot_ocr, submit_screenshot_selection, cancel_screenshot_ocr,
     get_ocr_result_payload,
     sync_cloud_now, sync_cloud_in_background, list_automations, create_automation,
@@ -205,6 +206,9 @@ pub fn run() {
             get_ocr_install_status,
             install_ocr_assets,
             remove_ocr_assets,
+            get_mocr_install_status,
+            install_mocr_assets,
+            remove_mocr_assets,
             recognize_image_text,
             start_screenshot_ocr,
             submit_screenshot_selection,
@@ -415,7 +419,7 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
+        .run(|_app, event| {
             // 常驻推理子进程不会随应用退出自动终止：退出时显式回收，避免孤儿进程占内存
             if let tauri::RunEvent::Exit = event {
                 tauri::async_runtime::block_on(crate::ocr::mocr::shutdown_server());

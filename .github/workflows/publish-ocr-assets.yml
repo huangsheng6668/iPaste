@@ -1,13 +1,17 @@
 name: Publish OCR assets
 
-# 发布/刷新 Windows OCR v2 资产（PP-OCRv5 .mnn 模型 + 安装器 v2 manifest）：
+# 发布/刷新 Windows OCR v2 资产（PP-OCRv5 .mnn 模型 + 安装器 v2 manifest）
+# 与 Manga-OCR（mocr）模型资产：
 # 1. 重建 staging（prepare-staging.mjs，sha256 门禁）
-# 2. 生成 manifest（baseUrl = GitHub Pages 的 ocr/ 目录）
-# 3. 强推专用分支 ocr-assets（Pages 来源，布局 ocr/paddle/{mode}/…）
-# 4. 确保 Pages 已启用 + 创建 GitHub Release ipaste-ocr-windows-v2（清单兜底 + 归档）
-# 5. 只读验证（Pages URL 可达 + 模型哈希一致）
+# 2. 生成 manifest（baseUrl = GitHub Pages 的 ocr/ 目录；mocr 主权重超 Pages
+#    单文件 100MB 上限，经 --override-url 直指 Release 扁平资产）
+# 3. 强推专用分支 ocr-assets（Pages 来源，布局 ocr/paddle/{mode}/… + ocr/mocr/models/…
+#    但不含 445MB 权重）
+# 4. 确保 Pages 已启用 + 创建 GitHub Release（ipaste-ocr-windows-v2 清单兜底 + 归档；
+#    ipaste-ocr-mocr-v1 为 mocr 清单兜底 + 全量归档）
+# 5. 只读验证（Pages URL 可达 + 模型哈希一致；mocr 权重做 Content-Length 校验）
 # 零 secrets（全部走 GITHUB_TOKEN）；幂等可重跑；绝不触碰 v1 资产。
-# 手册：scripts/ocr-models/README.md §4。
+# 手册：scripts/ocr-models/README.md §4/§5。
 on:
   workflow_dispatch:
   push:
@@ -22,11 +26,12 @@ permissions:
 
 jobs:
   publish:
-    name: Publish paddle OCR assets
+    name: Publish OCR assets
     runs-on: ubuntu-latest
     env:
       STAGING: ocr-spike/staging
       RELEASE_TAG: ipaste-ocr-windows-v2
+      MOCR_RELEASE_TAG: ipaste-ocr-mocr-v1
       ASSETS_BRANCH: ocr-assets
       # 项目 Pages 域名（仓库页面 Settings → Pages 所示地址）
       OCR_BASE_URL: https://huangsheng6668.github.io/iPaste/ocr/
@@ -39,8 +44,21 @@ jobs:
         with:
           node-version: 20
 
+      - name: Set up Python (mocr onnx export)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Export mocr onnx artifacts (torch cpu)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers onnx
+          python scripts/ocr-models/export-mocr-onnx.py \
+            --src kha-white/manga-ocr-base --out "$STAGING/mocr-export"
+
       - name: Prepare staging (sha256-gated)
-        run: node scripts/ocr-models/prepare-staging.mjs --out "$STAGING"
+        run: node scripts/ocr-models/prepare-staging.mjs --out "$STAGING" --mocr-dir "$STAGING/mocr-export"
 
       - name: Build manifests with Pages base URL
         run: |
@@ -49,6 +67,13 @@ jobs:
               --base-url "$OCR_BASE_URL" --engine-version 2.0.0 \
               --out "$STAGING/manifests/ipaste-ocr-windows-x64-$mode.json"
           done
+          # mocr：encoder（343MB）/decoder（117MB）均超 Pages 单文件上限，
+          # url 覆盖直指 Release 扁平资产；vocab.txt 走 Pages 相对路径
+          node scripts/ocr-models/build-manifest.mjs --dir "$STAGING" --engine mocr \
+            --base-url "$OCR_BASE_URL" --engine-version 1.0.0 \
+            --override-url "encoder.onnx=https://github.com/${GITHUB_REPOSITORY}/releases/download/${MOCR_RELEASE_TAG}/mocr-models-encoder.onnx" \
+            --override-url "decoder.onnx=https://github.com/${GITHUB_REPOSITORY}/releases/download/${MOCR_RELEASE_TAG}/mocr-models-decoder.onnx" \
+            --out "$STAGING/manifests/ipaste-ocr-mocr-v1.json"
 
       - name: Publish assets branch for GitHub Pages
         run: |
@@ -59,13 +84,17 @@ jobs:
           git rm -rf --quiet .
           mkdir -p ocr
           cp -r "$STAGING/paddle" ocr/
+          cp -r "$STAGING/mocr" ocr/
+          # git blob 单文件上限 100MB：encoder/decoder 只存在于 Release（清单 url 覆盖）
+          rm -f ocr/mocr/models/encoder.onnx ocr/mocr/models/decoder.onnx
           cp "$STAGING/manifests/ipaste-ocr-windows-x64-fast.json" \
-             "$STAGING/manifests/ipaste-ocr-windows-x64-best.json" ocr/
-          printf 'iPaste OCR v2 assets (paddle PP-OCRv5). Served via GitHub Pages. Do not edit.\n' > README.md
+             "$STAGING/manifests/ipaste-ocr-windows-x64-best.json" \
+             "$STAGING/manifests/ipaste-ocr-mocr-v1.json" ocr/
+          printf 'iPaste OCR assets (paddle PP-OCRv5 + manga-ocr onnx). Served via GitHub Pages. Do not edit.\n' > README.md
           # 显式只加目标路径：git rm 已删掉 .gitignore，git add . 会把
           # 未跟踪的 ocr-spike/ 临时目录一并提交（重复 32MB）
           git add ocr README.md
-          git commit -m "publish: paddle ocr v2 assets [skip ci]"
+          git commit -m "publish: ocr assets (paddle v2 + mocr onnx) [skip ci]"
           git push --force origin "$ASSETS_BRANCH"
 
       - name: Ensure GitHub Pages enabled (idempotent)
@@ -112,6 +141,24 @@ jobs:
               --notes "PP-OCRv5 mobile MNN models (fast=fp16, best=fp32) + charset + installer v2 manifests. Source: rust-paddle-ocr @ 2d0a7e5, Apache-2.0; models: PaddleOCR, Apache-2.0. Manifest baseUrl points at GitHub Pages; flattened model copies here are archival."
           fi
 
+      - name: Create or refresh mocr GitHub release (manifest fallback + full archival)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DIST="$(mktemp -d)"
+          cp "$STAGING/manifests/ipaste-ocr-mocr-v1.json" "$DIST/"
+          for name in encoder.onnx decoder.onnx vocab.txt; do
+            cp "$STAGING/mocr/models/$name" "$DIST/mocr-models-$name"
+          done
+          if gh release view "$MOCR_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$MOCR_RELEASE_TAG" "$DIST"/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$MOCR_RELEASE_TAG" "$DIST"/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "iPaste Manga-OCR model assets v1 (onnx)" \
+              --notes "manga-ocr-base (kha-white, Apache-2.0) exported to split ONNX graphs (ViT encoder + 2-layer BERT decoder, greedy decoding; verified to match the official beam search output) plus vocab.txt and the mocr installer manifest. encoder/decoder exceed the GitHub Pages 100MB per-file limit, so the manifest points them at flattened assets in this release; vocab.txt is served from Pages. Consumed by the bundled mocr_engine sidecar — no Python required."
+          fi
+
       - name: Verify published assets (Pages builds may lag; retry)
         run: |
           set -e
@@ -129,3 +176,26 @@ jobs:
             curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/ipaste-ocr-windows-x64-$mode.json" >/dev/null \
               && echo "OK   github $mode manifest"
           done
+
+          # mocr：vocab.txt 全哈希校验；encoder/decoder（343MB/117MB）做 Content-Length 校验
+          manifest="$STAGING/manifests/ipaste-ocr-mocr-v1.json"
+          base="$(node -e 'const m=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));console.log(m.engine.baseUrl)' "$manifest")"
+          for entry in $(node -e 'const m=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));for(const f of m.engine.files)console.log(`${f.path}|${f.sha256}|${f.size}|${f.url||""}`)' "$manifest"); do
+            rel="$(echo "$entry" | cut -d"|" -f1)"
+            expected="$(echo "$entry" | cut -d"|" -f2)"
+            size="$(echo "$entry" | cut -d"|" -f3)"
+            override="$(echo "$entry" | cut -d"|" -f4)"
+            url="$base$rel"
+            if [ -n "$override" ]; then
+              actual_size="$(curl -fsSLI --retry 20 --retry-delay 10 --retry-all-errors "$override" | tr -d "\r" | awk 'tolower($1)=="content-length:"{print $2}')"
+              [ "$actual_size" = "$size" ] || { echo "FAIL size $override ($actual_size != $size)"; exit 1; }
+              echo "OK   (size) $override"
+            else
+              actual="$(fetch "$url" | sha256sum | cut -d" " -f1)"
+              [ "$actual" = "$expected" ] || { echo "FAIL $url"; exit 1; }
+              echo "OK   $url"
+            fi
+          done
+          fetch "$base/ipaste-ocr-mocr-v1.json" >/dev/null && echo "OK   pages mocr manifest"
+          curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$MOCR_RELEASE_TAG/ipaste-ocr-mocr-v1.json" >/dev/null \
+            && echo "OK   github mocr manifest"

@@ -44,3 +44,6 @@ key/*.key
 
 # throwaway OCR feasibility spike sandbox (Task 0)
 ocr-spike/
+
+# mocr_engine sidecar: build.rs 占位 / build:mocr-engine 真品均属构建产物
+src-tauri/binaries/

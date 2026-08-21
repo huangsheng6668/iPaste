@@ -82,8 +82,9 @@ export function useOcrInstaller() {
     if (isMacOs) return;
     try {
       ocrStatus.value = await ipasteApi.ocrInstallStatus();
-      if (ocrStatus.value.installed) {
-        lastInstalledOcrMode.value = ocrStatus.value.mode;
+      const mode = ocrStatus.value.mode;
+      if (ocrStatus.value.installed && (mode === "fast" || mode === "best")) {
+        lastInstalledOcrMode.value = mode;
       }
     } catch (unknownError) {
       ocrError.value = errorMessage(unknownError);
@@ -115,7 +116,10 @@ export function useOcrInstaller() {
         totalBytes: ocrStatus.value?.totalBytes ?? 0,
       };
       ocrStatus.value = await ipasteApi.installOcrAssets();
-      lastInstalledOcrMode.value = ocrStatus.value.mode;
+      const mode = ocrStatus.value.mode;
+      if (mode === "fast" || mode === "best") {
+        lastInstalledOcrMode.value = mode;
+      }
       ocrMessage.value = t("ocr.readyMessage");
     } catch (unknownError) {
       ocrError.value = errorMessage(unknownError);

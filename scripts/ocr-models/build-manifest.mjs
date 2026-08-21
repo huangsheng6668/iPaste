@@ -42,6 +42,18 @@ const MANIFEST_ROLES = [
   { role: "charset", name: CHARSET_FILE },
 ];
 
+// Manga-OCR（mocr 引擎）：ONNX 三件套；path 固定 mocr/models/<name>，
+// 与 mocr_engine sidecar 及 mocr_onnx::installed_model_dir 的布局对齐。
+// encoder/decoder 超 GitHub Pages 100MB 单文件上限，发布时经 --override-url
+// 直指 Release 扁平资产
+const MOCR_ENGINE_ID = "mocr";
+const MOCR_MODEL_DIR = "mocr/models";
+const MOCR_FILES = [
+  "encoder.onnx",
+  "decoder.onnx",
+  "vocab.txt",
+];
+
 const args = parseArgs(process.argv.slice(2));
 
 const dir = args["dir"];
@@ -49,12 +61,36 @@ const mode = args["mode"];
 const baseUrl = args["base-url"];
 const engineVersion = args["engine-version"];
 const out = args["out"];
+const engine = args["engine"] ?? "paddle";
+const isMocr = engine === "mocr";
 
-if (!dir || !mode || !baseUrl || !engineVersion) {
-  fail("Missing required args: --dir <staging-dir> --mode fast|best --base-url <https://…/> --engine-version <v> [--out <file>]");
+// --override-url 可出现多次：name=url，为指定文件写入绝对 url 覆盖
+//（manga-ocr 主权重超 GitHub Pages 100MB 单文件上限，直指 Release 扁平资产）
+const overrideUrls = new Map();
+for (let index = 0; index < process.argv.length; index += 1) {
+  if (process.argv[index] !== "--override-url") continue;
+  const spec = process.argv[index + 1] ?? fail("--override-url requires name=url");
+  const eq = spec.indexOf("=");
+  if (eq <= 0) fail(`--override-url must look like name=url (got "${spec}")`);
+  overrideUrls.set(spec.slice(0, eq), spec.slice(eq + 1));
 }
-if (mode !== "fast" && mode !== "best") {
+for (const name of overrideUrls.keys()) {
+  if (!MOCR_FILES.includes(name)) {
+    fail(`--override-url targets unknown mocr file "${name}"`);
+  }
+}
+
+if (engine !== "paddle" && engine !== "mocr") {
+  fail(`--engine must be "paddle" or "mocr" (got "${engine}")`);
+}
+if (!dir || !baseUrl || !engineVersion || (!isMocr && !mode)) {
+  fail("Missing required args: --dir <staging-dir> --mode fast|best --base-url <https://…/> --engine-version <v> [--engine paddle|mocr] [--out <file>]");
+}
+if (!isMocr && mode !== "fast" && mode !== "best") {
   fail(`--mode must be "fast" or "best" (got "${mode}")`);
+}
+if (isMocr && mode) {
+  fail("--engine mocr does not take --mode");
 }
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(engineVersion)) {
   fail(`--engine-version must look like a semver (got "${engineVersion}")`);
@@ -68,39 +104,68 @@ if (parsedBase.search || parsedBase.hash) {
 }
 const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
 
-const manifest = {
-  engine: {
-    id: ENGINE_ID,
-    version: engineVersion,
-    platform: PLATFORM,
-    mode,
-    baseUrl: normalizedBaseUrl,
-    files: MANIFEST_ROLES.map(({ role, name }) => {
-      if (name.includes("/") || name.includes("\\") || name.includes("..")) {
-        fail(`Unsafe file name in manifest spec: ${name}`);
-      }
-      const filePath = path.join(dir, MODEL_DIR, mode, name);
-      let content;
-      try {
-        content = readFileSync(filePath);
-      } catch (error) {
-        fail(`Missing staged file for role "${role}": ${filePath} (${error.message})`);
-      }
-      return {
-        role,
-        name,
-        path: `${MODEL_DIR}/${mode}/${name}`,
-        size: content.length,
-        sha256: createHash("sha256").update(content).digest("hex"),
-      };
-    }),
-  },
-};
+const manifest = isMocr
+  ? {
+      engine: {
+        id: MOCR_ENGINE_ID,
+        version: engineVersion,
+        platform: "any",
+        baseUrl: normalizedBaseUrl,
+        files: MOCR_FILES.map((name) => {
+          if (name.includes("/") || name.includes("\\") || name.includes("..")) {
+            fail(`Unsafe file name in manifest spec: ${name}`);
+          }
+          const filePath = path.join(dir, MOCR_MODEL_DIR, name);
+          let content;
+          try {
+            content = readFileSync(filePath);
+          } catch (error) {
+            fail(`Missing staged mocr file: ${filePath} (${error.message})`);
+          }
+          return {
+            role: "model",
+            name,
+            path: `${MOCR_MODEL_DIR}/${name}`,
+            size: content.length,
+            sha256: createHash("sha256").update(content).digest("hex"),
+            ...(overrideUrls.has(name) ? { url: overrideUrls.get(name) } : {}),
+          };
+        }),
+      },
+    }
+  : {
+      engine: {
+        id: ENGINE_ID,
+        version: engineVersion,
+        platform: PLATFORM,
+        mode,
+        baseUrl: normalizedBaseUrl,
+        files: MANIFEST_ROLES.map(({ role, name }) => {
+          if (name.includes("/") || name.includes("\\") || name.includes("..")) {
+            fail(`Unsafe file name in manifest spec: ${name}`);
+          }
+          const filePath = path.join(dir, MODEL_DIR, mode, name);
+          let content;
+          try {
+            content = readFileSync(filePath);
+          } catch (error) {
+            fail(`Missing staged file for role "${role}": ${filePath} (${error.message})`);
+          }
+          return {
+            role,
+            name,
+            path: `${MODEL_DIR}/${mode}/${name}`,
+            size: content.length,
+            sha256: createHash("sha256").update(content).digest("hex"),
+          };
+        }),
+      },
+    };
 
 const json = `${JSON.stringify(manifest, null, 2)}\n`;
 if (out) {
   writeFileSync(out, json);
-  console.error(`Wrote manifest for mode "${mode}" (${manifest.engine.files.length} files) to ${out}`);
+  console.error(`Wrote manifest for engine "${engine}"${isMocr ? "" : ` mode "${mode}"`} (${manifest.engine.files.length} files) to ${out}`);
 } else {
   process.stdout.write(json);
 }

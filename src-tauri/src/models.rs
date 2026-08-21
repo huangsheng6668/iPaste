@@ -284,6 +284,10 @@ pub(crate) struct OcrManifestFile {
     pub(crate) path: String,
     pub(crate) size: u64,
     pub(crate) sha256: String,
+    /// 可选绝对下载 URL 覆盖（manga-ocr 主权重 445MB 超 GitHub Pages 单文件
+    /// 100MB 上限，直接指向 Release 扁平资产；缺省时用 engine.base_url + path）。
+    #[serde(default)]
+    pub(crate) url: Option<String>,
     #[serde(default)]
     pub(crate) archive: Option<String>,
     #[serde(default)]

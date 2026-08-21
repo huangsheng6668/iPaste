@@ -309,7 +309,68 @@ R2（免费层 10GB/月足够，但开通需绑卡）。做法：仓库配置五
 版本），并重传 Step 3 的 Release 清单。安装器无需改代码——manifest 的
 `baseUrl` 即下载源。
 
-## 5. Conversion fallback (recorded, NOT used for this release)
+## 5. Manga-OCR (mocr) model assets — ONNX edition
+
+Serves the settings-page download for the「日语 · 漫画」profile. The App runs
+these models in-process via the bundled `mocr_engine` sidecar
+(`src-tauri/src/bin/mocr_engine.rs`, onnxruntime) — **no Python required**;
+a local Python env remains only as a developer fallback.
+
+### Artifacts and provenance
+
+Source model: <https://huggingface.co/kha-white/manga-ocr-base> (ViT encoder +
+2-layer BERT char-level decoder, Apache-2.0), exported via
+`export-mocr-onnx.py` (torch.onnx, opset 17, fp32, no kv-cache):
+
+| Published as | Bytes (2026-08-21 export) | sha256 |
+| --- | ---: | --- |
+| `mocr/models/encoder.onnx` | 343,328,622 | `90b4298461cf4fe4ccb064bf6492df0c6ea9357e53883e076be1ff2fb7f83d3b` |
+| `mocr/models/decoder.onnx` | 117,437,788 | `09acd70188d80887095bf116ea2859f58724d612ad6c614ef9d3d7b512b4c5f7` |
+| `mocr/models/vocab.txt` | 24,072 | `344fbb6b8bf18c57839e924e2c9365434697e0227fac00b88bb4899b78aa594d` |
+
+Export determinism is not byte-guaranteed across torch versions, so the
+pipeline trusts the export's own `export-meta.json` (recomputed per export)
+rather than the table above; the table is a reference for manual auditing.
+Quality gate: `verify-mocr-onnx.py` — greedy ONNX output must equal the
+official `model.generate` (beam=4) output on a synthetic Japanese-text image.
+
+Decoder params pinned from the model config: start token 2 ([CLS]),
+eos 3 ([SEP]), max_length 300; preprocessing 224² bilinear + mean/std 0.5.
+
+### Size constraints and url overrides
+
+encoder/decoder both exceed GitHub Pages' 100 MB per-file git-blob cap, so
+the Pages branch carries only vocab.txt; the manifest's `--override-url`
+pins both graphs to flattened Release assets under tag `ipaste-ocr-mocr-v1`
+(Release assets allow up to 2 GB). The installer honors per-file absolute
+`url` entries with the same public-host validation as `baseUrl`.
+
+### Publish procedure
+
+`publish-ocr-assets.yml` covers mocr end-to-end: Python/torch-cpu setup →
+export from HF → sha-gated staging (via `--mocr-dir`) → manifest with both
+override URLs → Pages sync (minus the two graphs) → the
+`ipaste-ocr-mocr-v1` release → verification (vocab hashed, graphs
+Content-Length checked). Manual local run:
+
+```bash
+python scripts/ocr-models/export-mocr-onnx.py \
+  --src <manga_ocr weights dir or kha-white/manga-ocr-base> --out ocr-spike/mocr-onnx
+python scripts/ocr-models/verify-mocr-onnx.py \
+  --src <same> --onnx ocr-spike/mocr-onnx          # must print MATCH
+node scripts/ocr-models/prepare-staging.mjs --mocr-dir ocr-spike/mocr-onnx
+node scripts/ocr-models/build-manifest.mjs --dir ocr-spike/staging --engine mocr \
+  --base-url "https://huangsheng6668.github.io/iPaste/ocr/" --engine-version 1.0.0 \
+  --override-url "encoder.onnx=https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-mocr-v1/mocr-models-encoder.onnx" \
+  --override-url "decoder.onnx=https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-mocr-v1/mocr-models-decoder.onnx" \
+  --out ocr-spike/staging/manifests/ipaste-ocr-mocr-v1.json
+```
+
+Manifest fallback chain in the app mirrors paddle: R2 base URLs first
+(when configured), then
+`https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-mocr-v1/ipaste-ocr-mocr-v1.json`.
+
+## 6. Conversion fallback (recorded, NOT used for this release)
 
 If the pre-converted artifacts ever need regenerating from scratch: take the
 official PP-OCRv5 mobile inference models from the PaddleOCR model zoo

@@ -5,6 +5,8 @@ description = "A local-first tray clipboard manager for macOS and Windows."
 authors = ["iPaste Contributors"]
 license = "Apache-2.0"
 edition = "2021"
+# tauri build 需要在多 bin 场景下指明主程序（另一个是 mocr_engine sidecar）
+default-run = "ipaste"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,6 +16,13 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "ipaste_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Manga-OCR ONNX 推理 sidecar：独立链接（onnxruntime 的 /MD CRT 与主程序内
+# mnn（ocr-rs）的 /MT 假设冲突，进程隔离规避混链）；stdin/stdout 行协议与
+# Python 版常驻服务同构，主程序按 sidecar 路径优先调度
+[[bin]]
+name = "mocr_engine"
+path = "src/bin/mocr_engine.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -52,6 +61,7 @@ thiserror = "2"
 hostname = "0.4"
 x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
 ts-rs = "12"
+ort = "2.0.0-rc.13"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_DataExchange"] }

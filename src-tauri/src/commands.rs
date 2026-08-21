@@ -425,6 +425,29 @@ pub(crate) fn remove_ocr_assets(
 }
 
 #[tauri::command]
+pub(crate) fn get_mocr_install_status(_app: tauri::AppHandle) -> Result<OcrInstallStatus, AppError> {
+    crate::ocr::mocr_install_status(&_app).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub(crate) async fn install_mocr_assets(
+    _app: tauri::AppHandle,
+) -> Result<OcrInstallStatus, AppError> {
+    crate::ocr::install_mocr_assets(_app)
+        .await
+        .map_err(AppError::from)
+}
+
+#[tauri::command]
+pub(crate) async fn remove_mocr_assets(
+    _app: tauri::AppHandle,
+) -> Result<OcrInstallStatus, AppError> {
+    crate::ocr::remove_mocr_assets(_app)
+        .await
+        .map_err(AppError::from)
+}
+
+#[tauri::command]
 pub(crate) async fn recognize_image_text(
     _app: tauri::AppHandle,
     image_path: String,

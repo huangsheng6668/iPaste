@@ -12,6 +12,7 @@ export const IPASTE_EVENTS = {
   ocrScreenshotError: "ipaste://ocr-screenshot-error",
   ocrOverlaySessionStart: "ipaste://ocr-overlay-session-start",
   ocrInstallProgress: "ipaste://ocr-install-progress",
+  mocrInstallProgress: "ipaste://mocr-install-progress",
   automationRunStarted: "ipaste://automation-run-started",
   automationRunOutput: "ipaste://automation-run-output",
   automationRunFinished: "ipaste://automation-run-finished",

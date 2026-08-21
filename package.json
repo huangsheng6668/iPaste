@@ -7,13 +7,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:all": "npm run build && npm run build:mocr-engine",
     "preview": "vite preview",
     "tauri": "tauri",
     "release": "node scripts/bump-version.mjs",
     "test": "vitest run",
     "gen:types": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "build:mocr-engine": "cargo build --release --manifest-path src-tauri/Cargo.toml --bin mocr_engine && node scripts/copy-mocr-sidecar.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
