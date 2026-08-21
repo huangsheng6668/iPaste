@@ -17,7 +17,26 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rustc-link-lib=framework=Vision");
     }
+    ensure_mocr_sidecar_placeholder();
     tauri_build::build()
+}
+
+/// externalBin 门禁：tauri-build 对 binaries/mocr_engine-<triple> 只做存在性
+/// 检查，但真实 sidecar 由 beforeBuildCommand（npm run build:mocr-engine）在
+/// tauri build 前放置。为了让 cargo check/test 等直接 cargo 命令在 sidecar
+/// 未构建时也能通过，这里先落一个占位文件；真实构建会将其覆盖。
+/// 若占位被意外打进安装包，运行侧 sidecar 启动失败会走 Python/Paddle 回退。
+fn ensure_mocr_sidecar_placeholder() {
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.is_empty() {
+        return;
+    }
+    let ext = if target.contains("windows") { ".exe" } else { "" };
+    let path = std::path::Path::new("binaries").join(format!("mocr_engine-{target}{ext}"));
+    if !path.exists() {
+        let _ = std::fs::create_dir_all("binaries");
+        let _ = std::fs::write(&path, b"placeholder: run npm run build:mocr-engine");
+    }
 }
 
 fn derive_ocr_r2_base_url(endpoint: &str) -> Option<String> {
