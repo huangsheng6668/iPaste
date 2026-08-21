@@ -413,6 +413,12 @@ pub fn run() {
             "quit" => app.exit(0),
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // 常驻推理子进程不会随应用退出自动终止：退出时显式回收，避免孤儿进程占内存
+            if let tauri::RunEvent::Exit = event {
+                tauri::async_runtime::block_on(crate::ocr::mocr::shutdown_server());
+            }
+        });
 }

@@ -786,6 +786,12 @@ pub(crate) fn show_ocr_result_window(
         .and_then(|state| state.store.settings().ok())
         .map(|settings| settings.language)
         .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
+    // 结果窗是 manga profile 的唯一入口：打开即后台预热推理进程，
+    // 用户点击「日语 · 漫画」时模型多半已加载完毕（失败静默，不影响冷启动回退）。
+    let prewarm_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::ocr::mocr::prewarm_server(&prewarm_app).await;
+    });
     show_auxiliary_window(
         app,
         AuxiliaryWindowConfig {
