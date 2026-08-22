@@ -1,0 +1,40 @@
+name: Debug mocr build
+
+# 临时诊断（Phase 0）：验证 aarch64+coreml 在 macOS 的链接。
+# 通过/失败结论拿到后由 Task 5 删除本文件。
+on:
+  push:
+    paths:
+      - ".github/workflows/debug-mocr-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "macOS arm64", os: macos-15, target: aarch64-apple-darwin }
+          - { name: "macOS x64", os: macos-15-intel, target: x86_64-apple-darwin }
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: cargo build mocr_engine (annotations on failure)
+        shell: bash
+        run: |
+          set +e
+          cargo build --release --manifest-path src-tauri/Cargo.toml --bin mocr_engine > /tmp/out.log 2> /tmp/err.log
+          code=$?
+          tail -20 /tmp/out.log
+          if [ $code -ne 0 ]; then
+            grep -nE "error(\[E[0-9]+\])?:|panicked at|cannot find|unresolved|linking with|CDN" /tmp/err.log | tail -50 | while IFS= read -r line; do
+              if [ -n "$line" ]; then echo "::error::${line:0:600}"; fi
+            done
+            exit $code
+          fi
+          echo "BUILD OK"

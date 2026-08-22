@@ -13,22 +13,21 @@
 //! decoder 无 kv-cache 的 greedy 自回归（2 层 decoder，逐步重算很便宜；
 //! 实测与官方 beam=4 输出一致）→ vocab.txt 行号映射回文本。
 //!
-//! ort 依赖仅声明在 [target.'cfg(windows)'.dependencies]：非 Windows 平台
-//! 本 bin 编译为占位空壳（macOS 的 ort 构建问题解决前不分发 sidecar，
-//! mocr 识别走 Python/Paddle 回退）。
+//! ort 依赖声明在 Windows 与 macOS Apple Silicon：未提供内置引擎的平台
+//! （Intel Mac 等）本 bin 编译为占位空壳（mocr 识别走系统 OCR / Python 回退）。
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"))))]
 fn main() {
-    eprintln!("mocr_engine: Windows-only sidecar build (mocr falls back to Python/Paddle elsewhere)");
+    eprintln!("mocr_engine: no bundled engine on this platform (mocr falls back to system OCR / Python)");
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
 fn main() {
-    windows_impl::run();
+    engine_impl::run();
 }
 
-#[cfg(windows)]
-mod windows_impl {
+#[cfg(any(windows, all(target_os = "macos", target_arch = "aarch64")))]
+mod engine_impl {
 use std::io::{BufRead, Write};
 
 use ort::{
@@ -102,7 +101,7 @@ pub fn run() {
             recognize(engine.as_mut().expect("engine just loaded"), image_path)
         })();
         match result {
-            Ok(text) if request.get("warmup").and_then(|v| v.as_bool()).unwrap_or(false) => {
+            Ok(_text) if request.get("warmup").and_then(|v| v.as_bool()).unwrap_or(false) => {
                 let _ = emit(&serde_json::json!({ "ready": true }));
             }
             Ok(text) => {
@@ -288,4 +287,4 @@ mod tests {
         assert_eq!(text, "そういえば、昨日の漫画を");
     }
 }
-} // mod windows_impl
+} // mod engine_impl
