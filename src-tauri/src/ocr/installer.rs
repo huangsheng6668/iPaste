@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use std::path::{Path, PathBuf};
 use std::{fs, time::Duration};
 use std::io::{Read, Write};
@@ -16,11 +18,8 @@ use crate::util::{clean_ocr_mode, file_sha256, validate_relative_path};
 /// 清单，validate_ocr_manifest 会拒绝）。
 const OCR_GITHUB_RELEASE_BASE_URL: &str =
     "https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-windows-v2/";
-#[cfg(not(target_os = "macos"))]
 const OCR_R2_BASE_URL: &str = env!("IPASTE_OCR_R2_BASE_URL");
-#[cfg(not(target_os = "macos"))]
 const UPDATER_R2_ENDPOINT: &str = env!("IPASTE_UPDATER_R2_ENDPOINT");
-#[cfg(not(target_os = "macos"))]
 const OCR_DIR: &str = "ocr";
 #[cfg(not(target_os = "macos"))]
 const OCR_ASSET_DIR: &str = "assets";
@@ -324,7 +323,6 @@ fn ocr_manifest_url_for_base(base_url: &str, mode: &str) -> String {
     format!("{base_url}ipaste-ocr-windows-x64-{mode}.json")
 }
 
-#[cfg(not(target_os = "macos"))]
 pub(crate) fn ocr_r2_base_urls() -> Vec<String> {
     let mut base_urls = Vec::new();
 
@@ -341,21 +339,18 @@ pub(crate) fn ocr_r2_base_urls() -> Vec<String> {
     base_urls
 }
 
-#[cfg(not(target_os = "macos"))]
 fn push_optional_base_url(base_urls: &mut Vec<String>, base_url: Option<String>) {
     if let Some(base_url) = base_url {
         push_unique_url(base_urls, base_url);
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 fn push_unique_url(urls: &mut Vec<String>, url: String) {
     if !urls.iter().any(|existing| existing == &url) {
         urls.push(url);
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 fn normalize_ocr_base_url(base_url: &str) -> Option<String> {
     let base_url = base_url.trim();
     if base_url.is_empty() || !base_url.starts_with("https://") {
@@ -369,7 +364,6 @@ fn normalize_ocr_base_url(base_url: &str) -> Option<String> {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
 fn derive_ocr_r2_base_url(endpoint: &str) -> Option<String> {
     let endpoint = endpoint.trim();
     if endpoint.is_empty() || !endpoint.starts_with("https://") {
@@ -412,7 +406,6 @@ fn ocr_manifest_file_path(
     Ok(resolved)
 }
 
-#[cfg(not(target_os = "macos"))]
 pub(crate) fn ensure_path_within(root: &Path, path: &Path) -> Result<(), String> {
     let root = root
         .canonicalize()
@@ -492,7 +485,6 @@ fn write_ocr_manifest_cache(
     fs::write(path, content).map_err(|error| error.to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
 pub(crate) fn ocr_root_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()

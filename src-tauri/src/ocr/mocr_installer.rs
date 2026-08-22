@@ -1,6 +1,7 @@
 //! Manga-OCR (mocr) 模型安装器：manifest 驱动下载 manga-ocr-base 权重到
 //! `app_data/ocr/mocr/models/`（mocr.rs find_mocr_model_path 的最高优先级路径）。
 //!
+//! 支持 Windows 与 macOS（aarch64 提供内置 onnx sidecar；Intel Mac 可下载模型但识别走系统 OCR / Python 回退）。
 //! 与 paddle 安装器（installer.rs）同构：R2 优先 + GitHub Release 兜底的清单源、
 //! Pages 文件源、sha256 门禁的临时文件落盘。差异点：
 //! - 无 fast/best 模式概念，清单/缓存文件名固定 mocr；
