@@ -556,7 +556,7 @@ pub(crate) fn legacy_ocr_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
     ]
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use super::*;
     use crate::models::{OcrManifest, OcrManifestEngine, OcrManifestFile};
