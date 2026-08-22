@@ -1,9 +1,6 @@
-#[cfg(not(target_os = "macos"))]
-use std::path::{Path, PathBuf};
-#[cfg(not(target_os = "macos"))]
 use std::fs;
-#[cfg(not(target_os = "macos"))]
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use chrono::{SecondsFormat, Utc};
 use sha2::{Digest, Sha256};
@@ -270,7 +267,6 @@ pub(crate) fn clean_api_key(api_key: String) -> Result<String, String> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 pub(crate) fn validate_relative_path(value: &str) -> Result<(), String> {
     let path = Path::new(value);
     if value.is_empty()
@@ -285,7 +281,6 @@ pub(crate) fn validate_relative_path(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
 pub(crate) fn file_sha256(path: &PathBuf) -> Result<String, String> {
     let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
     let mut hasher = Sha256::new();
