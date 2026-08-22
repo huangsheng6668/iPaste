@@ -1,11 +1,14 @@
-// mocr_engine sidecar 构建编排：Windows 上 cargo build + 拷贝到 externalBin
-// 布局；非 Windows 平台直接跳过（macOS 的 ort 编译问题解决前不分发 sidecar，
-// mocr 识别走 Python/Paddle 回退）。由 beforeBuildCommand 的 build:all 调用。
+// mocr_engine sidecar 构建编排：Windows 与 macOS Apple Silicon (arm64) 上 cargo build + 拷贝到 externalBin
+// 布局；Intel Mac 与 Linux 等平台跳过（走占位与系统 OCR / Python 回退）。由 beforeBuildCommand 的 build:all 调用。
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-if (process.platform !== "win32") {
-  console.log("build:mocr-engine: non-Windows platform, skipping");
+const isSupported =
+  process.platform === "win32" ||
+  (process.platform === "darwin" && process.arch === "arm64");
+
+if (!isSupported) {
+  console.log("build:mocr-engine: non-supported platform, skipping");
   process.exit(0);
 }
 

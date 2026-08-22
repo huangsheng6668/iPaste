@@ -24,12 +24,11 @@ fn main() {
 /// externalBin 门禁：tauri-build 对 binaries/mocr_engine-<triple> 只做存在性
 /// 检查，但真实 sidecar 由 beforeBuildCommand（npm run build:mocr-engine）在
 /// tauri build 前放置。为了让 cargo check/test 等直接 cargo 命令在 sidecar
-/// 未构建时也能通过，这里先落一个占位文件；真实构建会将其覆盖。
-/// externalBin 仅在 tauri.windows.conf.json 声明（macOS 暂不分发 sidecar），
-/// 因此占位也只在 Windows 目标生成，避免 mac 构建产物携带无用文件。
+/// 未构建时（或在 macOS Intel / Linux 占位平台）也能通过，这里先落一个占位文件；
+/// Windows 与 macOS aarch64 的真实构建会将其覆盖。
 fn ensure_mocr_sidecar_placeholder() {
     let target = std::env::var("TARGET").unwrap_or_default();
-    if target.is_empty() || !target.contains("windows") {
+    if target.is_empty() {
         return;
     }
     let ext = if target.contains("windows") { ".exe" } else { "" };
