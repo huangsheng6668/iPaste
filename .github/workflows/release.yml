@@ -64,6 +64,26 @@ jobs:
           IPASTE_OCR_R2_BASE_URL: ${{ secrets.IPASTE_OCR_R2_BASE_URL }}
         run: node scripts/configure-updater-endpoints.mjs
 
+      # 独立构建 sidecar：失败在此步骤直接暴露 cargo 原始输出（嵌在
+      # beforeBuildCommand 里会被 tauri-action 聚合为单一退出码），并带
+      # 网络重试（ort 的 onnxruntime 预编译包冷下载偶发抖动）
+      - name: Build mocr_engine sidecar (explicit, with retries)
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            echo "::group::mocr_engine build attempt $attempt"
+            if npm run build:mocr-engine; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "mocr_engine build failed after 3 attempts"
+          exit 1
+
       - name: Build and publish Tauri app
         id: tauri-build
         uses: tauri-apps/tauri-action@v0.6.2
