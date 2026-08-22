@@ -67,10 +67,9 @@ jobs:
       # 独立构建 sidecar：失败在此步骤直接暴露 cargo 原始输出（嵌在
       # beforeBuildCommand 里会被 tauri-action 聚合为单一退出码），并带
       # 网络重试（ort 的 onnxruntime 预编译包冷下载偶发抖动）。
-      # 仅 Windows：externalBin 声明在 tauri.windows.conf.json（macOS 的
-      # ort 编译问题解决前不分发 sidecar，mocr 走 Python/Paddle 回退）
+      # Windows 与 macOS Apple Silicon (ARM64) 构建真实 sidecar；Intel Mac 跳过（打包占位）。
       - name: Build mocr_engine sidecar (explicit, with retries)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' || (runner.os == 'macOS' && runner.arch == 'ARM64')
         shell: bash
         run: |
           set -o pipefail

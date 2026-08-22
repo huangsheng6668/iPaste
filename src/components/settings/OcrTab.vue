@@ -172,7 +172,6 @@ const {
     </section>
 
     <section
-      v-if="!isMacOs"
       class="settings-panel settings-column-panel"
     >
       <div class="settings-panel-heading">

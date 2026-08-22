@@ -9,8 +9,6 @@ import { isTauri } from "../lib/env";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrInstallProgress, OcrInstallStatus } from "../types";
 
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
-
 /** 设置页「日语 · 漫画」Manga-OCR 模型安装状态与操作（与 paddle 安装器相互独立）。 */
 export function useMocrInstaller() {
   const mocrStatus = ref<OcrInstallStatus | null>(null);
@@ -46,7 +44,6 @@ export function useMocrInstaller() {
   });
 
   async function loadMocrStatus() {
-    if (isMacOs) return;
     try {
       mocrStatus.value = await ipasteApi.mocrInstallStatus();
     } catch (unknownError) {
@@ -97,7 +94,7 @@ export function useMocrInstaller() {
   }
 
   onMounted(async () => {
-    if (!isTauri || isMacOs) return;
+    if (!isTauri) return;
     await loadMocrStatus();
     unlistenMocrProgress = await listen<OcrInstallProgress>(
       IPASTE_EVENTS.mocrInstallProgress,

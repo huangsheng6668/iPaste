@@ -323,7 +323,7 @@ export const messages = {
     "ocr.deleting": "Deleting",
 
     "ocr.mocr.title": "Manga OCR (Japanese · Manga)",
-    "ocr.mocr.description": "Downloads the Manga-OCR model (ONNX) for the Japanese · Manga profile in screenshot OCR results. Recognition runs inside the app via the bundled engine — no Python required.",
+    "ocr.mocr.description": "Downloads the Manga-OCR model (ONNX) for the Japanese · Manga profile in screenshot OCR results. Recognition runs inside the app via the bundled engine — no Python required. Built-in engine requires Windows or Apple Silicon Mac; Intel Macs fall back to system OCR or Python.",
     "ocr.mocr.downloadContents": "Download contents: Manga-OCR ONNX graphs (ViT encoder + decoder) and vocabulary",
     "ocr.mocr.repair": "Repair / complete",
     "ocr.mocr.download": "Download",
@@ -700,7 +700,7 @@ export const messages = {
     "ocr.deleting": "删除中",
 
     "ocr.mocr.title": "漫画 OCR（日语 · 漫画）",
-    "ocr.mocr.description": "下载 Manga-OCR 模型（ONNX），供截图 OCR 结果中的「日语 · 漫画」识别使用。识别由应用内置引擎完成，无需安装 Python。",
+    "ocr.mocr.description": "下载 Manga-OCR 模型（ONNX），供截图 OCR 结果中的「日语 · 漫画」识别使用。识别由应用内置引擎完成，无需安装 Python。内置引擎需要 Windows 或 Apple Silicon Mac；Intel Mac 将回退到系统 OCR 或 Python。",
     "ocr.mocr.downloadContents": "下载内容：Manga-OCR ONNX 模型（ViT 编码器 + 解码器）与词表",
     "ocr.mocr.repair": "修复 / 补全",
     "ocr.mocr.download": "下载",
@@ -1066,7 +1066,7 @@ export const messages = {
     "ocr.deleting": "削除中",
 
     "ocr.mocr.title": "マンガ OCR（日本語・マンガ）",
-    "ocr.mocr.description": "スクリーンショット OCR 結果の「日本語・マンガ」プロファイルで使用する Manga-OCR モデル（ONNX）をダウンロードします。認識はアプリ内蔵エンジンで実行され、Python は不要です。",
+    "ocr.mocr.description": "スクリーンショット OCR 結果の「日本語・マンガ」プロファイルで使用する Manga-OCR モデル（ONNX）をダウンロードします。認識はアプリ内蔵エンジンで実行され、Python は不要です。内蔵エンジンには Windows または Apple Silicon Mac が必要です。Intel Mac はシステム OCR または Python にフォールバックします。",
     "ocr.mocr.downloadContents": "ダウンロード内容：Manga-OCR ONNX モデル（ViT エンコーダー + デコーダー）と語彙",
     "ocr.mocr.repair": "修復 / 補完",
     "ocr.mocr.download": "ダウンロード",
@@ -1431,7 +1431,7 @@ export const messages = {
     "ocr.deleting": "삭제 중",
 
     "ocr.mocr.title": "만화 OCR (일본어 · 만화)",
-    "ocr.mocr.description": "스크린샷 OCR 결과의 「일본어 · 만화」 프로필에서 사용하는 Manga-OCR 모델(ONNX)을 다운로드합니다. 인식은 앱 내장 엔진으로 실행되며 Python이 필요하지 않습니다.",
+    "ocr.mocr.description": "스크린샷 OCR 결과의 「일본어 · 만화」 프로필에서 사용하는 Manga-OCR 모델(ONNX)을 다운로드합니다. 인식은 앱 내장 엔진으로 실행되며 Python이 필요하지 않습니다. 내장 엔진에는 Windows 또는 Apple Silicon Mac이 필요합니다. Intel Mac은 시스템 OCR 또는 Python으로 대체됩니다.",
     "ocr.mocr.downloadContents": "다운로드 내용: Manga-OCR ONNX 모델(ViT 인코더 + 디코더) 및 어휘",
     "ocr.mocr.repair": "복구 / 완성",
     "ocr.mocr.download": "다운로드",
@@ -1796,7 +1796,7 @@ export const messages = {
     "ocr.deleting": "Eliminando",
 
     "ocr.mocr.title": "Manga OCR (japonés · manga)",
-    "ocr.mocr.description": "Descarga el modelo Manga-OCR (ONNX) para el perfil japonés · manga de los resultados de OCR de captura. El reconocimiento se ejecuta dentro de la aplicación mediante el motor integrado; no requiere Python.",
+    "ocr.mocr.description": "Descarga el modelo Manga-OCR (ONNX) para el perfil japonés · manga de los resultados de OCR de captura. El reconocimiento se ejecuta dentro de la aplicación mediante el motor integrado; no requiere Python. El motor integrado requiere Windows o Mac con Apple Silicon; los Mac Intel recurren al OCR del sistema o Python.",
     "ocr.mocr.downloadContents": "Contenido de la descarga: gráficos ONNX de Manga-OCR (codificador ViT + decodificador) y vocabulario",
     "ocr.mocr.repair": "Reparar / completar",
     "ocr.mocr.download": "Descargar",
@@ -2161,7 +2161,7 @@ export const messages = {
     "ocr.deleting": "Suppression",
 
     "ocr.mocr.title": "Manga OCR (japonais · manga)",
-    "ocr.mocr.description": "Télécharge le modèle Manga-OCR (ONNX) pour le profil japonais · manga des résultats d'OCR de capture. La reconnaissance s'exécute dans l'application via le moteur intégré — Python n'est pas requis.",
+    "ocr.mocr.description": "Télécharge le modèle Manga-OCR (ONNX) pour le profil japonais · manga des résultats d'OCR de capture. La reconnaissance s'exécute dans l'application via le moteur intégré — Python n'est pas requis. Le moteur intégré nécessite Windows ou un Mac Apple Silicon ; les Mac Intel basculent vers l'OCR système ou Python.",
     "ocr.mocr.downloadContents": "Contenu du téléchargement : graphes ONNX Manga-OCR (encodeur ViT + décodeur) et vocabulaire",
     "ocr.mocr.repair": "Réparer / compléter",
     "ocr.mocr.download": "Télécharger",
@@ -2526,7 +2526,7 @@ export const messages = {
     "ocr.deleting": "Löschen",
 
     "ocr.mocr.title": "Manga-OCR (Japanisch · Manga)",
-    "ocr.mocr.description": "Lädt das Manga-OCR-Modell (ONNX) für das Profil „Japanisch · Manga“ der Screenshot-OCR-Ergebnisse herunter. Die Erkennung läuft über die integrierte Engine in der App — Python ist nicht erforderlich.",
+    "ocr.mocr.description": "Lädt das Manga-OCR-Modell (ONNX) für das Profil „Japanisch · Manga“ der Screenshot-OCR-Ergebnisse herunter. Die Erkennung läuft über die integrierte Engine in der App — Python ist nicht erforderlich. Die integrierte Engine erfordert Windows oder einen Apple-Silicon-Mac; Intel-Macs fallen auf die System-OCR oder Python zurück.",
     "ocr.mocr.downloadContents": "Downloadinhalt: Manga-OCR-ONNX-Graphen (ViT-Encoder + Decoder) und Vokabular",
     "ocr.mocr.repair": "Reparieren / vervollständigen",
     "ocr.mocr.download": "Herunterladen",
