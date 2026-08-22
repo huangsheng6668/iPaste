@@ -28,7 +28,16 @@ jobs:
       - name: cargo build mocr_engine
         shell: bash
         run: |
-          cargo build --release --manifest-path src-tauri/Cargo.toml --bin mocr_engine
+          set +e
+          cargo build --release --manifest-path src-tauri/Cargo.toml --bin mocr_engine > /tmp/build_out.log 2>&1
+          code=$?
+          cat /tmp/build_out.log
+          if [ $code -ne 0 ]; then
+            grep -nE "error(\[E[0-9]+\])?:|panicked at|cannot find|unresolved|linking with|FAILED|assertion" /tmp/build_out.log | tail -50 | while IFS= read -r line; do
+              if [ -n "$line" ]; then echo "::error::${line:0:600}"; fi
+            done
+            exit $code
+          fi
           echo "BUILD OK"
       - name: cargo test export_bindings (diagnostic)
         shell: bash
