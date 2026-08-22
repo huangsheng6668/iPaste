@@ -1,7 +1,7 @@
 name: Debug mocr build
 
-# 临时诊断 workflow v2：macOS 上 tauri build 本体失败（sidecar 已正确跳过）。
-# 复刻 release 的构建链（不发版、不签名），失败时把 stderr 尾部转成
+# 临时诊断 workflow v3：macOS 上 tauri build 本体失败（sidecar 已正确跳过）。
+# 复刻 release 的构建链（不发版、不签名），失败时把 rustc 错误行转成
 # ::error:: 注解（公开可见）。定位并修复后删除本文件。
 on:
   push:
@@ -16,7 +16,6 @@ jobs:
       matrix:
         include:
           - { name: "macOS arm64", os: macos-15, target: aarch64-apple-darwin }
-          - { name: "macOS x64", os: macos-15-intel, target: x86_64-apple-darwin }
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
@@ -45,12 +44,12 @@ jobs:
           code=$?
           echo "--- stdout tail ---"
           tail -30 /tmp/build-out.log
-          echo "--- stderr head (first errors) ---"
-          head -60 /tmp/build-err.log
+          echo "--- stderr first errors ---"
+          head -40 /tmp/build-err.log
           if [ $code -ne 0 ]; then
-            echo "--- surfacing stderr tail as annotations ---"
-            grep -E "error|Error|failed|panicked" /tmp/build-err.log | tail -40 | while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error::$line" || true
+            echo "--- rustc error lines as annotations ---"
+            grep -nE "error(\[E[0-9]+\])?:|panicked at|cannot find|unresolved|linking with" /tmp/build-err.log | tail -50 | while IFS= read -r line; do
+              if [ -n "$line" ]; then echo "::error::${line:0:600}"; fi
             done
             exit $code
           fi
