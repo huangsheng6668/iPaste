@@ -61,10 +61,13 @@ thiserror = "2"
 hostname = "0.4"
 x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
 ts-rs = "12"
-ort = "2.0.0-rc.13"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_DataExchange"] }
+# ONNX 推理仅 Windows 编译：onnxruntime 的 /MD CRT 与 mnn 的 /MT 假设只能
+# 在进程隔离下共存，且 macOS 的 ort 构建问题解决前不分发 sidecar。
+# mocr_engine bin 在非 Windows 编译为占位空壳（见 src/bin/mocr_engine.rs）
+ort = "2.0.0-rc.13"
 
 # macOS 走 Vision 管线，不编译 MNN/bindgen（ocr/paddle.rs 仅非 macOS 编译）
 [target.'cfg(not(target_os = "macos"))'.dependencies]

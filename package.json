@@ -15,7 +15,7 @@
     "gen:types": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "build:mocr-engine": "cargo build --release --manifest-path src-tauri/Cargo.toml --bin mocr_engine && node scripts/copy-mocr-sidecar.mjs"
+    "build:mocr-engine": "node scripts/build-mocr-engine.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

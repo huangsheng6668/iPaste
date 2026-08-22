@@ -1,9 +1,16 @@
 // 拷贝 cargo 构建的 mocr_engine sidecar 到 tauri externalBin 布局：
 // src-tauri/binaries/mocr_engine-<host-triple>[.exe]
 // 由 `npm run build:mocr-engine` 在 beforeBuildCommand 里调用（tauri build 打包前）。
+// 仅 Windows 分发 sidecar（externalBin 声明在 tauri.windows.conf.json）；
+// macOS 上 ort 的编译问题解决前，mocr 走 Python/Paddle 回退。
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+
+if (process.platform !== "win32") {
+  console.log("mocr sidecar: non-Windows platform, skipping (mocr falls back to Python/Paddle)");
+  process.exit(0);
+}
 
 const root = path.resolve(import.meta.dirname, "..");
 const manifestDir = path.join(root, "src-tauri");

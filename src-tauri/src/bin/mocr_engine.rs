@@ -12,7 +12,23 @@
 //! 识别流程：图像 → 224² 双线性 + (x-0.5)/0.5 → NCHW → encoder 一次前向 →
 //! decoder 无 kv-cache 的 greedy 自回归（2 层 decoder，逐步重算很便宜；
 //! 实测与官方 beam=4 输出一致）→ vocab.txt 行号映射回文本。
+//!
+//! ort 依赖仅声明在 [target.'cfg(windows)'.dependencies]：非 Windows 平台
+//! 本 bin 编译为占位空壳（macOS 的 ort 构建问题解决前不分发 sidecar，
+//! mocr 识别走 Python/Paddle 回退）。
 
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("mocr_engine: Windows-only sidecar build (mocr falls back to Python/Paddle elsewhere)");
+}
+
+#[cfg(windows)]
+fn main() {
+    windows_impl::run();
+}
+
+#[cfg(windows)]
+mod windows_impl {
 use std::io::{BufRead, Write};
 
 use ort::{
@@ -44,7 +60,8 @@ fn emit(value: &serde_json::Value) -> Result<(), String> {
     lock.flush().map_err(|error| error.to_string())
 }
 
-fn main() {
+/// 入口：读行循环（crate main 在 cfg(windows) 下调用）。
+pub fn run() {
     let stdin = std::io::stdin();
     let mut engine: Option<Engine> = None;
     let mut line = String::new();
@@ -271,3 +288,4 @@ mod tests {
         assert_eq!(text, "そういえば、昨日の漫画を");
     }
 }
+} // mod windows_impl
