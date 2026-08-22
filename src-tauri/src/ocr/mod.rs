@@ -30,6 +30,10 @@ pub(crate) mod mocr;
 /// Manga-OCR 的 ONNX 本地推理引擎（无 Python 依赖，主路径）。
 pub(crate) mod mocr_onnx;
 /// Manga-OCR 模型安装器（设置页「日语 · 漫画」模型下载）。
+/// 仅 Windows：onnx 资产服务于随应用分发的 mocr_engine sidecar（亦仅
+/// Windows）；macOS 不分发 sidecar，模型下载入口不编译（复用的 installer
+/// 基础设施在 macOS 被 cfg(not(macos)) 排除）。
+#[cfg(windows)]
 pub(crate) mod mocr_installer;
 
 fn ocr_platform() -> &'static str {
@@ -145,26 +149,64 @@ pub(crate) fn remove_assets(
     }
 }
 
-// —— Manga-OCR 模型资产管理（设置页下载/删除/状态）——
+// —— Manga-OCR 模型资产管理（设置页下载/删除/状态；onnx 资产仅服务
+// Windows sidecar，其他平台返回不可用状态，UI 的 mocr 卡片本就不展示）——
 
-pub(crate) fn mocr_install_status(
-    app: &tauri::AppHandle,
-) -> Result<OcrInstallStatus, String> {
-    mocr_installer::mocr_install_status(app)
+pub(crate) fn mocr_install_status(app: &tauri::AppHandle) -> Result<OcrInstallStatus, String> {
+    #[cfg(windows)]
+    {
+        mocr_installer::mocr_install_status(app)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Ok(mocr_unsupported_status())
+    }
 }
 
 pub(crate) async fn install_mocr_assets(app: tauri::AppHandle) -> Result<OcrInstallStatus, String> {
-    tokio::task::spawn_blocking(move || mocr_installer::install_mocr_assets_inner(&app))
-        .await
-        .map_err(|error| error.to_string())?
+    #[cfg(windows)]
+    {
+        tokio::task::spawn_blocking(move || mocr_installer::install_mocr_assets_inner(&app))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Manga-OCR 模型下载仅支持 Windows".to_string())
+    }
 }
 
 /// 删除 mocr 模型：先结束常驻推理进程（Windows 下文件被占用删不掉），再清目录。
 pub(crate) async fn remove_mocr_assets(app: tauri::AppHandle) -> Result<OcrInstallStatus, String> {
     mocr::shutdown_server().await;
-    tokio::task::spawn_blocking(move || mocr_installer::remove_mocr_assets_inner(&app))
-        .await
-        .map_err(|error| error.to_string())?
+    #[cfg(windows)]
+    {
+        tokio::task::spawn_blocking(move || mocr_installer::remove_mocr_assets_inner(&app))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Manga-OCR 模型下载仅支持 Windows".to_string())
+    }
+}
+
+/// 非 Windows 平台的占位状态（platform = unsupported，安装器/引擎均不编译）。
+#[cfg(not(windows))]
+fn mocr_unsupported_status() -> OcrInstallStatus {
+    OcrInstallStatus {
+        installed: false,
+        engine_id: "mocr".to_string(),
+        engine_version: None,
+        mode: "mocr".to_string(),
+        platform: "unsupported".to_string(),
+        manifest_url: String::new(),
+        install_dir: String::new(),
+        downloaded_bytes: 0,
+        total_bytes: 0,
+        missing_files: Vec::new(),
+    }
 }
 
 /// OCR 语言 id → macOS Vision 识别语言（BCP 47）；auto/未知 → None（默认 5 语 + 自动检测）。
