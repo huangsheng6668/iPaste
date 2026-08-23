@@ -30,26 +30,17 @@ jobs:
           security list-keychains
 
           echo 'int main(){return 0;}' > t.c && cc t.c -o t
-          cat > ent.plist <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict/></plist>
-          EOF
-
-          run_cs() {
-            DESC="$1"; shift
-            echo "--- variant: $DESC"
-            "$@" & CS_PID=$!
-            ( sleep 45; kill -9 $CS_PID 2>/dev/null ) & WD_PID=$!
-            wait $CS_PID; RC=$?
-            kill $WD_PID 2>/dev/null
-            echo "[$DESC] rc=$RC"
-            if [ $RC -ge 128 ]; then echo "[$DESC] HUNG"; fi
-          }
-
-          run_cs "plain" codesign -fs "iPaste Distribution" t
-          run_cs "identifier" codesign --force --identifier com.ipaste.desktop --sign "iPaste Distribution" t
-          run_cs "runtime" codesign --force --sign "iPaste Distribution" --options runtime t
-          run_cs "entitlements" codesign --force --sign "iPaste Distribution" --entitlements ent.plist t
-          run_cs "full" codesign --force --identifier com.ipaste.desktop --sign "iPaste Distribution" --entitlements ent.plist --options runtime t
-          echo "=== done ==="
+          echo "--- waiting 10 minutes to simulate rust build delay..."
+          sleep 600
+          echo "--- codesign after delay:"
+          codesign -fs "iPaste Distribution" t & CS_PID=$!
+          ( sleep 45; kill -9 $CS_PID 2>/dev/null ) & WD_PID=$!
+          wait $CS_PID; RC=$?
+          kill $WD_PID 2>/dev/null
+          echo "after-delay rc=$RC"
+          if [ $RC -ge 128 ]; then
+            echo "HUNG AFTER DELAY - keychain auto-lock confirmed"
+            security show-keychain-info "$KEYCHAIN" 2>&1 || true
+            security unlock-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+            codesign -fs "iPaste Distribution" t && echo "unlock rescues it"
+          fi
