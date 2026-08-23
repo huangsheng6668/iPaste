@@ -99,7 +99,7 @@ jobs:
           KEYCHAIN="ipaste-build.keychain-db"
           echo "$IPASTE_MACOS_SIGNING_CERT" | base64 --decode > "$CERT_FILE"
           security create-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
-          security default-keychains -s "$KEYCHAIN"
+          security list-keychains -s "$KEYCHAIN" $(security list-keychains | tr -d '"')
           security unlock-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
           security import "$CERT_FILE" -k "$KEYCHAIN" -P "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
