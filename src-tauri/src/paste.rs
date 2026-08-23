@@ -74,7 +74,6 @@ pub(crate) fn ax_is_process_trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
-#[cfg(target_os = "macos")]
 pub(crate) fn remember_main_window_activation(
     app: &tauri::AppHandle,
     activation: MainWindowActivation,
