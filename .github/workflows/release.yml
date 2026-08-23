@@ -86,6 +86,26 @@ jobs:
           echo "mocr_engine build failed after 3 attempts"
           exit 1
 
+      # 导入自签名 macOS 签名证书：建立稳定代码身份，使 TCC 权限
+      # （辅助功能/屏幕录制）在版本升级后依然有效，用户无需反复重新授权。
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          IPASTE_MACOS_SIGNING_CERT: ${{ secrets.IPASTE_MACOS_SIGNING_CERT }}
+          IPASTE_MACOS_SIGNING_CERT_PASSWORD: ${{ secrets.IPASTE_MACOS_SIGNING_CERT_PASSWORD }}
+        run: |
+          CERT_FILE="$(mktemp -d)/cert.p12"
+          KEYCHAIN="ipaste-build.keychain-db"
+          echo "$IPASTE_MACOS_SIGNING_CERT" | base64 --decode > "$CERT_FILE"
+          security create-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          security default-keychains -s "$KEYCHAIN"
+          security unlock-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_FILE" -k "$KEYCHAIN" -P "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          rm -f "$CERT_FILE"
+          security find-identity -v "$KEYCHAIN"
+
       - name: Build and publish Tauri app
         id: tauri-build
         uses: tauri-apps/tauri-action@v0.6.2
@@ -93,6 +113,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: iPaste Distribution
         with:
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
