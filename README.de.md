@@ -40,6 +40,15 @@ Aktuelle Release-Ziele:
 
 Linux ist noch kein offizielles Ziel. Tauri ist plattformübergreifend, aber dieses Repository konzentriert sich derzeit auf die Validierung von macOS und Windows.
 
+### macOS-Berechtigungen
+
+iPaste benötigt unter macOS zwei getrennte Berechtigungen (Systemeinstellungen → Datenschutz & Sicherheit):
+
+- **Bedienungshilfen**: für automatisches Einfügen (Simulation von Tastatureingaben).
+- **Bildschirmaufnahme**: für Screenshot-OCR. Sie ist von der Bedienungshilfen-Berechtigung getrennt — Screenshot-OCR funktioniert nicht nur mit Bedienungshilfen.
+
+Nach dem Aktivieren muss iPaste vollständig neu gestartet werden. Da die Installationen unsigniert sind, können Berechtigungen nach jedem Update verloren gehen (der Schalter erscheint als aktiv, die App meldet aber „Nicht erteilt“): Entferne iPaste in diesem Fall aus der Liste, füge es erneut hinzu, aktiviere es und starte die App neu.
+
 ## Quick Start
 
 1. Starte iPaste. Es bleibt in der Ablage und beginnt, das Clipboard zu überwachen.

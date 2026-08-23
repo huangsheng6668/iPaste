@@ -41,6 +41,15 @@ Destinos de la versión actual:
 
 Linux aún no es un destino oficial. Tauri es multiplataforma, pero este repositorio se centra actualmente en validar macOS y Windows.
 
+### Permisos de macOS
+
+iPaste necesita dos permisos independientes en macOS (Ajustes del Sistema → Privacidad y seguridad):
+
+- **Accesibilidad**: para el pegado automático (simulación de teclas).
+- **Grabación de pantalla**: para el OCR de capturas. Es un permiso distinto de Accesibilidad: el OCR de capturas no funciona solo con Accesibilidad activada.
+
+Tras activar un permiso, cierra por completo y reinicia iPaste. Como las instalaciones no están firmadas, los permisos pueden dejar de funcionar tras cada actualización (el interruptor sigue activado pero la app indica «No concedido»): en ese caso, elimina iPaste de la lista, añádelo de nuevo, actívalo y reinicia la app.
+
 ## Quick Start
 
 1. Inicia iPaste. Permanece en la bandeja y empieza a escuchar el portapapeles.

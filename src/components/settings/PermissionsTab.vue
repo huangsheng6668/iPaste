@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { ChevronRight, Keyboard, Monitor } from "lucide-vue-next";
 import { t } from "../../i18n";
 import { ipasteApi } from "../../lib/ipasteApi";
 
 const showPermissionGuide = ref(false);
 const screenRecordingGranted = ref(true);
+let permissionPollTimer: ReturnType<typeof setInterval> | null = null;
+let hasRequestedPermission = false;
 
 async function openAccessibilityGuide() {
   showPermissionGuide.value = true;
@@ -13,11 +15,34 @@ async function openAccessibilityGuide() {
 }
 
 async function openScreenRecordingSettings() {
+  // 先触发系统授权弹框（未决定时），再打开系统设置便于用户手动勾选
+  if (!hasRequestedPermission) {
+    hasRequestedPermission = true;
+    await ipasteApi.requestScreenCapturePermission();
+  }
   await ipasteApi.openScreenRecordingSettings();
 }
 
-onMounted(async () => {
+async function refreshScreenRecordingStatus() {
   screenRecordingGranted.value = await ipasteApi.screenCapturePermissionStatus();
+}
+
+function onWindowFocus() {
+  void refreshScreenRecordingStatus();
+}
+
+onMounted(async () => {
+  await refreshScreenRecordingStatus();
+  window.addEventListener("focus", onWindowFocus);
+  // 用户在系统设置勾选后回到 App，轮询让状态及时更新
+  permissionPollTimer = setInterval(refreshScreenRecordingStatus, 2000);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("focus", onWindowFocus);
+  if (permissionPollTimer) {
+    clearInterval(permissionPollTimer);
+  }
 });
 </script>
 
@@ -65,6 +90,12 @@ onMounted(async () => {
         </h2>
         <p class="mt-1 text-sm leading-6 text-[var(--text-2)]">
           {{ t("settings.permissions.screenRecording.description") }}
+        </p>
+        <p
+          v-if="!screenRecordingGranted"
+          class="mt-1 text-xs leading-5 text-[var(--text-3)]"
+        >
+          {{ t("settings.permissions.screenRecording.restartHint") }}
         </p>
       </div>
 

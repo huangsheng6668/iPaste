@@ -59,23 +59,54 @@ pub(crate) fn png_bytes(image: RgbaImage) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn has_screen_capture_permission() -> bool {
+mod screen_capture {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
         fn CGRequestScreenCaptureAccess() -> bool;
     }
-    unsafe {
-        if CGPreflightScreenCaptureAccess() {
-            return true;
-        }
-        // 未决定时触发系统授权弹框；已拒绝时返回 false，由错误事件引导去设置页
-        CGRequestScreenCaptureAccess()
+
+    /// 纯查询，无副作用。注意：用户在系统设置勾选后需重启 App 才返回 true。
+    pub(crate) fn preflight() -> bool {
+        unsafe { CGPreflightScreenCaptureAccess() }
     }
+
+    /// 未决定时触发系统授权弹框；已拒绝或已授权但未重启时返回 false。
+    pub(crate) fn request() -> bool {
+        unsafe { CGRequestScreenCaptureAccess() }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn has_screen_capture_permission() -> bool {
+    if screen_capture::preflight() {
+        return true;
+    }
+    screen_capture::request()
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn screen_capture_permission_granted() -> bool {
+    screen_capture::preflight()
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn request_screen_capture_permission() -> bool {
+    screen_capture::request()
 }
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn has_screen_capture_permission() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn screen_capture_permission_granted() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn request_screen_capture_permission() -> bool {
     true
 }
 

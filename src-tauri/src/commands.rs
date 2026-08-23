@@ -568,7 +568,12 @@ pub(crate) fn open_screen_recording_settings() -> Result<(), AppError> {
 
 #[tauri::command]
 pub(crate) fn screen_capture_permission_status() -> Result<bool, AppError> {
-    Ok(crate::capture::screen::has_screen_capture_permission())
+    Ok(crate::capture::screen::screen_capture_permission_granted())
+}
+
+#[tauri::command]
+pub(crate) fn request_screen_capture_permission() -> Result<bool, AppError> {
+    Ok(crate::capture::screen::request_screen_capture_permission())
 }
 
 #[tauri::command]

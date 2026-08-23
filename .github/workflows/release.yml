@@ -113,6 +113,12 @@ jobs:
             或手动清除隔离标记：`xattr -dr com.apple.quarantine /Applications/iPaste.app`
 
             已安装的用户建议使用应用内的「检查更新」，更新包不受 Gatekeeper 限制。
+
+            ## macOS 权限提示
+
+            截图识别文字需要「屏幕录制」权限（与「辅助功能」是两个不同的权限），请在 系统设置 → 隐私与安全性 中开启，并完全重启 iPaste。
+
+            升级 iPaste 后若提示权限未授权，请在对应权限列表中先移除 iPaste 再重新添加并开启（未签名版本每次更新身份都会变化），然后重启应用。
           releaseDraft: false
           prerelease: false
           tauriScript: npm run tauri

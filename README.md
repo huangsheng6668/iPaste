@@ -57,6 +57,15 @@ xattr -dr com.apple.quarantine /Applications/iPaste.app
 
 If you already have iPaste installed, use **Check for Updates** inside the app — update packages are not affected by Gatekeeper.
 
+### macOS permissions
+
+iPaste needs two separate permissions on macOS. Grant them individually under **System Settings → Privacy & Security**:
+
+- **Accessibility**: for auto paste (simulating keystrokes).
+- **Screen Recording**: for screenshot OCR. This is a separate permission from Accessibility — screenshot OCR won't work with only Accessibility enabled.
+
+After toggling a permission, fully quit and restart iPaste for it to take effect. Because the installers are unsigned, **permissions may stop working after each iPaste update** (the switch still appears on in System Settings but the app reports "not granted"): remove iPaste from the permission list, add it again, toggle it on, and restart the app.
+
 ## Quick Start
 
 1. Launch iPaste. It stays in the tray and starts listening to the clipboard.
