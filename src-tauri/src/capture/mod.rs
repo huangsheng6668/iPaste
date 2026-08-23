@@ -56,16 +56,18 @@ fn overlay_frame_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
 /// 冻结帧写盘：BMP 无压缩（像素直拷）。此前用 JPEG 时纯软编码整屏帧单帧可达数秒，
 /// 是截图遮罩出现的卡顿主因；BMP 仅作遮罩背景显示，OCR 裁剪仍取内存无损帧。
 /// encoder 逐像素小写入，必须套大缓冲聚合系统调用，否则 4K 帧写入仍需数秒。
+/// 注意编码 24 位 RGB：32 位带 alpha 的 BMP 在 WKWebView 中会渲染成全黑。
 fn write_frame_bmp(path: &std::path::Path, frame: &image::RgbaImage) -> Result<(), String> {
+    let rgb_frame = image::DynamicImage::ImageRgba8(frame.clone()).to_rgb8();
     let file = std::fs::File::create(path).map_err(|error| error.to_string())?;
     let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
     let mut encoder = image::codecs::bmp::BmpEncoder::new(&mut writer);
     encoder
         .encode(
-            frame.as_raw(),
-            frame.width(),
-            frame.height(),
-            image::ExtendedColorType::Rgba8,
+            rgb_frame.as_raw(),
+            rgb_frame.width(),
+            rgb_frame.height(),
+            image::ExtendedColorType::Rgb8,
         )
         .map_err(|error| format!("冻结帧编码失败：{error}"))?;
     writer
