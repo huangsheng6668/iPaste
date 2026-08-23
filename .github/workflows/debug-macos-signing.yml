@@ -30,15 +30,26 @@ jobs:
           security list-keychains
 
           echo 'int main(){return 0;}' > t.c && cc t.c -o t
-          echo "--- codesign with 90s watchdog:"
-          codesign -fs "iPaste Distribution" t & CS_PID=$!
-          ( sleep 90; kill -9 $CS_PID 2>/dev/null ) & WD_PID=$!
-          wait $CS_PID; RC=$?
-          kill $WD_PID 2>/dev/null
-          echo "codesign rc=$RC"
-          if [ $RC -ge 128 ]; then
-            echo "CODESIGN HUNG - dumping processes"
-            ps aux | grep -iE 'codesign|securityd' | grep -v grep
-          else
-            codesign -d -r- t 2>&1 | tail -2
-          fi
+          cat > ent.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict/></plist>
+          EOF
+
+          run_cs() {
+            DESC="$1"; shift
+            echo "--- variant: $DESC"
+            "$@" & CS_PID=$!
+            ( sleep 45; kill -9 $CS_PID 2>/dev/null ) & WD_PID=$!
+            wait $CS_PID; RC=$?
+            kill $WD_PID 2>/dev/null
+            echo "[$DESC] rc=$RC"
+            if [ $RC -ge 128 ]; then echo "[$DESC] HUNG"; fi
+          }
+
+          run_cs "plain" codesign -fs "iPaste Distribution" t
+          run_cs "identifier" codesign --force --identifier com.ipaste.desktop --sign "iPaste Distribution" t
+          run_cs "runtime" codesign --force --sign "iPaste Distribution" --options runtime t
+          run_cs "entitlements" codesign --force --sign "iPaste Distribution" --entitlements ent.plist t
+          run_cs "full" codesign --force --identifier com.ipaste.desktop --sign "iPaste Distribution" --entitlements ent.plist --options runtime t
+          echo "=== done ==="
