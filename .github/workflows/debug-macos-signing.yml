@@ -1,0 +1,41 @@
+name: Debug macOS signing
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Import certificate and test codesign with timeouts
+        shell: bash
+        env:
+          IPASTE_MACOS_SIGNING_CERT: ${{ secrets.IPASTE_MACOS_SIGNING_CERT }}
+          IPASTE_MACOS_SIGNING_CERT_PASSWORD: ${{ secrets.IPASTE_MACOS_SIGNING_CERT_PASSWORD }}
+        run: |
+          set -x
+          CERT_FILE="$(mktemp -d)/cert.p12"
+          KEYCHAIN="ipaste-build.keychain-db"
+          echo "$IPASTE_MACOS_SIGNING_CERT" | base64 --decode > "$CERT_FILE"
+          security create-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          security list-keychains -s "$KEYCHAIN" login.keychain-db
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_FILE" -k "$KEYCHAIN" -P "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          echo "--- identities:"
+          security find-identity -v "$KEYCHAIN" || true
+          echo "--- search list:"
+          security list-keychains
+
+          echo 'int main(){return 0;}' > t.c && cc t.c -o t
+          echo "--- codesign with timeout 90s:"
+          timeout 90 codesign -fs "iPaste Distribution" t; RC=$?
+          echo "codesign rc=$RC"
+          if [ $RC -eq 124 ]; then
+            echo "CODESIGN HUNG - dumping codesign processes"
+            ps aux | grep -i codesign
+          else
+            codesign -d -r- t 2>&1 | tail -2
+          fi
