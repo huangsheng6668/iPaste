@@ -100,6 +100,9 @@ jobs:
           KEYCHAIN="ipaste-build.keychain-db"
           echo "$IPASTE_MACOS_SIGNING_CERT" | base64 --decode > "$CERT_FILE"
           security create-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
+          # Rust 编译耗时较长：清除锁定超时与休眠锁定，否则签名时 keychain
+          # 已自动锁定，codesign 在无头环境死等解锁弹窗（实测挂起）。
+          security set-keychain-settings "$KEYCHAIN"
           security default-keychain -s "$KEYCHAIN"
           security unlock-keychain -p "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" "$KEYCHAIN"
           security import "$CERT_FILE" -k "$KEYCHAIN" -P "$IPASTE_MACOS_SIGNING_CERT_PASSWORD" -T /usr/bin/codesign
