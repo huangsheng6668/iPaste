@@ -6,12 +6,18 @@ import { ipasteApi } from "../../lib/ipasteApi";
 
 const showPermissionGuide = ref(false);
 const screenRecordingGranted = ref(true);
+const accessibilityGranted = ref(true);
 let permissionPollTimer: ReturnType<typeof setInterval> | null = null;
 let hasRequestedPermission = false;
 
 async function openAccessibilityGuide() {
   showPermissionGuide.value = true;
   await ipasteApi.openAccessibilitySettings();
+}
+
+async function refreshPermissionStatuses() {
+  accessibilityGranted.value = await ipasteApi.accessibilityPermissionStatus();
+  screenRecordingGranted.value = await ipasteApi.screenCapturePermissionStatus();
 }
 
 async function openScreenRecordingSettings() {
@@ -24,15 +30,15 @@ async function openScreenRecordingSettings() {
 }
 
 async function refreshScreenRecordingStatus() {
-  screenRecordingGranted.value = await ipasteApi.screenCapturePermissionStatus();
+  await refreshPermissionStatuses();
 }
 
 function onWindowFocus() {
-  void refreshScreenRecordingStatus();
+  void refreshPermissionStatuses();
 }
 
 onMounted(async () => {
-  await refreshScreenRecordingStatus();
+  await refreshPermissionStatuses();
   window.addEventListener("focus", onWindowFocus);
   // 用户在系统设置勾选后回到 App，轮询让状态及时更新
   permissionPollTimer = setInterval(refreshScreenRecordingStatus, 2000);
@@ -56,9 +62,21 @@ onBeforeUnmount(() => {
       <div class="min-w-0 flex-1">
         <h2 class="text-sm font-semibold text-[var(--text-1)]">
           {{ t("settings.permissions.accessibility.title") }}
+          <span
+            class="ml-2 text-xs font-normal"
+            :class="accessibilityGranted ? 'text-[var(--accent)]' : 'text-[var(--text-3)]'"
+          >
+            {{ accessibilityGranted ? t("settings.permissions.screenRecording.granted") : t("settings.permissions.screenRecording.notGranted") }}
+          </span>
         </h2>
         <p class="mt-1 text-sm leading-6 text-[var(--text-2)]">
           {{ t("settings.permissions.accessibility.description") }}
+        </p>
+        <p
+          v-if="!accessibilityGranted"
+          class="mt-1 text-xs leading-5 text-[var(--text-3)]"
+        >
+          {{ t("settings.permissions.accessibility.restartHint") }}
         </p>
       </div>
 

@@ -572,6 +572,18 @@ pub(crate) fn screen_capture_permission_status() -> Result<bool, AppError> {
 }
 
 #[tauri::command]
+pub(crate) fn accessibility_permission_status() -> Result<bool, AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(crate::paste::ax_is_process_trusted())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(true)
+    }
+}
+
+#[tauri::command]
 pub(crate) fn request_screen_capture_permission() -> Result<bool, AppError> {
     Ok(crate::capture::screen::request_screen_capture_permission())
 }

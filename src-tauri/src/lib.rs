@@ -44,7 +44,7 @@ use crate::commands::{
     update_automation, delete_automation, run_automation, get_automation_run, show_panel,
     show_settings, open_clip_viewer, close_clip_viewer, hide_panel, hide_settings,
     open_accessibility_settings, open_screen_recording_settings, request_screen_capture_permission,
-    screen_capture_permission_status,
+    screen_capture_permission_status, accessibility_permission_status,
     enable_autostart, disable_autostart, is_autostart_enabled,
     set_main_window_dragging, start_main_window_drag, apply_clip,
 };
@@ -232,6 +232,7 @@ pub fn run() {
             open_accessibility_settings,
             open_screen_recording_settings,
             screen_capture_permission_status,
+            accessibility_permission_status,
             request_screen_capture_permission,
             enable_autostart,
             disable_autostart,

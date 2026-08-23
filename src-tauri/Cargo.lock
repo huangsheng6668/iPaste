@@ -2612,7 +2612,7 @@ dependencies = [
 
 [[package]]
 name = "ipaste"
-version = "0.8.11"
+version = "0.8.12"
 dependencies = [
  "aes",
  "aes-gcm",

@@ -488,6 +488,9 @@ export const ipasteApi = {
   screenCapturePermissionStatus() {
     return call<boolean>("screen_capture_permission_status", undefined, true);
   },
+  accessibilityPermissionStatus() {
+    return call<boolean>("accessibility_permission_status", undefined, true);
+  },
   requestScreenCapturePermission() {
     return call<boolean>("request_screen_capture_permission", undefined, false);
   },
