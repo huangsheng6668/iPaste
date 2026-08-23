@@ -87,7 +87,20 @@ pub(crate) fn has_screen_capture_permission() -> bool {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn screen_capture_permission_granted() -> bool {
-    screen_capture::preflight()
+    if screen_capture::preflight() {
+        return true;
+    }
+    // preflight 可能误报（签名身份变化等），实际截屏成功后缓存结果：
+    // 成功探测开销大（整屏捕获），失败很廉价（直接报权限错误）。
+    static PROBE_OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if let Some(ok) = PROBE_OK.get() {
+        return *ok;
+    }
+    let ok = probe_capture_allowed();
+    if ok {
+        let _ = PROBE_OK.set(true);
+    }
+    ok
 }
 
 #[cfg(target_os = "macos")]
@@ -97,6 +110,37 @@ pub(crate) fn request_screen_capture_permission() -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn has_screen_capture_permission() -> bool {
+    true
+}
+
+/// 真实截屏探测：preflight 可能因签名身份变化等场景误报 false，
+/// 以实际调用 CGDisplayCreateImage（xcap 内部）是否成功为最终判据。
+#[cfg(target_os = "macos")]
+pub(crate) fn probe_capture_allowed() -> bool {
+    let Ok(monitors) = Monitor::all() else {
+        return false;
+    };
+    let Some(monitor) = monitors.into_iter().next() else {
+        return false;
+    };
+    match monitor.capture_image() {
+        Ok(frame) => {
+            eprintln!(
+                "[ipaste] screen capture probe succeeded ({}x{})",
+                frame.width(),
+                frame.height()
+            );
+            true
+        }
+        Err(error) => {
+            eprintln!("[ipaste] screen capture probe failed: {error}");
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn probe_capture_allowed() -> bool {
     true
 }
 

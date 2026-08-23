@@ -96,9 +96,16 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
     #[cfg(target_os = "macos")]
     {
         let _ = (app, state);
-        if !screen::has_screen_capture_permission() {
-            return Err("screenRecordingPermission");
+        if screen::has_screen_capture_permission() {
+            return Ok(());
         }
+        // preflight 在签名身份变化（未签名构建升级）等场景下可能误报：
+        // 实际试截一次作为最终判据，避免权限已生效却被拦截。
+        if screen::probe_capture_allowed() {
+            return Ok(());
+        }
+        eprintln!("[ipaste] screen capture denied: preflight and capture probe both failed");
+        return Err("screenRecordingPermission");
     }
 
     #[cfg(not(target_os = "macos"))]
