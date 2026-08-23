@@ -114,7 +114,8 @@ pub(crate) fn has_screen_capture_permission() -> bool {
 }
 
 /// 真实截屏探测：preflight 可能因签名身份变化等场景误报 false，
-/// 以实际调用 CGDisplayCreateImage（xcap 内部）是否成功为最终判据。
+/// 以实际调用 CGDisplayCreateImage（xcap 内部）的结果为最终判据。
+/// 注意：权限无效时该调用不报错，而是返回全黑帧——必须校验像素内容。
 #[cfg(target_os = "macos")]
 pub(crate) fn probe_capture_allowed() -> bool {
     let Ok(monitors) = Monitor::all() else {
@@ -125,6 +126,14 @@ pub(crate) fn probe_capture_allowed() -> bool {
     };
     match monitor.capture_image() {
         Ok(frame) => {
+            if is_frame_visibly_blank(&frame) {
+                eprintln!(
+                    "[ipaste] screen capture probe returned a blank {}x{} frame (no effective permission)",
+                    frame.width(),
+                    frame.height()
+                );
+                return false;
+            }
             eprintln!(
                 "[ipaste] screen capture probe succeeded ({}x{})",
                 frame.width(),
@@ -137,6 +146,21 @@ pub(crate) fn probe_capture_allowed() -> bool {
             false
         }
     }
+}
+
+/// 抽样判断帧是否几乎全黑（权限无效时系统返回黑帧而非错误）。
+fn is_frame_visibly_blank(frame: &RgbaImage) -> bool {
+    const STEP: u32 = 7;
+    const THRESHOLD: u8 = 2;
+    for y in (0..frame.height()).step_by(STEP as usize) {
+        for x in (0..frame.width()).step_by(STEP as usize) {
+            let pixel = frame.get_pixel(x, y);
+            if pixel[0] > THRESHOLD || pixel[1] > THRESHOLD || pixel[2] > THRESHOLD {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -158,6 +182,18 @@ pub(crate) fn request_screen_capture_permission() -> bool {
 mod tests {
     use super::*;
     use image::Rgba;
+    #[test]
+    fn blank_frame_detection() {
+        let mut black = RgbaImage::new(100, 100);
+        for (_, _, pixel) in black.enumerate_pixels_mut() {
+            *pixel = Rgba([1, 0, 0, 255]);
+        }
+        assert!(is_frame_visibly_blank(&black));
+
+        let mut content = RgbaImage::new(100, 100);
+        *content.get_pixel_mut(49, 49) = Rgba([10, 10, 10, 255]);
+        assert!(!is_frame_visibly_blank(&content));
+    }
 
     #[test]
     fn clamp_rect_to_image_bounds() {
