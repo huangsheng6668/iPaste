@@ -30,12 +30,15 @@ jobs:
           security list-keychains
 
           echo 'int main(){return 0;}' > t.c && cc t.c -o t
-          echo "--- codesign with timeout 90s:"
-          timeout 90 codesign -fs "iPaste Distribution" t; RC=$?
+          echo "--- codesign with 90s watchdog:"
+          codesign -fs "iPaste Distribution" t & CS_PID=$!
+          ( sleep 90; kill -9 $CS_PID 2>/dev/null ) & WD_PID=$!
+          wait $CS_PID; RC=$?
+          kill $WD_PID 2>/dev/null
           echo "codesign rc=$RC"
-          if [ $RC -eq 124 ]; then
-            echo "CODESIGN HUNG - dumping codesign processes"
-            ps aux | grep -i codesign
+          if [ $RC -ge 128 ]; then
+            echo "CODESIGN HUNG - dumping processes"
+            ps aux | grep -iE 'codesign|securityd' | grep -v grep
           else
             codesign -d -r- t 2>&1 | tail -2
           fi
