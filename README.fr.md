@@ -20,7 +20,7 @@ Il est conçu pour les personnes qui passent toute la journée entre messageries
 - Catégories enregistrées: conservez des extraits réutilisables pour du code, des commandes, des adresses, des modèles de réponse, des prompts et plus encore.
 - Visionneuse d'images: prévisualisez, zoomez, faites pivoter, recopiez dans le presse-papiers et extrayez du texte avec l'OCR.
 - Copie par ajout: fusionnez temporairement plusieurs copies de texte en un seul extrait pendant que vous rassemblez du contenu.
-- Synchronisation LAN : appariez deux appareils sur le même réseau avec un code court, puis envoyez des clips ou des catégories entières directement entre eux — chiffré de bout en bout, sans passer par aucun serveur.
+- Synchronisation entre appareils : appariez deux appareils via Internet en échangeant un ticket d'invitation à usage unique — le contenu du presse-papiers est transmis directement et chiffré de bout en bout (QUIC + perçage NAT, retransmis sous forme chiffrée par un relais si le perçage échoue), sans compte cloud ; gestion multi-appareils, révocation et reconnexion automatique incluses.
 - Actions rapides : enregistrez des commandes shell comme actions de panneau à une touche, avec confirmation optionnelle, sortie en flux et import/export JSON.
 - Préférences configurables: durée de conservation, disposition du panneau, comportement d'ouverture par défaut, raccourci global, langue et mode OCR.
 - Synchronisation autohébergée facultative: synchronise uniquement les catégories enregistrées et le contenu textuel enregistré; l'historique brut du presse-papiers reste local.
@@ -65,7 +65,7 @@ iPaste est local-first par défaut.
 
 - L'historique du presse-papiers capturé automatiquement n'est ni téléversé ni synchronisé.
 - Les données locales sont stockées dans une base SQLite sous le répertoire de données d'application du système.
-- La synchronisation LAN transfère le contenu directement entre vos propres appareils via le réseau local. Les sessions sont protégées par un code d'appairage et un chiffrement de bout en bout (échange de clés X25519, AES-256-GCM) ; aucun serveur n'intervient.
+- La synchronisation entre appareils transfère le contenu directement entre vos propres appareils via Internet. La confiance est établie par un ticket d'invitation à usage unique ; le transport est chiffré de bout en bout via QUIC TLS (perçage NAT ; un relais ne retransmet que du texte chiffré en cas d'échec) ; aucun compte cloud n'est nécessaire.
 - Lorsque la synchronisation cloud est activée, seules les catégories et les entrées enregistrées de texte, lien, couleur et HTML sont synchronisées.
 - Les extraits d'image et de fichier sont actuellement exclus de la charge utile de synchronisation cloud.
 - La synchronisation cloud nécessite votre propre adresse d'API et votre propre clé d'API.
@@ -169,7 +169,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
 | `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
@@ -196,9 +196,9 @@ Les éléments d'historique et les éléments de catégories enregistrées sont 
 
 L'application de bureau peut se connecter à une iPaste sync API autohébergée en utilisant une adresse d'API et une clé d'API dans Preferences. Le périmètre de synchronisation inclut les catégories et les éléments de catégorie enregistrés de type texte. Le code source du service de synchronisation sera publié en open source lorsqu'il sera prêt.
 
-### LAN Sync
+### Synchronisation entre appareils
 
-Deux instances d'iPaste sur le même réseau peuvent s'appairer avec un code court. Un appareil héberge la session ; l'autre rejoint par adresse et code. Les deux parties confirment l'appairage avant tout transfert. Les clips et des catégories entières circulent directement entre les appareils via une session chiffrée ; une catégorie absente chez le destinataire est créée automatiquement.
+Deux instances d'iPaste s'apparient en échangeant un ticket d'invitation à usage unique : un appareil crée l'invitation, l'autre rejoint avec le ticket, et les deux parties confirment avant tout transfert. Les appareils se connectent directement via Internet sur QUIC (perçage NAT ; un relais ne retransmet que du texte chiffré en cas d'échec) ; les clips et des catégories entières circulent entre appareils appairés, et une catégorie absente chez le destinataire est créée automatiquement. Les appareils appairés peuvent être gérés ou révoqués à tout moment, et les connexions se rétablissent automatiquement après une coupure.
 
 ### Quick Actions
 

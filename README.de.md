@@ -20,7 +20,7 @@ Es ist für Menschen gebaut, die den ganzen Tag zwischen Chat, Browsern, Termina
 - Gespeicherte Kategorien: Bewahre wiederverwendbare Snippets für Code, Befehle, Adressen, Antwortvorlagen, Prompts und mehr auf.
 - Bildbetrachter: Vorschau, Zoom, Drehen, Zurückkopieren in das Clipboard und Textextraktion mit OCR.
 - Anhängendes Kopieren: Führe mehrere Textkopien vorübergehend zu einem Snippet zusammen, während du Material sammelst.
-- LAN-Synchronisierung: Koppeln Sie zwei Geräte im selben Netzwerk mit einem kurzen Code und senden Sie Clips oder ganze Kategorien direkt zwischen ihnen – Ende-zu-Ende-verschlüsselt, ohne Umweg über einen Server.
+- Geräteübergreifende Synchronisierung: Koppeln Sie zwei Geräte über das Internet, indem Sie ein einmaliges Einladungs-Token austauschen – Inhalte der Zwischenablage werden direkt und Ende-zu-Ende-verschlüsselt übertragen (QUIC + NAT-Durchbruch; schlägt er fehl, leitet ein Relay nur Chiffrat weiter), ohne Cloud-Konto; mit Verwaltung mehrerer Geräte, Widerruf und automatischer Wiederverbindung.
 - Schnellaktionen: Speichern Sie Shell-Befehle als Panel-Aktionen mit einem einzigen Tastendruck – mit optionaler Bestätigung, gestreamter Ausgabe und JSON-Import/-Export.
 - Konfigurierbare Einstellungen: Aufbewahrungsdauer, Panel-Layout, Standard-Öffnungsverhalten, globaler Shortcut, Sprache und OCR-Modus.
 - Optionale selbst gehostete Synchronisierung: Synchronisiert nur gespeicherte Kategorien und gespeicherte textähnliche Inhalte; der rohe Clipboard-Verlauf bleibt lokal.
@@ -65,7 +65,7 @@ iPaste ist standardmäßig local-first.
 
 - Automatisch erfasster Clipboard-Verlauf wird nicht hochgeladen oder synchronisiert.
 - Lokale Daten werden in einer SQLite-Datenbank im App-Datenverzeichnis des Systems gespeichert.
-- Die LAN-Synchronisierung überträgt Inhalte direkt zwischen Ihren eigenen Geräten über das lokale Netzwerk. Sitzungen sind durch einen Kopplungscode und Ende-zu-Ende-Verschlüsselung (X25519-Schlüsselaustausch, AES-256-GCM) geschützt; ein Server ist nicht beteiligt.
+- Die geräteübergreifende Synchronisierung überträgt Inhalte direkt zwischen Ihren eigenen Geräten über das Internet. Vertrauen wird durch ein einmaliges Einladungs-Token hergestellt; die Übertragung ist per QUIC TLS Ende-zu-Ende-verschlüsselt (NAT-Durchbruch; schlägt er fehl, leitet ein Relay nur Chiffrat weiter); ein Cloud-Konto ist nicht erforderlich.
 - Wenn Cloud-Sync aktiviert ist, werden nur Kategorien sowie gespeicherte Text-, Link-, Farb- und HTML-Einträge synchronisiert.
 - Bild- und Datei-Snippets sind derzeit von der Cloud-Sync-Nutzlast ausgeschlossen.
 - Cloud-Sync erfordert deine eigene API-Adresse und deinen eigenen API-Schlüssel.
@@ -169,7 +169,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
 | `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
@@ -196,9 +196,9 @@ Verlaufseinträge und gespeicherte Kategorieeinträge sind unterschiedliche Konz
 
 Die Desktop-App kann sich über eine API-Adresse und einen API-Schlüssel in Preferences mit einer selbst gehosteten iPaste sync API verbinden. Der Synchronisierungsumfang umfasst Kategorien und gespeicherte textähnliche Kategorieeinträge. Der Quellcode des Synchronisierungsdienstes wird open source veröffentlicht, sobald er bereit ist.
 
-### LAN Sync
+### Geräteübergreifende Synchronisierung
 
-Zwei iPaste-Instanzen im selben Netzwerk können sich mit einem kurzen Code koppeln. Ein Gerät hostet die Sitzung; das andere tritt per Adresse und Code bei. Beide Seiten bestätigen die Kopplung vor jeder Übertragung. Clips und ganze Kategorien fließen direkt zwischen den Geräten über eine verschlüsselte Sitzung; eine auf der Empfängerseite fehlende Kategorie wird automatisch erstellt.
+Zwei iPaste-Instanzen koppeln sich durch den Austausch eines einmaligen Einladungs-Tokens: Ein Gerät erstellt die Einladung, das andere tritt mit dem Token bei, und beide Seiten bestätigen vor jeder Übertragung. Die Geräte verbinden sich direkt über das Internet per QUIC (NAT-Durchbruch; schlägt er fehl, leitet ein Relay nur Chiffrat weiter); Clips und ganze Kategorien fließen zwischen gekoppelten Geräten, und eine auf der Empfängerseite fehlende Kategorie wird automatisch erstellt. Gekoppelte Geräte lassen sich jederzeit verwalten oder widerrufen, und Verbindungen bauen sich nach Trennungen automatisch wieder auf.
 
 ### Quick Actions
 

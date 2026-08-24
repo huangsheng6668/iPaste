@@ -21,7 +21,7 @@ Está pensado para personas que se mueven todo el día entre chats, navegadores,
 - Categorías guardadas: conserva fragmentos reutilizables para código, comandos, direcciones, plantillas de respuesta, prompts y más.
 - Visor de imágenes: previsualiza, amplía, rota, copia de nuevo al portapapeles y extrae texto con OCR.
 - Copia acumulativa: combina temporalmente varias copias de texto en un solo fragmento mientras recopilas material.
-- Sincronización por LAN: empareja dos dispositivos en la misma red con un código corto y envía clips o categorías completas directamente entre ellos, con cifrado de extremo a extremo y sin pasar por ningún servidor.
+- Sincronización entre dispositivos: empareja dos dispositivos a través de internet intercambiando un ticket de invitación de un solo uso; el contenido del portapapeles viaja directo y cifrado de extremo a extremo (QUIC + perforación NAT, con un relé que reenvía solo texto cifrado si la perforación falla), sin cuenta en la nube; admite gestión multidispositivo, revocación y reconexión automática.
 - Acciones rápidas: guarda comandos de shell como acciones de panel de una sola tecla, con confirmación opcional, salida en streaming e importación/exportación en JSON.
 - Preferencias configurables: periodo de retención, diseño del panel, comportamiento de apertura predeterminado, atajo global, idioma y modo OCR.
 - Sincronización autohospedada opcional: sincroniza solo categorías guardadas y contenido guardado de tipo texto; el historial bruto del portapapeles permanece local.
@@ -66,7 +66,7 @@ iPaste es local-first de forma predeterminada.
 
 - El historial del portapapeles capturado automáticamente no se sube ni se sincroniza.
 - Los datos locales se guardan en una base de datos SQLite dentro del directorio de datos de la aplicación del sistema.
-- La sincronización por LAN transfiere contenido directamente entre tus propios dispositivos por la red local. Las sesiones están protegidas por un código de emparejamiento y cifrado de extremo a extremo (intercambio de claves X25519, AES-256-GCM); no interviene ningún servidor.
+- La sincronización entre dispositivos transfiere contenido directamente entre tus propios dispositivos a través de internet. La confianza se establece con un ticket de invitación de un solo uso; el transporte está cifrado de extremo a extremo con QUIC TLS (perforación NAT; un relé reenvía solo texto cifrado si falla); no hace falta ninguna cuenta en la nube.
 - Cuando la sincronización en la nube está activada, solo se sincronizan categorías y entradas guardadas de texto, enlaces, colores y HTML.
 - Los fragmentos de imagen y archivo están actualmente excluidos de la carga de sincronización en la nube.
 - La sincronización en la nube requiere tu propia dirección de API y clave de API.
@@ -170,7 +170,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
 | `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
@@ -197,9 +197,9 @@ Los elementos del historial y los elementos de categorías guardadas son concept
 
 La app de escritorio puede conectarse a una iPaste sync API autohospedada usando una dirección de API y una clave de API en Preferences. El alcance de la sincronización incluye categorías y elementos de categoría guardados de tipo texto. El código fuente del servicio de sincronización se publicará como open source cuando esté listo.
 
-### LAN Sync
+### Sincronización entre dispositivos
 
-Dos instancias de iPaste en la misma red pueden emparejarse con un código corto. Un dispositivo aloja la sesión; el otro se une mediante dirección y código. Ambos lados confirman el emparejamiento antes de cualquier transferencia. Los clips y las categorías completas fluyen directamente entre los dispositivos por una sesión cifrada; una categoría que no exista en el receptor se crea automáticamente.
+Dos instancias de iPaste se emparejan intercambiando un ticket de invitación de un solo uso: un dispositivo crea la invitación, el otro se une con el ticket y ambos confirman antes de cualquier transferencia. Los dispositivos se conectan directamente por internet mediante QUIC (perforación NAT; un relé reenvía solo texto cifrado si falla), y los clips y las categorías completas fluyen entre dispositivos emparejados; una categoría que no exista en el receptor se crea automáticamente. Los dispositivos emparejados pueden gestionarse o revocarse en cualquier momento, y las conexiones se reconectan automáticamente tras un corte.
 
 ### Quick Actions
 

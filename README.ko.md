@@ -20,7 +20,7 @@ iPaste는 시스템 트레이에 상주하며 클립보드 기록을 로컬에 �
 - 저장 카테고리: 코드, 명령어, 주소, 답장 템플릿, 프롬프트 등 재사용 가능한 스니펫을 보관합니다.
 - 이미지 뷰어: 미리보기, 확대/축소, 회전, 클립보드로 다시 복사, OCR 텍스트 추출을 지원합니다.
 - 이어붙여 복사: 자료를 모으는 동안 여러 번 복사한 텍스트를 하나의 스니펫으로 임시 병합할 수 있습니다.
-- LAN 동기화: 같은 네트워크의 두 기기를 짧은 코드로 페어링하고, 클립이나 카테고리 전체를 기기 간에 직접 전송합니다. 종단 간 암호화되며 서버를 거치지 않습니다.
+- 크로스 디바이스 동기화: 두 기기가 일회성 초대 티켓을 교환하면 인터넷을 넘어 신뢰 관계가 성립하고, 클립보드 내용이 종단 간 암호화로 직접 전송됩니다(QUIC + NAT 홀펀칭, 실패 시 릴레이가 암호문만 중계). 클라우드 계정이 필요 없으며 여러 기기 관리·취소·자동 재연결을 지원합니다.
 - 빠른 동작: 셸 명령을 한 번의 키로 실행하는 패널 동작으로 저장합니다. 선택적 확인, 스트리밍 출력, JSON 가져오기/내보내기를 지원합니다.
 - 설정 가능한 환경설정: 보존 기간, 패널 레이아웃, 기본 열기 동작, 전역 단축키, 언어, OCR 모드를 설정할 수 있습니다.
 - 선택적 셀프 호스팅 동기화: 저장 카테고리와 저장된 텍스트 계열 콘텐츠만 동기화하며, 원본 클립보드 기록은 로컬에 유지됩니다.
@@ -65,7 +65,7 @@ iPaste는 기본적으로 로컬 우선입니다.
 
 - 자동으로 캡처된 클립보드 기록은 업로드되거나 동기화되지 않습니다.
 - 로컬 데이터는 시스템 앱 데이터 디렉터리 아래의 SQLite 데이터베이스에 저장됩니다.
-- LAN 동기화는 콘텐츠를 로컬 네트워크를 통해 내 기기 간에 직접 전송합니다. 세션은 페어링 코드와 종단 간 암호화(X25519 키 교환, AES-256-GCM)로 보호되며 서버는 관여하지 않습니다.
+- 크로스 디바이스 동기화는 인터넷을 통해 내 기기 간에 콘텐츠를 직접 전송합니다. 신뢰는 일회성 초대 티켓으로 수립되고 통신은 QUIC TLS 종단 간 암호화로 보호되며(NAT 홀펀칭 실패 시 릴레이는 암호문만 중계), 클라우드 계정은 필요하지 않습니다.
 - 클라우드 동기화를 활성화하면 카테고리와 저장된 텍스트, 링크, 색상, HTML 항목만 동기화됩니다.
 - 이미지와 파일 스니펫은 현재 클라우드 동기화 페이로드에서 제외됩니다.
 - 클라우드 동기화에는 직접 준비한 API 주소와 API 키가 필요합니다.
@@ -169,7 +169,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
 | `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
@@ -196,9 +196,9 @@ iPaste에서 붙여넣을 때 앱은 선택한 스니펫을 시스템 클립보�
 
 데스크톱 앱은 Preferences에서 API 주소와 API 키를 설정해 셀프 호스팅 iPaste sync API에 연결할 수 있습니다. 동기화 범위에는 카테고리와 저장된 텍스트 계열 카테고리 항목이 포함됩니다. 동기화 서비스 소스는 준비되는 대로 오픈 소스로 공개될 예정입니다.
 
-### LAN Sync
+### 크로스 디바이스 동기화
 
-같은 네트워크의 두 iPaste는 짧은 코드로 페어링할 수 있습니다. 한쪽 기기가 세션을 호스트하고 다른 쪽이 주소와 코드로 참여합니다. 전송 전에 양쪽 모두 페어링을 확인합니다. 클립과 카테고리 전체는 암호화된 세션을 통해 기기 간에 직접 전달되며, 받는 쪽에 없는 카테고리는 자동으로 생성됩니다.
+두 iPaste는 일회성 초대 티켓으로 페어링합니다. 한쪽 기기가 초대를 만들고 다른 쪽이 티켓으로 참여하며, 전송 전에 양쪽 모두 확인합니다. 기기는 QUIC으로 인터넷을 넘어 직접 연결되고(NAT 홀펀칭 실패 시 릴레이는 암호문만 중계), 클립과 카테고리 전체가 종단 간 암호화로 직접 전달되며 받는 쪽에 없는 카테고리는 자동으로 생성됩니다. 페어링된 기기는 언제든 관리·취소할 수 있고 연결이 끊겨도 자동으로 재연결됩니다.
 
 ### Quick Actions
 

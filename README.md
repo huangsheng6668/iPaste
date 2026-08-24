@@ -19,7 +19,7 @@ It is built for people who move between chat, browsers, terminals, design tools,
 - Saved categories: keep reusable snippets for code, commands, addresses, reply templates, prompts, and more.
 - Image viewer: preview, zoom, rotate, copy back to the clipboard, and extract text with OCR.
 - Append copy: temporarily merge several text copies into one snippet while gathering material.
-- LAN sync: pair two devices on the same network with a short code, then send clips or whole categories directly between them — end-to-end encrypted, never routed through any server.
+- Cross-device sync: pair two devices across the internet by exchanging a one-time invite ticket — clipboard content travels directly between them with end-to-end encryption (QUIC + NAT hole punching, relayed as ciphertext when punching fails); no cloud account needed, with multi-device management, revocation, and automatic reconnection.
 - Quick actions: save shell commands as one-keystroke panel actions, with optional confirmation, streamed output, and JSON import/export.
 - Configurable preferences: retention period, panel layout, default open behavior, global shortcut, language, and OCR mode.
 - Optional self-hosted sync: sync only saved categories and saved text-like content; raw clipboard history stays local.
@@ -82,7 +82,7 @@ iPaste is local-first by default.
 
 - Automatically captured clipboard history is not uploaded or synced.
 - Local data is stored in a SQLite database under the system app data directory.
-- LAN sync transfers content directly between your own devices over the local network. Sessions are protected by a pairing code and end-to-end encryption (X25519 key exchange, AES-256-GCM); no server is involved.
+- Cross-device sync transfers content directly between your own devices across the internet. Trust is established with a one-time invite ticket; transport is end-to-end encrypted via QUIC TLS (NAT hole punching, with a relay forwarding only ciphertext when punching fails); no cloud account is involved.
 - When cloud sync is enabled, only categories and saved text, link, color, and HTML entries are synced.
 - Image and file snippets are currently excluded from the cloud sync payload.
 - Cloud sync requires your own API address and API key.
@@ -186,7 +186,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
 | `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
@@ -213,9 +213,9 @@ History items and saved category items are different concepts. History items exp
 
 The desktop app can connect to a self-hosted iPaste sync API using an API address and API key in Preferences. Sync scope includes categories and saved text-like category items. The sync service source will be open-sourced when it is ready.
 
-### LAN Sync
+### Cross-Device Sync
 
-Two iPaste instances on the same network can pair with a short code. One device hosts a session; the other joins by address and code. Both sides confirm the pairing before any transfer. Clips and whole categories flow directly between the devices over an encrypted session — a category that does not exist on the receiving side is created automatically.
+Two iPaste instances pair by exchanging a one-time invite ticket: one device creates the invite, the other joins with the ticket, and both sides confirm before any transfer. Devices connect directly across the internet over QUIC (NAT hole punching; a relay forwards only ciphertext when punching fails), and clips and whole categories flow between paired devices — a category that does not exist on the receiving side is created automatically. Paired devices can be managed or revoked anytime, and connections reconnect automatically after drops.
 
 ### Quick Actions
 

@@ -1,6 +1,6 @@
 [package]
 name = "ipaste"
-version = "0.8.12"
+version = "0.9.0"
 description = "A local-first tray clipboard manager for macOS and Windows."
 authors = ["iPaste Contributors"]
 license = "Apache-2.0"
@@ -28,18 +28,15 @@ path = "src/bin/mocr_engine.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# v5 起应用层帧为明文 JSON，传输加密由 QUIC TLS 承担；aes-gcm/zeroize 仅为
+# iroh(noq-proto)/keyring/rustls 等的传递依赖锚点保留，业务代码不再直接使用
 aes-gcm = "0.10"
-# 仅用于启用 aes 的 zeroize feature（feature 全图合并）：Aes256Gcm 的密钥编排
-# 会在 drop 时清零，配合 crypto.rs 里 Zeroizing 的会话密钥消除内存残留
-aes = { version = "0.8", features = ["zeroize"] }
 zeroize = "1"
 arboard = "3.6.1"
 base64 = "0.22.1"
 chrono = { version = "0.4", features = ["serde"] }
 enigo = "0.6.1"
 getrandom = "0.2"
-hkdf = "0.12"
-hmac = "0.12"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
@@ -64,7 +61,6 @@ hostname = "0.4"
 # 会解出 0.61.x 与 0.62.x 混搭的不兼容组合导致 wmi 编译失败；0.18.1 两者均
 # 锁 ^0.62，勿盲目 `cargo update -p wmi` 升回去。
 iroh = "1.0.3"
-x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
 ts-rs = "12"
 
 [target.'cfg(windows)'.dependencies]

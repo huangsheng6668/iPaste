@@ -21,7 +21,7 @@ iPaste はシステムトレイに常駐し、クリップボード履歴をロ�
 - 保存カテゴリ: コード、コマンド、住所、返信テンプレート、プロンプトなど、再利用するスニペットを保存できます。
 - 画像ビューア: プレビュー、ズーム、回転、クリップボードへのコピー、OCR によるテキスト抽出に対応します。
 - 追記コピー: 資料を集める間、複数回コピーしたテキストを一つのスニペットに一時的に結合できます。
-- LAN 同期: 同じネットワーク上の 2 台のデバイスを短いコードでペアリングし、クリップやカテゴリ全体を端末間で直接送信できます。エンドツーエンドで暗号化され、サーバーを経由しません。
+- クロスデバイス同期: 2 台のデバイスが使い捨ての招待チケットを交換するだけでインターネット経由で信頼関係を築き、クリップボードの内容をエンドツーエンド暗号化で直接送受信できます（QUIC + NAT ホールパンチ、失敗時はリレーが暗号文のみ中継）。クラウドアカウント不要で、複数デバイスの管理・取り消し・自動再接続に対応します。
 - クイックアクション: シェルコマンドをパネルからワンキーで実行するアクションとして保存できます。確認ダイアログ、出力ストリーミング、JSON のインポート/エクスポートに対応します。
 - 設定可能な環境設定: 保持期間、パネルレイアウト、既定の起動動作、グローバルショートカット、言語、OCR モードを設定できます。
 - 任意のセルフホスト同期: 保存カテゴリと保存済みのテキスト系コンテンツのみを同期し、生のクリップボード履歴はローカルに残します。
@@ -66,7 +66,7 @@ iPaste は既定でローカルファーストです。
 
 - 自動取得されたクリップボード履歴はアップロードも同期もされません。
 - ローカルデータはシステムのアプリデータディレクトリ内の SQLite データベースに保存されます。
-- LAN 同期は、自分のデバイス間でコンテンツをローカルネットワーク経由で直接転送します。セッションはペアリングコードとエンドツーエンド暗号化（X25519 鍵交換、AES-256-GCM）で保護され、サーバーは関与しません。
+- クロスデバイス同期は、自分のデバイス間でインターネット経由の直接転送を行います。信頼は使い捨ての招待チケットで確立し、通信は QUIC TLS によるエンドツーエンド暗号化で保護されます（NAT ホールパンチ失敗時はリレーが暗号文のみ中継）。クラウドアカウントは不要です。
 - クラウド同期を有効にした場合、カテゴリと保存済みのテキスト、リンク、カラー、HTML 項目のみが同期されます。
 - 画像とファイルのスニペットは、現在クラウド同期のペイロードから除外されています。
 - クラウド同期には、自分で用意した API アドレスと API キーが必要です。
@@ -170,7 +170,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
-| `lan_sync/` | LAN device sync: protocol, crypto (X25519 + AES-256-GCM), session loop, host/guest roles, pairing guard |
+| `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
 | `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
@@ -197,9 +197,9 @@ iPaste から貼り付けると、アプリは選択したスニペットをシ�
 
 デスクトップアプリは、Preferences で API アドレスと API キーを設定して、セルフホストの iPaste sync API に接続できます。同期範囲にはカテゴリと保存済みのテキスト系カテゴリ項目が含まれます。同期サービスのソースは準備ができ次第オープンソース化されます。
 
-### LAN Sync
+### クロスデバイス同期
 
-同じネットワーク上の 2 台の iPaste は、短いコードでペアリングできます。片方のデバイスがセッションをホストし、もう片方がアドレスとコードで参加します。転送の前に両側がペアリングを確認します。クリップとカテゴリ全体は暗号化されたセッションを通じてデバイス間で直接やり取りされ、受け取り側に存在しないカテゴリは自動的に作成されます。
+2 台の iPaste は使い捨ての招待チケットでペアリングします。片方のデバイスが招待を作成し、もう片方がチケットで参加し、転送の前に両側が確認します。デバイス間は QUIC でインターネット経由の直接接続となり（NAT ホールパンチ失敗時はリレーが暗号文のみ中継）、クリップとカテゴリ全体がエンドツーエンド暗号化で直接やり取りされ、受け取り側に存在しないカテゴリは自動的に作成されます。ペア済みデバイスはいつでも管理・取り消しでき、切断後は自動で再接続します。
 
 ### Quick Actions
 

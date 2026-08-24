@@ -13,7 +13,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 搜索历史与分类片段；键盘为主的选择与回贴流程。
 - 图片查看器：预览、缩放、复制回剪贴板、OCR 提取文本（macOS 系统 Vision / Windows PaddleOCR 资源）。
 - 追加复制：临时合并多段文本复制。
-- LAN 同步：两台设备配对码互信，加密直传片段与整组分类（v4 挑战握手，不经服务器）。
+- 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
 - 快捷动作：保存 shell 命令为面板动作（可确认、输出流式展示、JSON 导入导出）。
 - 多语言界面与签名自动更新（GitHub Releases / Cloudflare R2）。
@@ -72,7 +72,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `paste.rs`：目标应用激活与触发粘贴（含粘贴编排与快捷键投递）。
 - `automation.rs`：自动化动作的进程执行与事件流。
 - `commands.rs`：向 UI 暴露模块函数的薄 Tauri 命令层（业务编排在域模块中）。
-- `lan_sync/`：LAN 同步（protocol/crypto/session/server/client/commands/port/pair_guard 分层，v4 握手协议见各文件头注释）。
+- `lan_sync/`：跨设备同步（protocol/frame/ticket/session/registry/identity/commands/pair_guard 分层，v5 协议见各文件头注释）。
 
 新增后端功能时：数据模型进 `models.rs`，持久化进 `store/`，平台能力进对应域模块，命令层保持薄壳。跨平台代码用 `#[cfg(target_os = "...")]` 包裹，并保持逐平台 import 与代码块一致。
 
@@ -97,7 +97,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 ## 前端结构
 
 - `stores/ipasteStore.ts`：数据快照缓存与 CRUD 包装；`stores/lib/` 为纯函数库（ordering/selection/settings 清洗/automationFilter/automationTransfer，均带单测）；`stores/uiStore.ts` 为 toast 等瞬态 UI 状态。
-- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useLanSync、useUpdater 等。
+- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useDeviceSync、useUpdater 等。
 - App.vue 保留多窗口路由、面板布局骨架、composable 接线，以及少量面板级残留（条目内联重命名、分类 CRUD 包装、更新检查节流）；新增交互逻辑先进 composable，展示组件保持无业务状态。
 - 错误双通道：加载失败走 store.error 持久横幅；动作失败走 uiStore.pushToast（ErrorToast.vue 渲染）。
 - `lib/env.ts` 是 isTauri 唯一来源；事件名一律用 `types/generated/events` 的 IPASTE_EVENTS。
