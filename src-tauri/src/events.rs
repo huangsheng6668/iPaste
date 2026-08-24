@@ -10,7 +10,7 @@ use ts_rs::TS;
 
 use crate::lan_sync::LanRole;
 use crate::lan_sync::LanStatus;
-use crate::models::AppSettings;
+use crate::models::{AppSettings, DeviceInfo, DeviceOnline};
 
 // —— 剪贴板 / 面板 / 设置（Rust 发起，主窗口监听）——
 pub(crate) const EVENT_CLIPBOARD_CAPTURED: &str = "ipaste://clipboard-captured";
@@ -47,6 +47,17 @@ pub(crate) const EVENT_LAN_CATEGORY_SENT: &str = "ipaste://lan-category-sent";
 pub(crate) const EVENT_LAN_CATEGORY_RECEIVED: &str = "ipaste://lan-category-received";
 pub(crate) const EVENT_LAN_JOIN_FAILED: &str = "ipaste://lan-join-failed";
 
+// —— 跨设备同步（Rust lan_sync v5 发起，设备管理窗口/主窗口监听）——
+pub(crate) const EVENT_DEVICE_LIST_CHANGED: &str = "ipaste://device-list-changed";
+pub(crate) const EVENT_DEVICE_STATUS_CHANGED: &str = "ipaste://device-status-changed";
+pub(crate) const EVENT_PAIR_REQUEST: &str = "ipaste://pair-request";
+pub(crate) const EVENT_PAIR_INVITE_STATE: &str = "ipaste://pair-invite-state";
+pub(crate) const EVENT_PAIR_JOIN_FAILED: &str = "ipaste://pair-join-failed";
+pub(crate) const EVENT_DEVICE_CLIP_RECEIVED: &str = "ipaste://device-clip-received";
+pub(crate) const EVENT_DEVICE_CLIP_RECEIVE_FAILED: &str = "ipaste://device-clip-receive-failed";
+pub(crate) const EVENT_DEVICE_CATEGORY_SENT: &str = "ipaste://device-category-sent";
+pub(crate) const EVENT_DEVICE_CATEGORY_RECEIVED: &str = "ipaste://device-category-received";
+
 // —— 前端发起（useClipEditor 放大窗口 → 主窗口；Rust 不 emit）——
 /// 由前端发起（useClipEditor），Rust 不 emit——加 allow 消除非测试构建的 dead_code 警告。
 #[allow(dead_code)]
@@ -79,6 +90,15 @@ const EVENT_TABLE: &[(&str, &str)] = &[
     ("lanCategorySent", EVENT_LAN_CATEGORY_SENT),
     ("lanCategoryReceived", EVENT_LAN_CATEGORY_RECEIVED),
     ("lanJoinFailed", EVENT_LAN_JOIN_FAILED),
+    ("deviceListChanged", EVENT_DEVICE_LIST_CHANGED),
+    ("deviceStatusChanged", EVENT_DEVICE_STATUS_CHANGED),
+    ("pairRequest", EVENT_PAIR_REQUEST),
+    ("pairInviteState", EVENT_PAIR_INVITE_STATE),
+    ("pairJoinFailed", EVENT_PAIR_JOIN_FAILED),
+    ("deviceClipReceived", EVENT_DEVICE_CLIP_RECEIVED),
+    ("deviceClipReceiveFailed", EVENT_DEVICE_CLIP_RECEIVE_FAILED),
+    ("deviceCategorySent", EVENT_DEVICE_CATEGORY_SENT),
+    ("deviceCategoryReceived", EVENT_DEVICE_CATEGORY_RECEIVED),
     ("clipUpdated", EVENT_CLIP_UPDATED),
 ];
 
@@ -219,6 +239,88 @@ pub(crate) struct LanCategoryReceived {
     pub(crate) failed: u32,
 }
 
+// —— 跨设备同步 payload（Task 6/7 消费；node_id 标识事件来源设备）——
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceListChanged {
+    pub(crate) devices: Vec<DeviceInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceStatusChanged {
+    pub(crate) node_id: String,
+    pub(crate) status: DeviceOnline,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct PairRequested {
+    pub(crate) device_name: String,
+    pub(crate) fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct PairInviteState {
+    pub(crate) ticket: Option<String>,
+    /// epoch 毫秒；None = 无有效邀请。serde 运行时输出 JSON number/null，
+    /// 故按 OcrOverlaySessionStart 先例覆盖 ts-rs 的 u64→bigint 默认
+    /// （type 会整体替换 Option 的 null 分支，需一并写回）。
+    #[ts(type = "number | null")]
+    pub(crate) expires_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct PairJoinFailed {
+    pub(crate) reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceClipReceived {
+    pub(crate) node_id: String,
+    pub(crate) clip_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) category_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceClipReceiveFailed {
+    pub(crate) node_id: String,
+    pub(crate) reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceCategorySent {
+    pub(crate) node_id: String,
+    pub(crate) category_name: String,
+    pub(crate) sent: u32,
+    pub(crate) failed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceCategoryReceived {
+    pub(crate) node_id: String,
+    pub(crate) category_name: String,
+    pub(crate) count: u32,
+    pub(crate) failed: u32,
+}
+
 #[cfg(test)]
 mod export_tests {
     use super::*;
@@ -230,7 +332,7 @@ mod export_tests {
     fn export_bindings_events() {
         // 完整性守护：新增事件常量时必须同步登记到 EVENT_TABLE，否则 events.ts 会静默缺项
         // （CI 新鲜度检查无法发现「从未生成」的缺失）。
-        assert_eq!(EVENT_TABLE.len(), 24, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
+        assert_eq!(EVENT_TABLE.len(), 33, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
         let mut out = String::from(
             "// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.\n\
              // Run `npm run gen:types` to regenerate.\n\
@@ -252,7 +354,7 @@ mod export_tests {
     /// 且重复值会让 `as const` 的键类型静默合并，属最难肉眼发现的错配）。
     #[test]
     fn event_table_covers_all_consts() {
-        assert_eq!(EVENT_TABLE.len(), 24, "事件目录条目数偏离快照，需同步更新此断言");
+        assert_eq!(EVENT_TABLE.len(), 33, "事件目录条目数偏离快照，需同步更新此断言");
         let set: std::collections::HashSet<_> = EVENT_TABLE.iter().map(|(_, v)| *v).collect();
         assert_eq!(set.len(), EVENT_TABLE.len(), "EVENT_TABLE 存在重复的事件值");
     }

@@ -25,6 +25,15 @@ export const IPASTE_EVENTS = {
   lanCategorySent: "ipaste://lan-category-sent",
   lanCategoryReceived: "ipaste://lan-category-received",
   lanJoinFailed: "ipaste://lan-join-failed",
+  deviceListChanged: "ipaste://device-list-changed",
+  deviceStatusChanged: "ipaste://device-status-changed",
+  pairRequest: "ipaste://pair-request",
+  pairInviteState: "ipaste://pair-invite-state",
+  pairJoinFailed: "ipaste://pair-join-failed",
+  deviceClipReceived: "ipaste://device-clip-received",
+  deviceClipReceiveFailed: "ipaste://device-clip-receive-failed",
+  deviceCategorySent: "ipaste://device-category-sent",
+  deviceCategoryReceived: "ipaste://device-category-received",
   clipUpdated: "ipaste://clip-updated",
 } as const;
 
