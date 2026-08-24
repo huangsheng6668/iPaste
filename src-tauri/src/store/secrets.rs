@@ -6,6 +6,7 @@ use keyring::Entry;
 
 const SERVICE: &str = "iPaste";
 const ACCOUNT: &str = "cloud_api_key";
+const ACCOUNT_DEVICE: &str = "device_sync_secret";
 
 fn entry() -> Result<Entry, String> {
     keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| format!("无法访问系统凭据库：{e}"))
@@ -26,6 +27,32 @@ pub(crate) fn get_api_key() -> Result<Option<String>, String> {
 /// 幂等删除：条目不存在视为成功（如从未配置过云同步）。
 pub(crate) fn delete_api_key() -> Result<(), String> {
     match entry()?.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
+    }
+}
+
+fn device_entry() -> Result<Entry, String> {
+    keyring::Entry::new(SERVICE, ACCOUNT_DEVICE).map_err(|e| format!("无法访问系统凭据库：{e}"))
+}
+
+pub(crate) fn put_device_secret(value: &str) -> Result<(), String> {
+    device_entry()?.set_password(value).map_err(|e| format!("写入系统凭据库失败：{e}"))
+}
+
+pub(crate) fn get_device_secret() -> Result<Option<String>, String> {
+    match device_entry()?.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
+    }
+}
+
+/// 测试清理用；生产代码不调用（设备身份条目跟随 app 卸载清除）。
+#[cfg(test)]
+pub(crate) fn delete_device_secret() -> Result<(), String> {
+    match device_entry()?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
@@ -137,5 +164,16 @@ mod tests {
         delete_api_key().unwrap();
         assert_eq!(get_api_key().unwrap(), None);
         delete_api_key().unwrap(); // 幂等
+    }
+
+    #[test]
+    fn device_secret_roundtrips_via_secret_store() {
+        let _store = temp_store();
+        delete_device_secret().unwrap();
+        assert_eq!(get_device_secret().unwrap(), None);
+        put_device_secret("ab").unwrap();
+        assert_eq!(get_device_secret().unwrap().as_deref(), Some("ab"));
+        delete_device_secret().unwrap();
+        assert_eq!(get_device_secret().unwrap(), None);
     }
 }

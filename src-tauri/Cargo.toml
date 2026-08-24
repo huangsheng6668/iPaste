@@ -59,6 +59,11 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 thiserror = "2"
 hostname = "0.4"
+# 跨设备同步传输层（iroh，协议 v5）。注意：传递依赖 wmi 已在 Cargo.lock 钉在
+# 0.18.1——0.18.4 的 windows/windows-core 版本区间过宽（>=0.59,<0.63），Cargo
+# 会解出 0.61.x 与 0.62.x 混搭的不兼容组合导致 wmi 编译失败；0.18.1 两者均
+# 锁 ^0.62，勿盲目 `cargo update -p wmi` 升回去。
+iroh = "1.0.3"
 x25519-dalek = { version = "2", features = ["getrandom", "static_secrets"] }
 ts-rs = "12"
 

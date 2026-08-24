@@ -8,7 +8,7 @@ mod clips;
 mod categories;
 mod sync;
 mod automations;
-mod secrets;
+pub(crate) mod secrets; // lan_sync::identity 读写设备身份私钥
 pub(crate) mod rows;
 
 #[cfg(test)]

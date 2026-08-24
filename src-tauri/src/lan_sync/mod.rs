@@ -6,6 +6,7 @@ pub(crate) mod commands; // Task 6
 pub(crate) mod port;     // Task 2: 跨平台端口占用检测
 pub(crate) mod pair_guard; // Task 2: 按 IP 防爆破
 pub(crate) mod crypto;   // Task 3: 加密原语与加密会话帧
+pub(crate) mod identity; // Task 1: 设备身份（iroh SecretKey），Task 7 接线
 
 pub(crate) use port::PortConflict;
 
