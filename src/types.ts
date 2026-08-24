@@ -36,20 +36,6 @@ import type { ImageOcrResult } from "./types/generated/ImageOcrResult";
 import type { ImageOcrWord } from "./types/generated/ImageOcrWord";
 import type { ScreenshotSelection } from "./types/generated/ScreenshotSelection";
 import type { OcrResultPayload } from "./types/generated/OcrResultPayload";
-import type { LanRole } from "./types/generated/LanRole";
-import type { LanStatus } from "./types/generated/LanStatus";
-import type { LanSessionInfo } from "./types/generated/LanSessionInfo";
-import type { ClipSource } from "./types/generated/ClipSource";
-import type { LanPairRequest } from "./types/generated/LanPairRequest";
-import type { LanSessionReady } from "./types/generated/LanSessionReady";
-import type { LanDisconnected } from "./types/generated/LanDisconnected";
-import type { LanClipReceived } from "./types/generated/LanClipReceived";
-import type { LanJoinFailed } from "./types/generated/LanJoinFailed";
-import type { LanClipReceiveFailed } from "./types/generated/LanClipReceiveFailed";
-import type { LanGuestRejected } from "./types/generated/LanGuestRejected";
-import type { LanCategorySent } from "./types/generated/LanCategorySent";
-import type { LanCategoryReceived } from "./types/generated/LanCategoryReceived";
-import type { PortConflict } from "./types/generated/PortConflict";
 import type { ListeningChanged } from "./types/generated/ListeningChanged";
 import type { AppendCopyChanged } from "./types/generated/AppendCopyChanged";
 import type { PanelVisibilityChanged } from "./types/generated/PanelVisibilityChanged";
@@ -100,9 +86,7 @@ export type AutomationAction = Omit<AutomationActionGen, "lastRun"> & { lastRun:
 
 export type { AppInfo, AutomationInput, CloudSettings, ClipUpdate, OcrInstallProgress, ImageOcrResult, ImageOcrWord };
 export type { ScreenshotSelection, OcrResultPayload };
-export type { LanRole, LanStatus, LanSessionInfo, PortConflict, Category };
-export type { LanPairRequest, LanSessionReady, LanDisconnected, LanClipReceived, LanJoinFailed };
-export type { LanClipReceiveFailed, LanGuestRejected, LanCategorySent, LanCategoryReceived };
+export type { Category };
 
 // —— 事件 payload（沿用旧名）——
 
@@ -111,15 +95,6 @@ export type ListeningChangedEvent = ListeningChanged;
 export type AppendCopyChangedEvent = AppendCopyChanged;
 export type SettingsChangedEvent = Omit<SettingsChanged, "settings"> & { settings: AppSettings };
 export type PanelVisibilityChangedEvent = PanelVisibilityChanged;
-
-// —— LAN 事件 payload（沿用旧名）——
-
-export type LanClipReceivedEvent = LanClipReceived;
-export type LanCategorySentEvent = LanCategorySent;
-export type LanCategoryReceivedEvent = LanCategoryReceived;
-export type LanPairRequestEvent = LanPairRequest;
-
-export type LanClipSource = ClipSource;
 
 // —— 纯前端类型（Rust 侧无对应物）——
 

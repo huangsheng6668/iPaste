@@ -49,12 +49,7 @@ use crate::commands::{
     set_main_window_dragging, start_main_window_drag, apply_clip,
 };
 use crate::events::EVENT_SHORTCUT_OPENED;
-use crate::lan_sync::commands::{
-    lan_create_session, lan_join_by_address, lan_accept_pair, lan_send_clip, lan_send_category,
-    lan_request_clip, lan_disconnect, lan_get_state, open_lan_sync, lan_get_port_conflict,
-    lan_kill_port_process, lan_quit_app,
-};
-use crate::lan_sync::LanSessionManager;
+use crate::lan_sync::commands::open_lan_sync;
 use crate::models::{AppendCopyState, AppState, MainWindowActivation};
 use crate::paste::{current_main_window_activation, remember_target_app_for_paste};
 use crate::shortcut::{register_app_shortcut, shortcut_matches};
@@ -240,18 +235,7 @@ pub fn run() {
             set_main_window_dragging,
             start_main_window_drag,
             apply_clip,
-            lan_create_session,
-            lan_join_by_address,
-            lan_accept_pair,
-            lan_send_clip,
-            lan_send_category,
-            lan_request_clip,
-            lan_disconnect,
-            lan_get_state,
-            open_lan_sync,
-            lan_get_port_conflict,
-            lan_kill_port_process,
-            lan_quit_app
+            open_lan_sync
         ])
         .setup(|app| {
             app.handle()
@@ -337,9 +321,6 @@ pub fn run() {
             );
 
             app.manage(state);
-            app.manage(std::sync::Arc::new(LanSessionManager::new(
-                app.handle().clone(),
-            )));
             build_tray(
                 app.handle(),
                 show_menu_item,

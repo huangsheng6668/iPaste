@@ -8,8 +8,6 @@
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::lan_sync::LanRole;
-use crate::lan_sync::LanStatus;
 use crate::models::{AppSettings, DeviceInfo, DeviceOnline};
 
 // —— 剪贴板 / 面板 / 设置（Rust 发起，主窗口监听）——
@@ -35,17 +33,6 @@ pub(crate) const EVENT_MOCR_INSTALL_PROGRESS: &str = "ipaste://mocr-install-prog
 pub(crate) const EVENT_AUTOMATION_RUN_STARTED: &str = "ipaste://automation-run-started";
 pub(crate) const EVENT_AUTOMATION_RUN_OUTPUT: &str = "ipaste://automation-run-output";
 pub(crate) const EVENT_AUTOMATION_RUN_FINISHED: &str = "ipaste://automation-run-finished";
-
-// —— LAN 同步（Rust lan_sync 发起，LAN 面板/主窗口监听）——
-pub(crate) const EVENT_LAN_SESSION_READY: &str = "ipaste://lan-session-ready";
-pub(crate) const EVENT_LAN_DISCONNECTED: &str = "ipaste://lan-disconnected";
-pub(crate) const EVENT_LAN_PAIR_REQUEST: &str = "ipaste://lan-pair-request";
-pub(crate) const EVENT_LAN_GUEST_REJECTED: &str = "ipaste://lan-guest-rejected";
-pub(crate) const EVENT_LAN_CLIP_RECEIVED: &str = "ipaste://lan-clip-received";
-pub(crate) const EVENT_LAN_CLIP_RECEIVE_FAILED: &str = "ipaste://lan-clip-receive-failed";
-pub(crate) const EVENT_LAN_CATEGORY_SENT: &str = "ipaste://lan-category-sent";
-pub(crate) const EVENT_LAN_CATEGORY_RECEIVED: &str = "ipaste://lan-category-received";
-pub(crate) const EVENT_LAN_JOIN_FAILED: &str = "ipaste://lan-join-failed";
 
 // —— 跨设备同步（Rust lan_sync v5 发起，设备管理窗口/主窗口监听）——
 pub(crate) const EVENT_DEVICE_LIST_CHANGED: &str = "ipaste://device-list-changed";
@@ -81,15 +68,6 @@ const EVENT_TABLE: &[(&str, &str)] = &[
     ("automationRunStarted", EVENT_AUTOMATION_RUN_STARTED),
     ("automationRunOutput", EVENT_AUTOMATION_RUN_OUTPUT),
     ("automationRunFinished", EVENT_AUTOMATION_RUN_FINISHED),
-    ("lanSessionReady", EVENT_LAN_SESSION_READY),
-    ("lanDisconnected", EVENT_LAN_DISCONNECTED),
-    ("lanPairRequest", EVENT_LAN_PAIR_REQUEST),
-    ("lanGuestRejected", EVENT_LAN_GUEST_REJECTED),
-    ("lanClipReceived", EVENT_LAN_CLIP_RECEIVED),
-    ("lanClipReceiveFailed", EVENT_LAN_CLIP_RECEIVE_FAILED),
-    ("lanCategorySent", EVENT_LAN_CATEGORY_SENT),
-    ("lanCategoryReceived", EVENT_LAN_CATEGORY_RECEIVED),
-    ("lanJoinFailed", EVENT_LAN_JOIN_FAILED),
     ("deviceListChanged", EVENT_DEVICE_LIST_CHANGED),
     ("deviceStatusChanged", EVENT_DEVICE_STATUS_CHANGED),
     ("pairRequest", EVENT_PAIR_REQUEST),
@@ -160,83 +138,6 @@ pub(crate) struct OcrOverlaySessionStart {
     pub(crate) frame_path: String,
     #[ts(type = "number")]
     pub(crate) timestamp: u64,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanPairRequest {
-    pub(crate) guest_id: String,
-    pub(crate) device_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanSessionReady {
-    pub(crate) peer_device_name: String,
-    pub(crate) role: LanRole,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanDisconnected {
-    pub(crate) reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanClipReceived {
-    pub(crate) clip_type: String,
-    /// 收到的是分组条目时，携带分组名；历史/无分组条目为 None。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) category_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanJoinFailed {
-    pub(crate) reason: String,
-}
-
-/// 接收对端推送的条目时落库/解析失败发出（接收侧诊断事件）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanClipReceiveFailed {
-    pub(crate) reason: String,
-}
-
-/// host 因非 Hosting 态拒绝 guest 时发出（host 侧事件）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanGuestRejected {
-    pub(crate) guest_device_name: String,
-    pub(crate) host_status: LanStatus,
-}
-
-/// 发送端整组发送完成（`lan_send_category` 结束时发出）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanCategorySent {
-    pub(crate) category_name: String,
-    pub(crate) sent: u32,
-    pub(crate) failed: u32,
-}
-
-/// 接收端整组接收完成（收到 CategoryBatchEnd 后发出）。
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub(crate) struct LanCategoryReceived {
-    pub(crate) category_name: String,
-    pub(crate) count: u32,
-    pub(crate) failed: u32,
 }
 
 // —— 跨设备同步 payload（Task 6/7 消费；node_id 标识事件来源设备）——
@@ -332,7 +233,7 @@ mod export_tests {
     fn export_bindings_events() {
         // 完整性守护：新增事件常量时必须同步登记到 EVENT_TABLE，否则 events.ts 会静默缺项
         // （CI 新鲜度检查无法发现「从未生成」的缺失）。
-        assert_eq!(EVENT_TABLE.len(), 33, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
+        assert_eq!(EVENT_TABLE.len(), 24, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
         let mut out = String::from(
             "// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.\n\
              // Run `npm run gen:types` to regenerate.\n\
@@ -354,7 +255,7 @@ mod export_tests {
     /// 且重复值会让 `as const` 的键类型静默合并，属最难肉眼发现的错配）。
     #[test]
     fn event_table_covers_all_consts() {
-        assert_eq!(EVENT_TABLE.len(), 33, "事件目录条目数偏离快照，需同步更新此断言");
+        assert_eq!(EVENT_TABLE.len(), 24, "事件目录条目数偏离快照，需同步更新此断言");
         let set: std::collections::HashSet<_> = EVENT_TABLE.iter().map(|(_, v)| *v).collect();
         assert_eq!(set.len(), EVENT_TABLE.len(), "EVENT_TABLE 存在重复的事件值");
     }

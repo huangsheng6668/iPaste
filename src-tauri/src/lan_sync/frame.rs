@@ -5,7 +5,7 @@
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::lan_sync::proto::{LanMessage, LAN_MAX_PAYLOAD};
+use crate::lan_sync::protocol::{LanMessage, LAN_MAX_PAYLOAD};
 
 pub(crate) struct FrameReader<R> {
     read: R,

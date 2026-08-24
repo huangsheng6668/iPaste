@@ -18,13 +18,10 @@ import type {
   ClipViewerPayload,
   ClipViewItem,
   ImageOcrResult,
-  LanClipSource,
-  LanSessionInfo,
   Language,
   OcrMode,
   OcrInstallStatus,
   OcrResultPayload,
-  PortConflict,
   ScreenshotSelection,
   SearchResult,
 } from "../types";
@@ -545,45 +542,10 @@ export const ipasteApi = {
       autoRecognize,
     });
   },
-  lanCreateSession(code: string | null = null) {
-    return call<LanSessionInfo>("lan_create_session", { code }, {
-      role: "host", status: "hosting", code: code ?? "ABC123", listenAddr: "127.0.0.1:45130", peerDeviceName: null,
-    });
-  },
-  lanJoinByAddress(address: string, code: string) {
-    return call<void>("lan_join_by_address", { address, code });
-  },
-  lanAcceptPair(accept: boolean) {
-    return call<void>("lan_accept_pair", { accept });
-  },
-  lanSendClip(source: LanClipSource) {
-    return call<void>("lan_send_clip", { source });
-  },
-  lanSendCategory(categoryId: string) {
-    return call<{ categoryName: string; sent: number; failed: number }>("lan_send_category", { categoryId });
-  },
-  lanRequestClip() {
-    return call<void>("lan_request_clip");
-  },
-  lanDisconnect() {
-    return call<void>("lan_disconnect");
-  },
-  lanGetState() {
-    return call<LanSessionInfo>("lan_get_state", undefined, {
-      role: null, status: "idle", code: null, listenAddr: null, peerDeviceName: null,
-    });
-  },
+  // LAN 同步 v5 迁移占位：v4 的 lan_* 会话命令封装已随 TCP 传输栈移除，
+  // Task 8 以 iroh 会话命令重写后回填此处。
   openLanSync() {
     return call<void>("open_lan_sync");
-  },
-  lanGetPortConflict() {
-    return call<PortConflict | null>("lan_get_port_conflict", undefined, null);
-  },
-  lanKillPortProcess(pid: number) {
-    return call<void>("lan_kill_port_process", { pid });
-  },
-  lanQuitApp() {
-    return call<void>("lan_quit_app");
   },
   listAutomations() {
     if (!isTauri) return Promise.resolve(structuredClone(mockAutomations));
