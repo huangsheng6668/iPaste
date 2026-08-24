@@ -1,20 +1,18 @@
 //! lan_sync 模块根：v5 明文协议（iroh QUIC TLS 承担传输加密）。
 //!
 //! v4 TCP 会话状态机（LanSessionManager/LanRole/LanStatus 等）已在协议 v5
-//! 迁移中移除；Task 7 以 DeviceLinkRegistry（iroh 端点 + 连接登记）重建会话编排，
-//! Task 8 重写命令层（commands.rs 占位中）。
+//! 迁移中移除；会话编排由 DeviceLinkRegistry（iroh 端点 + 连接登记）承担，
+//! 命令层见 commands.rs（lib.rs setup 构造并 manage registry）。
 
 pub(crate) mod protocol;
 pub(crate) mod session;    // v5 泛型明文会话循环（registry 接线）
-pub(crate) mod commands;   // 占位：Task 8 以 iroh 会话命令重写
+pub(crate) mod commands;   // Tauri 命令层：设备管理 + 票据配对 + 定向发送
 pub(crate) mod pair_guard; // 配对防爆破（registry 配对门消费）
 pub(crate) mod identity;   // 设备身份（iroh SecretKey）
 pub(crate) mod frame;      // 泛型帧编解码（iroh 无耦合）
 pub(crate) mod ticket;     // 配对票据 + 一次性邀请登记
-pub(crate) mod registry;   // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（Task 8 命令层消费）
+pub(crate) mod registry;   // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（命令层消费）
 
-// Task 8 的命令层接线前无消费方，先压制 unused 导入告警。
-#[allow(unused_imports)]
 pub use registry::DeviceLinkRegistry;
 
 use std::sync::Arc;
@@ -30,8 +28,7 @@ pub(crate) trait LanEventSink: Send + Sync + 'static {
 }
 
 /// 生产事件出口：经真实 AppHandle emit 到前端。
-/// Task 8 的 lib.rs setup 经 `tauri_event_sink` 构造并注入各组件。
-#[allow(dead_code)]
+/// lib.rs setup 经 `tauri_event_sink` 构造并注入各组件。
 pub(crate) struct TauriEventSink {
     app: AppHandle,
 }
@@ -42,14 +39,13 @@ impl LanEventSink for TauriEventSink {
     }
 }
 
-/// 生产事件出口构造器（Task 8 的 lib.rs 接线消费）。
-#[allow(dead_code)]
+/// 生产事件出口构造器（lib.rs setup 接线消费）。
 pub(crate) fn tauri_event_sink(app: AppHandle) -> Arc<dyn LanEventSink> {
     Arc::new(TauriEventSink { app })
 }
 
 /// 测试事件出口：空操作。
-#[allow(dead_code)] // 仅测试构造；Task 7/8 的生产路径用 TauriEventSink
+#[allow(dead_code)] // 仅测试构造（session.rs 等）；生产路径用 TauriEventSink
 pub(crate) struct NoopEventSink;
 
 impl LanEventSink for NoopEventSink {
@@ -59,7 +55,6 @@ impl LanEventSink for NoopEventSink {
 #[derive(Debug, Clone, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 #[ts(export)]
-#[allow(dead_code)] // Task 8 的发送命令（lan_send_clip 系列）消费
 pub(crate) enum ClipSource {
     Current,
     Item { id: String },
@@ -72,9 +67,9 @@ pub(crate) enum ClipSource {
     },
 }
 
-/// session loop 的控制指令。构造方（发送/断开命令）在 Task 8 回填 commands.rs。
+/// session loop 的控制指令。发送/断开类由 DeviceLinkRegistry 分发，
+/// 会话循环（session.rs）消费。
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) enum ControlMsg {
     /// 开始分组批量发送：session loop 先写 `CategoryBatchStart` 帧，随后
     /// 逐条 `SendClip`，最后 `BatchEnd` 写 `CategoryBatchEnd` 帧。
@@ -96,11 +91,14 @@ pub(crate) enum ControlMsg {
         display_name: Option<String>,
     },
     RequestClip,
+    /// 本地主动断开。v5 的 registry 经 drop 控制通道触发同一会话退出路径
+    ///（session loop 的 `None` 分支与此共用发 Disconnect 帧的 arm），
+    /// 目前无构造方，保留给显式断开语义。
+    #[allow(dead_code)]
     Disconnect,
 }
 
-/// 本机设备名（host 名兜底 iPaste-device）。Task 7 的配对流程消费。
-#[allow(dead_code)]
+/// 本机设备名（host 名兜底 iPaste-device）。配对流程消费。
 pub(crate) fn device_name() -> String {
     hostname::get()
         .ok()

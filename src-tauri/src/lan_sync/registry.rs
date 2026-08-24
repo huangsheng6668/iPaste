@@ -11,10 +11,6 @@
 //! 锁纪律：`links`/`invites`/`pending_pair`/`accept_task` 是 std `Mutex`，只在
 //! 无 `.await` 的短临界区内持有；跨 await 的共享一律 clone 出来再操作。
 
-// Task 8 的 lib.rs/命令层接线前暂无生产调用方（与 pair_guard 同理，整体 allow，
-// 接线后移除）。
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1110,18 +1106,20 @@ async fn reply_reject(send: &mut SendStream, reason: PairRejectReason) {
 
 /// 图片条目可发送的最大原始文件字节数：data url 前缀 + base64 放大（4/3）后
 /// 不得超过 `LAN_MAX_PAYLOAD`，否则对端会在帧解析时拒收。
-fn max_sendable_image_bytes() -> u64 {
+/// 命令层（commands.rs 的单条发送装配）与整组发送共用。
+pub(crate) fn max_sendable_image_bytes() -> u64 {
     let expanded = (LAN_MAX_PAYLOAD - "data:image/png;base64,".len()) as u64;
     expanded / 4 * 3
 }
 
-/// 把待发送的条目内容编码成同步 payload 字节（v4 lan_send_category 原样迁移）。
+/// 把待发送的条目内容编码成同步 payload 字节（v4 lan_send_clip/lan_send_category
+/// 原样迁移；命令层单条发送与整组发送共用）。
 ///
 /// - 文本类条目：`text` 即原文，直接转 UTF-8 字节。
 /// - 图片类条目：DB 里 `text` 存的是本地文件路径，读回字节并编码成自包含的
 ///   `data:image/png;base64,...`（对端机器上不存在该文件），接收侧
 ///   `captured_item_from_payload` 能解码。
-fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>, String> {
     if clip_type == "image" {
         // 读文件前先查大小：超限文件编码后必被对端拒收，整文件读入只浪费内存
         let file_len = std::fs::metadata(text)
@@ -1218,6 +1216,78 @@ mod tests {
         );
         assert_eq!(reconnect_backoff(6), Duration::from_secs(300));
         assert_eq!(reconnect_backoff(100), Duration::from_secs(300));
+    }
+
+    /// build_send_payload：文本条目直接转 UTF-8 字节。
+    #[test]
+    fn build_send_payload_text_returns_utf8_bytes() {
+        let payload = build_send_payload("text", "hello-api-key").unwrap();
+        assert_eq!(payload, b"hello-api-key");
+    }
+
+    /// build_send_payload：图片条目读回文件并编码成自包含 data url。
+    #[test]
+    fn build_send_payload_image_reads_file_and_encodes_data_url() {
+        use crate::clipboard::image_bytes_from_data_url;
+
+        // 建一个临时 png 文件模拟 DB 里图片条目的 text（文件路径）。
+        let dir = std::env::temp_dir().join(format!("ipaste-send-payload-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png_path = dir.join("img.png");
+        // 1x1 透明 png 的最小字节
+        let png_bytes = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // png signature
+        ];
+        std::fs::write(&png_path, png_bytes).unwrap();
+
+        let payload = build_send_payload("image", png_path.to_str().unwrap()).unwrap();
+        let text = String::from_utf8(payload).unwrap();
+        assert!(
+            text.starts_with("data:image/png;base64,"),
+            "图片 payload 应是 data url，实际：{text}"
+        );
+        // 解码回来的字节与原文件一致
+        let decoded = image_bytes_from_data_url(&text).unwrap();
+        assert_eq!(decoded, png_bytes);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// build_send_payload：文件缺失返回可读错误，而非 panic 或发空 payload。
+    #[test]
+    fn build_send_payload_image_missing_file_errors() {
+        let result = build_send_payload("image", "/definitely/not/here/xyz.png");
+        assert!(result.is_err());
+    }
+
+    /// build_send_payload：超限图片在读文件前拒绝，避免无意义的整文件读入
+    /// 与注定失败的传输。
+    #[test]
+    fn build_send_payload_rejects_image_exceeding_frame_limit() {
+        let dir = std::env::temp_dir().join(format!("ipaste-send-limit-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let big_path = dir.join("big.png");
+        std::fs::write(&big_path, vec![0u8; LAN_MAX_PAYLOAD]).unwrap();
+
+        let error = build_send_payload("image", big_path.to_str().unwrap())
+            .expect_err("超限图片应被拒绝");
+        assert!(error.contains("过大"), "got: {error}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// build_send_payload：恰好编码后不超上限的文件可正常构建 payload。
+    #[test]
+    fn build_send_payload_allows_image_at_frame_limit() {
+        let dir = std::env::temp_dir().join(format!("ipaste-send-bound-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("edge.png");
+        std::fs::write(&path, vec![0u8; max_sendable_image_bytes() as usize]).unwrap();
+
+        let payload = build_send_payload("image", path.to_str().unwrap()).unwrap();
+        assert!(payload.len() <= LAN_MAX_PAYLOAD);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// create_invite：票据可解码回本端 EndpointId，emit 的 payload 带 ticket 与

@@ -251,6 +251,44 @@ impl Store {
         .optional()
         .map_err(|error| error.to_string())
     }
+
+    /// 跨设备同步的自定义中继地址（settings 表 KV `sync_relay_url`）。
+    /// None = 使用 n0 默认中继。防御历史脏数据：空白值按未设置处理。
+    pub(crate) fn sync_relay_url(&self) -> Result<Option<String>, String> {
+        let conn = self.connect()?;
+        Ok(self
+            .setting_value_with_conn(&conn, "sync_relay_url")?
+            .filter(|value| !value.trim().is_empty()))
+    }
+
+    /// 更新自定义中继地址：Some 须 `https://` 前缀（明文中继不走加密会被
+    /// iroh 拒连/降级）；None/空白清除（恢复 n0 默认）。写入前 trim，
+    /// 返回落库后的规范化值（空白归一为 None）。变更需重启应用才生效——
+    /// endpoint 在启动时读取该设置绑定，命令层据此返回提示文案。
+    pub(crate) fn update_sync_relay_url(&self, url: Option<&str>) -> Result<Option<String>, String> {
+        let cleaned = url
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if let Some(value) = &cleaned {
+            if !value.starts_with("https://") {
+                return Err("中继地址必须以 https:// 开头".to_string());
+            }
+        }
+        let conn = self.connect()?;
+        match &cleaned {
+            Some(value) => conn
+                .execute(
+                    "INSERT INTO settings (key, value) VALUES ('sync_relay_url', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![value],
+                )
+                .map_err(|error| error.to_string())?,
+            None => conn
+                .execute("DELETE FROM settings WHERE key = 'sync_relay_url'", [])
+                .map_err(|error| error.to_string())?,
+        };
+        Ok(cleaned)
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +329,58 @@ mod tests {
         let s = store.update_shortcut("Alt+S".to_string()).unwrap();
         assert_eq!(s.shortcut, "Alt+S");
         assert_eq!(s.ocr_shortcut, crate::DEFAULT_OCR_SHORTCUT);
+    }
+
+    #[test]
+    fn sync_relay_url_round_trip_and_clear() {
+        let store = temp_store();
+        assert_eq!(store.sync_relay_url().unwrap(), None, "未设置时为 None");
+
+        // 写入会 trim；往返读回一致
+        let saved = store
+            .update_sync_relay_url(Some("  https://relay.example.com  "))
+            .unwrap();
+        assert_eq!(saved.as_deref(), Some("https://relay.example.com"));
+        assert_eq!(
+            store.sync_relay_url().unwrap().as_deref(),
+            Some("https://relay.example.com")
+        );
+
+        // 空白 = 清除（恢复 n0 默认）
+        let saved = store.update_sync_relay_url(Some("   ")).unwrap();
+        assert_eq!(saved, None);
+        assert_eq!(store.sync_relay_url().unwrap(), None, "空白清除后读取为 None");
+
+        // 再次写入后显式 None 也清除
+        store.update_sync_relay_url(Some("https://relay2.example.com")).unwrap();
+        let saved = store.update_sync_relay_url(None).unwrap();
+        assert_eq!(saved, None);
+        assert_eq!(store.sync_relay_url().unwrap(), None);
+    }
+
+    #[test]
+    fn sync_relay_url_rejects_non_https() {
+        let store = temp_store();
+        for bad in ["http://relay.example.com", "relay.example.com", "https-relay.example.com"] {
+            let error = store.update_sync_relay_url(Some(bad)).unwrap_err();
+            assert!(error.contains("https"), "got: {error}");
+        }
+        assert_eq!(store.sync_relay_url().unwrap(), None, "拒绝的值不落库");
+    }
+
+    #[test]
+    fn sync_relay_url_blank_stored_value_reads_as_none() {
+        // 防御历史脏数据：库里存了空白串时读取按未设置处理
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('sync_relay_url', '  ')",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(store.sync_relay_url().unwrap(), None);
     }
 }
 

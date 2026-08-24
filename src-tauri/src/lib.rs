@@ -49,7 +49,12 @@ use crate::commands::{
     set_main_window_dragging, start_main_window_drag, apply_clip,
 };
 use crate::events::EVENT_SHORTCUT_OPENED;
-use crate::lan_sync::commands::open_lan_sync;
+use crate::lan_sync::commands::{
+    device_delete, device_disconnect, device_list, device_request_clip, device_revoke,
+    device_send_category, device_send_clip, device_set_auto_sync, open_lan_sync,
+    pairing_cancel_invite, pairing_create_invite, pairing_join, pairing_respond,
+    sync_transport_settings_get, sync_transport_settings_set,
+};
 use crate::models::{AppendCopyState, AppState, MainWindowActivation};
 use crate::paste::{current_main_window_activation, remember_target_app_for_paste};
 use crate::shortcut::{register_app_shortcut, shortcut_matches};
@@ -235,6 +240,20 @@ pub fn run() {
             set_main_window_dragging,
             start_main_window_drag,
             apply_clip,
+            device_list,
+            device_revoke,
+            device_delete,
+            device_disconnect,
+            device_set_auto_sync,
+            pairing_create_invite,
+            pairing_cancel_invite,
+            pairing_join,
+            pairing_respond,
+            device_send_clip,
+            device_send_category,
+            device_request_clip,
+            sync_transport_settings_get,
+            sync_transport_settings_set,
             open_lan_sync
         ])
         .setup(|app| {
@@ -309,6 +328,61 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 main_panel_state: Arc::new(Mutex::new(None)),
             };
+
+            // 跨设备同步：加载设备身份 → 起 iroh endpoint（中继：自定义优先，否则
+            // n0 默认）。setup 是同步闭包而 start 是 async——block_on 对齐现有
+            // async 初始化模式。任何一步失败都只记日志、不 manage registry：
+            // 应用继续运行，命令层对缺失的 registry 优雅报错（见 DeviceRegistryExt）。
+            match lan_sync::identity::load_or_create_device_secret() {
+                Ok(secret) => {
+                    // 存储的中继地址无效/读取失败时回落 n0 默认——不因一条坏设置
+                    // 砖掉整个同步。
+                    let relay_mode = match store.sync_relay_url() {
+                        Ok(Some(url)) => match url.parse::<iroh::RelayUrl>() {
+                            Ok(relay_url) => {
+                                iroh::RelayMode::Custom(iroh::RelayMap::from_iter([relay_url]))
+                            }
+                            Err(error) => {
+                                eprintln!(
+                                    "[lan-sync] 存储的中继地址无效（{url}），回落 n0 默认：{error}"
+                                );
+                                iroh::RelayMode::Default
+                            }
+                        },
+                        Ok(None) => iroh::RelayMode::Default,
+                        Err(reason) => {
+                            eprintln!("[lan-sync] 读取中继设置失败，回落 n0 默认：{reason}");
+                            iroh::RelayMode::Default
+                        }
+                    };
+                    let sink = lan_sync::tauri_event_sink(app.handle().clone());
+                    let sync_store = store.clone();
+                    let registry = tauri::async_runtime::block_on(async move {
+                        lan_sync::DeviceLinkRegistry::start(
+                            secret,
+                            sync_store,
+                            sink,
+                            relay_mode,
+                        )
+                        .await
+                    });
+                    match registry {
+                        Ok(registry) => {
+                            app.manage(registry);
+                        }
+                        Err(reason) => {
+                            eprintln!(
+                                "[lan-sync] 同步服务启动失败（应用继续运行，同步不可用）：{reason}"
+                            );
+                        }
+                    }
+                }
+                Err(reason) => {
+                    eprintln!(
+                        "[lan-sync] 设备身份加载失败（应用继续运行，同步不可用）：{reason}"
+                    );
+                }
+            }
 
             let app_handle = app.handle().clone();
             spawn_clipboard_watcher(
@@ -406,6 +480,11 @@ pub fn run() {
         .run(|_app, event| {
             // 常驻推理子进程不会随应用退出自动终止：退出时显式回收，避免孤儿进程占内存
             if let tauri::RunEvent::Exit = event {
+                // 跨设备同步：停入站接受循环 + 断开全部链路
+                //（endpoint 本体随最后的 Arc 引用释放关闭）
+                if let Some(registry) = _app.try_state::<Arc<lan_sync::DeviceLinkRegistry>>() {
+                    registry.shutdown();
+                }
                 tauri::async_runtime::block_on(crate::ocr::mocr::shutdown_server());
             }
         });
