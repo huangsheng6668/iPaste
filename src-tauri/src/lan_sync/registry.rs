@@ -236,30 +236,25 @@ impl DeviceLinkRegistry {
         self.emit(EVENT_DEVICE_LIST_CHANGED, &DeviceListChanged { devices });
     }
 
-    /// 更新 links 里的在线状态；状态变化才 emit（防重复事件刷屏）。
-    fn set_status(&self, node_id: &str, status: DeviceOnline) {
+    /// link_task 专属的状态写：仅当登记仍是认领时的代次（gen 相同）且无活跃
+    /// 会话（control_tx 为 None）才写，否则 no-op。
+    ///
+    /// 为什么必须 gen-aware：对端重拨落地时，入站 run_session 的收编分支会把
+    /// 登记原子地换成新 gen + 新 control_tx（状态 Connected）。若无条件写状态
+    ///（如会话结束后的 Offline），会把**存活中的入站会话**的状态字段砸成
+    /// Offline——status 又被 has_live_session 当作在线判据时，link_task 误判
+    /// 「无会话」而重拨，双向互踢以 5s 节奏永久震荡。gen 不匹配 = 登记已易主。
+    fn set_status_if_owner(&self, node_id: &str, gen: u64, status: DeviceOnline) {
         {
             let mut links = self.inner.links.lock().expect("links 锁中毒");
-            match links.get_mut(node_id) {
-                Some(handle) => {
-                    if handle.status == status {
-                        return;
-                    }
-                    handle.status = status;
-                }
-                None => {
-                    // 防御：登记缺失时补一条（正常路径 spawn_link_task 已占位）
-                    links.insert(
-                        node_id.to_string(),
-                        LinkHandle {
-                            gen: self.next_gen(),
-                            control_tx: None,
-                            status,
-                            task: None,
-                        },
-                    );
-                }
+            let Some(handle) = links.get_mut(node_id) else { return };
+            if handle.gen != gen || handle.control_tx.is_some() {
+                return; // 登记已易主（新会话收编）或有活跃会话：不覆写
             }
+            if handle.status == status {
+                return; // 状态未变：不重复 emit
+            }
+            handle.status = status;
         }
         self.emit_status(node_id, status);
     }
@@ -622,11 +617,12 @@ impl DeviceLinkRegistry {
 
     /// links 里该设备是否已有「会话在线」的登记（Connected 且控制通道存活）。
     /// 典型场景：对端拨来的入站会话收编了本端登记。
+    /// 判据是 **control_tx 存活**（活跃会话的 sender 在登记里），不看 status——
+    /// status 只是展示层快照，任何遗留/并发的非 gen-aware 写都可能让它短暂失真，
+    /// 拿它当在线判据会重新打开互踢震荡的口子。
     fn has_live_session(&self, node_id: &str) -> bool {
         let links = self.inner.links.lock().expect("links 锁中毒");
-        links.get(node_id).is_some_and(|handle| {
-            handle.status == DeviceOnline::Connected && handle.control_tx.is_some()
-        })
+        links.get(node_id).is_some_and(|handle| handle.control_tx.is_some())
     }
 
     /// 每设备后台任务：循环「拨号 → 会话 → 断开 → 退避重拨」（spec §5）。
@@ -646,7 +642,18 @@ impl DeviceLinkRegistry {
                 tokio::time::sleep(INBOUND_SESSION_POLL).await;
                 continue; // 不增加退避计数：这不是拨号失败
             }
-            self.set_status(&node_id, DeviceOnline::Connecting);
+            // 认领当前登记（无活跃会话时的 gen）作为本轮状态写的所有权凭据。
+            // 拨号期间（最长 15s）若有入站会话收编登记，gen 变化 → 状态写自动 no-op。
+            let claim_gen = {
+                let links = self.inner.links.lock().expect("links 锁中毒");
+                links
+                    .get(&node_id)
+                    .filter(|handle| handle.control_tx.is_none())
+                    .map(|handle| handle.gen)
+            };
+            if let Some(gen) = claim_gen {
+                self.set_status_if_owner(&node_id, gen, DeviceOnline::Connecting);
+            }
             match self
                 .dial(&node_id, device.relay_url.as_deref(), &device.direct_addrs)
                 .await
@@ -654,17 +661,30 @@ impl DeviceLinkRegistry {
                 Ok((conn, send, recv)) => {
                     attempt = 0;
                     self.inner.store.touch_last_seen(&node_id).ok();
-                    self.set_status(&node_id, DeviceOnline::Connected);
+                    if let Some(gen) = claim_gen {
+                        self.set_status_if_owner(&node_id, gen, DeviceOnline::Connected);
+                    }
                     let dead_rx = Self::watch_conn_death(conn.clone());
-                    // run_session 按值拿走 Arc：clone 一份给本次会话
-                    self.clone().run_session(node_id.clone(), recv, send, dead_rx).await;
+                    // run_session 按值拿走 Arc：clone 一份给本次会话；
+                    // 返回本会话的 gen，供会话结束后的 Offline 写做所有权校验
+                    let session_gen = self
+                        .clone()
+                        .run_session(node_id.clone(), recv, send, dead_rx)
+                        .await;
                     conn.close(VarInt::from_u32(0), b"session-end");
+                    // 会话结束：只有登记仍是本会话的 gen（未被入站会话收编）才置
+                    // Offline；被收编则 no-op——存活的入站会话不受影响，link_task
+                    // 在循环顶的 guard 处停靠，不再重拨（Fix：互踢震荡）。
+                    self.set_status_if_owner(&node_id, session_gen, DeviceOnline::Offline);
                 }
                 Err(reason) => {
                     eprintln!("[lan-sync] 拨号 {node_id} 失败：{reason}");
+                    // 拨号失败同样回到 Offline（凭据是认领 gen；期间被收编则 no-op）
+                    if let Some(gen) = claim_gen {
+                        self.set_status_if_owner(&node_id, gen, DeviceOnline::Offline);
+                    }
                 }
             }
-            self.set_status(&node_id, DeviceOnline::Offline);
             tokio::time::sleep(reconnect_backoff(attempt)).await;
             attempt += 1;
         }
@@ -720,13 +740,15 @@ impl DeviceLinkRegistry {
 
     /// 注册并运行一个会话（入站/配对/重拨共用入口）。收编语义：同设备已有旧
     /// 登记时，旧 control_tx 随替换被 drop → 旧会话干净关闭；重拨任务句柄继承。
+    /// 返回本会话的 gen（调用方 link_task 以此做会话后状态写的所有权校验）。
     async fn run_session<R, W>(
         self: Arc<Self>,
         node_hex: String,
         read: R,
         write: W,
         dead: oneshot::Receiver<()>,
-    ) where
+    ) -> u64
+    where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
@@ -775,10 +797,12 @@ impl DeviceLinkRegistry {
         // task 存活（is_finished=false）才有重拨接管者；配对/入站建立的会话没有
         // 任务，或继承的任务已退出（如撤销导致 link_task break）——都走移除+重起。
         let mut remove_entry = false;
+        let mut owned = false;
         {
             let mut links = self.inner.links.lock().expect("links 锁中毒");
             if let Some(handle) = links.get_mut(&node_hex) {
                 if handle.gen == my_gen {
+                    owned = true;
                     let task_alive = handle
                         .task
                         .as_ref()
@@ -800,12 +824,17 @@ impl DeviceLinkRegistry {
                 links.remove(&node_hex);
             }
         }
-        self.emit_status(&node_hex, DeviceOnline::Offline);
+        // Offline 状态事件只在登记仍属于本会话时发：被收编意味着同一设备的
+        // 新会话已在线（收编登记时已发过 Connected），再发 Offline 是假事件。
+        if owned {
+            self.emit_status(&node_hex, DeviceOnline::Offline);
+        }
         self.emit_device_list();
         // 无重拨任务的会话（配对建立）结束：若设备仍可信则起任务接管后续重拨
         if remove_entry && self.inner.store.is_trusted(&node_hex).unwrap_or(false) {
             self.spawn_link_task(node_hex);
         }
+        my_gen
     }
 
     // —— 发送分发 ——
@@ -1474,6 +1503,101 @@ mod tests {
             "在线登记不被 link_task 覆写"
         );
         // 会话结束后（drop 控制通道）跳过条件解除——此处仅验证跳过路径本身可退出
+        task.abort();
+    }
+
+    /// 互踢震荡修复（Fix Round 2）：真实的 run_session 被入站会话收编后结束时，
+    /// 不得覆写存活会话的状态、不得发假日 Offline 事件、link_task 停靠不重拨。
+    /// 这是对「对端重拨落地 → 本端会话死 → 本端 link_task 醒来」完整时序的复刻：
+    /// 旧实现的 set_status(Offline) 在此刻把入站会话的 Connected 砸成 Offline，
+    /// 进而在循环顶骗过 guard 引发重拨互踢。
+    #[tokio::test]
+    async fn superseded_session_end_keeps_inbound_session_and_parks_link_task() {
+        use tokio::io::duplex;
+        let (registry, sink) = test_registry().await;
+        let node = hex32(3);
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "MBP", None, &["203.0.113.1:1".into()])
+            .unwrap();
+
+        // 1) 真实 run_session 在 duplex 流上运行（link_task 的会话入口，非伪造登记）
+        let (client, server) = duplex(4096);
+        let (read_half, write_half) = tokio::io::split(server);
+        let (_dead_tx, dead_rx) = oneshot::channel();
+        let session_registry = registry.clone();
+        let session_node = node.clone();
+        let session = tokio::spawn(async move {
+            session_registry
+                .run_session(session_node, read_half, write_half, dead_rx)
+                .await
+        });
+        let mut polls = 0;
+        let my_gen = loop {
+            let registered = {
+                let links = registry.inner.links.lock().unwrap();
+                links.get(&node).and_then(|handle| {
+                    handle.control_tx.is_some().then_some(handle.gen)
+                })
+            };
+            if let Some(gen) = registered {
+                break gen;
+            }
+            polls += 1;
+            assert!(polls < 100, "会话应在 2s 内注册");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        assert_eq!(registry.device_infos()[0].online, DeviceOnline::Connected);
+
+        // 2) 对端重拨落地：入站会话收编登记（新 gen + 活跃 control_tx + Connected）
+        let (inbound_tx, _inbound_rx) = mpsc::channel(16);
+        let inbound_gen = registry.next_gen();
+        {
+            let mut links = registry.inner.links.lock().unwrap();
+            let handle = links.get_mut(&node).expect("登记存在");
+            handle.gen = inbound_gen;
+            handle.control_tx = Some(inbound_tx);
+            handle.status = DeviceOnline::Connected;
+        }
+
+        // 3) 旧会话结束（收编时其唯一 sender 被 drop → 会话循环收到 None 退出；EOF 兜底）
+        drop(client);
+        let ended_gen = session.await.unwrap();
+        assert_eq!(ended_gen, my_gen, "run_session 应返回本会话的 gen");
+
+        // 4) 登记原封不动：仍是入站会话的 gen + 活跃通道 + Connected
+        {
+            let links = registry.inner.links.lock().unwrap();
+            let handle = links.get(&node).expect("登记未被移除");
+            assert_eq!(handle.gen, inbound_gen);
+            assert!(handle.control_tx.is_some());
+            assert_eq!(
+                handle.status,
+                DeviceOnline::Connected,
+                "被收编的会话结束不得覆写存活会话的状态"
+            );
+        }
+
+        // 5) link_task 会话后的 Offline 写（凭据 = 旧会话 gen）必须 no-op
+        registry.set_status_if_owner(&node, ended_gen, DeviceOnline::Offline);
+        assert_eq!(
+            registry.inner.links.lock().unwrap().get(&node).unwrap().status,
+            DeviceOnline::Connected
+        );
+
+        // 6) 无假日 Offline 事件：至此状态事件只有会话建立时的 Connected 一条
+        let statuses = find_events(&sink, EVENT_DEVICE_STATUS_CHANGED);
+        assert_eq!(statuses.len(), 1, "被收编会话的结束不应发 Offline 事件：{statuses:?}");
+        assert_eq!(statuses[0]["status"].as_str(), Some("connected"));
+
+        // 7) link_task 醒来后在 guard 停靠：不拨号、不再新增状态事件
+        let task = tokio::spawn(registry.clone().link_task(node.clone()));
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let statuses = find_events(&sink, EVENT_DEVICE_STATUS_CHANGED);
+        assert_eq!(statuses.len(), 1, "入站会话在线时 link_task 不得重拨：{statuses:?}");
+        assert!(registry.has_live_session(&node));
+        assert_eq!(registry.device_infos()[0].online, DeviceOnline::Connected);
         task.abort();
     }
 
