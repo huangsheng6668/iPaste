@@ -393,7 +393,7 @@ impl DeviceLinkRegistry {
             return;
         }
         drop(send); // 关配对流（FIN），拨号方随即开第二条（会话）流
-        // 等拨号方开第二条（会话）流
+        // 等拨号方开第二条（会话）流（拨号方开流即发首发帧，见 send_stream_opener）
         let Ok((session_send, session_recv)) = conn.accept_bi().await else { return };
         let dead_rx = Self::watch_conn_death(conn.clone());
         self.run_session(node_hex, session_recv, session_send, dead_rx)
@@ -560,11 +560,14 @@ impl DeviceLinkRegistry {
                 // 重新配对成功：解除此前的「显式断开」标记
                 self.clear_disconnected(&node_hex);
                 drop((send, recv)); // 关配对流（FIN），随后开第二条（会话）流
-                // 拨号方开第二条流（会话流）
-                let (session_send, session_recv) = match conn.open_bi().await {
+                // 拨号方开第二条流（会话流），并立即发首发帧让对端 accept_bi 解除挂起
+                let (mut session_send, session_recv) = match conn.open_bi().await {
                     Ok(pair) => pair,
                     Err(e) => return fail(format!("对方已断开：{e}")),
                 };
+                if let Err(e) = send_stream_opener(&mut session_send).await {
+                    return fail(format!("对方已断开：{e}"));
+                }
                 let dead_rx = Self::watch_conn_death(conn.clone());
                 self.clone()
                     .run_session(node_hex, session_recv, session_send, dead_rx)
@@ -730,7 +733,9 @@ impl DeviceLinkRegistry {
             .await
             .map_err(|_| "连接超时".to_string())?
             .map_err(|e| e.to_string())?;
-        let (send, recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
+        let (mut send, recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
+        // 拨号方首发帧：对端（已配对入站分支）的 accept_bi 才会解除挂起
+        send_stream_opener(&mut send).await?;
         Ok((conn, send, recv))
     }
 
@@ -1094,6 +1099,20 @@ impl DeviceLinkRegistry {
         }
         self.emit_device_list();
     }
+}
+
+/// 拨号方在会话流上的首发帧。iroh 的流语义：仅 `open_bi` 不足以让对端的
+/// `accept_bi` 解除挂起——流上必须先有数据（iroh `Connection` 文档：「Data must
+/// be sent on a stream before the respective accept call at the peer will yield
+/// a RecvStream」）。拨号方开流后立即写一帧 Ping，接受方会话循环读到即回 Pong；
+/// 否则配对/重拨的会话建立要空等 30s 心跳才完成。两处拨号路径（join 的会话流、
+/// dial 的重拨流）共用。
+async fn send_stream_opener(send: &mut SendStream) -> Result<(), String> {
+    let mut writer = FrameWriter::new(send);
+    writer
+        .write_message(&LanMessage::Ping, None)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 配对流上回一帧 PairReject（尽力而为，失败即对端已断开）。
