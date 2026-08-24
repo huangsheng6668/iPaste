@@ -1101,6 +1101,15 @@ impl DeviceLinkRegistry {
     }
 }
 
+/// 测试辅助（集成测试消费）：本端 EndpointId 的 64 字符 hex（即对端眼中的
+/// node_id）。避免测试直接触私有字段。
+#[cfg(test)]
+impl DeviceLinkRegistry {
+    pub(crate) fn inner_endpoint_id_hex_for_test(&self) -> String {
+        hex_encode_32(self.inner.endpoint.id().as_bytes())
+    }
+}
+
 /// 拨号方在会话流上的首发帧。iroh 的流语义：仅 `open_bi` 不足以让对端的
 /// `accept_bi` 解除挂起——流上必须先有数据（iroh `Connection` 文档：「Data must
 /// be sent on a stream before the respective accept call at the peer will yield

@@ -12,6 +12,8 @@ pub(crate) mod identity;   // 设备身份（iroh SecretKey）
 pub(crate) mod frame;      // 泛型帧编解码（iroh 无耦合）
 pub(crate) mod ticket;     // 配对票据 + 一次性邀请登记
 pub(crate) mod registry;   // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（命令层消费）
+#[cfg(test)]
+mod integration_tests; // 双 endpoint 全链路集成测试（QUIC 回环，Task 9）
 
 pub use registry::DeviceLinkRegistry;
 
