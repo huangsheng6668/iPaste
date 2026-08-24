@@ -29,6 +29,7 @@ use crate::events::{
     EVENT_DEVICE_STATUS_CHANGED, EVENT_PAIR_INVITE_STATE, EVENT_PAIR_JOIN_FAILED,
     EVENT_PAIR_REQUEST,
 };
+use crate::lan_sync::autopush::RecentReceived;
 use crate::lan_sync::frame::{FrameReader, FrameWriter};
 use crate::lan_sync::pair_guard::PairGuard;
 use crate::lan_sync::protocol::{
@@ -113,6 +114,9 @@ struct Inner {
     /// 用户显式断开的设备（node_id hex）：已配对也静默拒绝入站会话、本端不重拨。
     /// 仅内存态——重启即清空（与「重新配对或重启应用后恢复」语义一致）。
     disconnected: Mutex<HashSet<String>>,
+    /// 最近接收哈希滑窗（registry 级单例）：auto 接收路径登记，Task 3 的发送侧
+    /// 扇出经同一实例防回推。
+    recent: Arc<RecentReceived>,
     /// 中继是否禁用（RelayMode::Disabled）：禁用时 create_invite 无需等待 online。
     relay_disabled: bool,
     /// 入站接受循环任务句柄（shutdown 时 abort）。
@@ -210,6 +214,7 @@ impl DeviceLinkRegistry {
                 pending_pair: Mutex::new(None),
                 guard: PairGuard::new(),
                 disconnected: Mutex::new(HashSet::new()),
+                recent: Arc::new(RecentReceived::new()),
                 relay_disabled,
                 accept_task: Mutex::new(None),
                 gen: AtomicU64::new(1),
@@ -876,6 +881,16 @@ impl DeviceLinkRegistry {
             store: self.inner.store.clone(),
             peer_node_id: node_hex.clone(),
             peer_device_name,
+            // 本机身份（origin 自环防御基准）+ registry 级 recent 单例 +
+            // auto 轻提示开关（每次会话建立时重读设置，改动即时生效于新会话）。
+            local_node_id: hex_encode_32(self.inner.endpoint.id().as_bytes()),
+            recent: self.inner.recent.clone(),
+            auto_notify: self
+                .inner
+                .store
+                .auto_push_settings()
+                .map(|settings| settings.notify)
+                .unwrap_or(false),
         };
         run_session_loop(read, write, ctx, control_rx, dead).await;
         // 会话结束：只清理仍属于自己的登记（gen 相同）；被新会话收编则不动。

@@ -169,9 +169,9 @@ async fn pair_send_disconnect_revoke_full_chain() {
     let (ticket, node_b, _node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
 
     // 5. A → B 发送带分组的文本：B 侧按名称建分组并把条目落 category_items。
-    // 刻意走分组路径而非历史（clips）路径：历史路径接收时会先写系统剪贴板，
-    // 无显示服务器的 CI（headless Linux）上 Clipboard::new() 失败 → 条目不落库
-    // 也无接收事件（确定性失败）；分组路径只落库，任何环境确定可测。
+    // 刻意走分组路径而非历史（clips）路径：分组路径不触碰系统剪贴板，
+    // 任何环境（含 headless Linux CI）确定可测；历史路径（auto 分流后）
+    // 会尽力写系统剪贴板，无显示服务器时发诊断事件，事件断言不再确定。
     const CHAIN_CATEGORY: &str = "全链路分组";
     a.send_raw(
         None,

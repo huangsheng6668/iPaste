@@ -16,6 +16,7 @@ use crate::events::{
     DeviceCategoryReceived, DeviceClipReceiveFailed, DeviceClipReceived, EVENT_DEVICE_CATEGORY_RECEIVED,
     EVENT_DEVICE_CLIP_RECEIVE_FAILED, EVENT_DEVICE_CLIP_RECEIVED,
 };
+use crate::lan_sync::autopush::RecentReceived;
 use crate::lan_sync::frame::{FrameReader, FrameWriter};
 use crate::lan_sync::protocol::{LAN_BATCH_MAX_ITEMS, LanMessage};
 use crate::lan_sync::{ControlMsg, LanEventSink};
@@ -32,6 +33,15 @@ pub(crate) struct SessionCtx {
     /// 对端 EndpointId 的 hex（64 字符）：v5 事件的设备标识。
     pub peer_node_id: String,
     pub peer_device_name: String,
+    /// 本机 EndpointId 的 hex（64 字符）：接收侧 origin 自环防御的比对基准
+    ///（spec §3 第三道）。
+    pub local_node_id: String,
+    /// 最近接收哈希滑窗（共享 registry 级单例）：auto 路径登记，Task 3 的
+    /// 发送侧经它防回推。
+    pub recent: Arc<RecentReceived>,
+    /// auto 接收的轻提示开关（settings.auto_push.notify）：仅控制 auto 成功后
+    /// 是否 emit deviceClipReceived；诊断事件不受此开关影响。
+    pub auto_notify: bool,
 }
 
 /// 会话内统一事件出口：payload 序列化失败按 Null 发出（与 v4 行为一致）。
@@ -47,11 +57,21 @@ pub(crate) fn fingerprint_hex(endpoint_id: &[u8; 32]) -> String {
     endpoint_id.iter().take(4).map(|b| format!("{b:02x}")).collect()
 }
 
-/// 处理收到的剪贴板内容：写系统剪贴板 + 落库 + emit
+/// 处理收到的剪贴板内容：落库 + emit（auto 分流见历史条目）
 ///
-/// - `category_name` 为 `None`：历史/无分组条目。写系统剪贴板 + 入 `clips`（历史）表（旧行为）。
-/// - `category_name` 为 `Some`：分组条目。**不写系统剪贴板**（避免打扰用户当前剪贴板），
-///   落到匹配/新建的同名分组下的 `category_items` 表。
+/// - `category_name` 为 `None`：历史/无分组条目，入 `clips`（历史）表。
+///   按 `auto` 分流（spec §2/§3）：
+///   - `auto=true`（对端捕获即自动同步）：**先落库**再登记 `recent`（仅 auto 路径，
+///     供发送侧防回推），随后**尽力**写系统剪贴板（失败只发诊断事件、不推翻同步
+///     结果——无头 CI/剪贴板被占用时同步本身不受影响），成功后按 `auto_notify`
+///     决定是否 emit 轻提示。
+///   - `auto=false`（手动发送）：落库 + 提示，**不接管本机剪贴板**（v4 行为变更，
+///     spec §2：手动收到的内容进历史即可，覆盖用户当前剪贴板反而打扰）。
+///   - origin 自环防御（spec §3 第三道）：`auto=true` 且 `origin_node_id` 是本机
+///     （自己发出的内容绕回）时静默丢弃——无行、无 recent、无事件。
+/// - `category_name` 为 `Some`：分组条目。**不写系统剪贴板**（避免打扰用户当前
+///   剪贴板），落到匹配/新建的同名分组下的 `category_items` 表；`auto` 参数
+///   对该路径无效（自动同步只推历史条目，spec §1）。
 ///
 /// `display_name`：对端条目的重命名显示名（历史条目落到 `clips.display_name`，
 /// 分组条目落到 `category_items.display_name`）。
@@ -70,6 +90,8 @@ fn apply_received(
     display_name: Option<String>,
     sort_order: Option<i64>,
     silent: bool,
+    auto: bool,
+    origin_node_id: Option<&str>,
 ) -> bool {
     // 图片 = data url（utf-8）；文本 = 原文 utf-8
     let text = String::from_utf8_lossy(payload).to_string();
@@ -156,33 +178,54 @@ fn apply_received(
                 }
             }
         }
-        // 历史/无分组：保持旧行为
+        // 历史/无分组：按 auto 分流（spec §2/§3）
         None => {
-            let write_result = if clip_type == "image" {
-                write_clipboard_image(&text)
-            } else {
-                write_clipboard_text(item.text.trim())
-            };
-            if let Err(reason) = write_result {
-                if !silent {
-                    emit_clip_receive_failed(ctx, format!("写入系统剪贴板失败：{reason}"));
-                }
+            // origin 自环防御（spec §3 第三道）：自己发出的内容绕回，静默丢弃。
+            if auto && origin_node_id == Some(ctx.local_node_id.as_str()) {
                 return false;
             }
-            // 落库失败必须暴露：此前静默吞掉后仍提示「已接收」，导致
-            // 「B 端提示已接收但条目未入库」且无从排查。
-            match store.insert_captured_item(item) {
-                Ok(_) => {
-                    if !silent {
-                        emit_clip_received(ctx, clip_type.to_string(), None);
-                    }
-                    true
-                }
-                Err(reason) => {
-                    if !silent {
+            if auto {
+                // 自动同步：①落库 ②登记 recent（仅 auto 路径，Task 3 发送侧防回推
+                // 消费同一实例）③尽力写剪贴板 ④不强制提示（auto_notify 只控制轻提示）。
+                // 顺序刻意把落库放前：无头 CI/剪贴板被占用时同步本身不受影响。
+                let hash = item.content_hash.clone();
+                let item_text = item.text.clone();
+                match store.insert_captured_item(item) {
+                    Err(reason) => {
                         emit_clip_receive_failed(ctx, format!("保存到历史失败：{reason}"));
+                        return false;
                     }
-                    false
+                    Ok(_) => {}
+                }
+                ctx.recent.insert(&hash);
+                let write_result = if clip_type == "image" {
+                    write_clipboard_image(&text)
+                } else {
+                    write_clipboard_text(item_text.trim())
+                };
+                if let Err(reason) = write_result {
+                    // 诊断但不计失败：条目已入库，剪贴板写失败不推翻同步结果。
+                    // 不受 silent 门控：auto 恒单条（批量帧走 false/None），无汇总场景。
+                    emit_clip_receive_failed(ctx, format!("写入系统剪贴板失败：{reason}"));
+                } else if ctx.auto_notify {
+                    emit_clip_received(ctx, clip_type.to_string(), None);
+                }
+                true
+            } else {
+                // 手动发送：落库 + 提示，不接管本机剪贴板（v4 行为变更，spec §2）。
+                match store.insert_captured_item(item) {
+                    Ok(_) => {
+                        if !silent {
+                            emit_clip_received(ctx, clip_type.to_string(), None);
+                        }
+                        true
+                    }
+                    Err(reason) => {
+                        if !silent {
+                            emit_clip_receive_failed(ctx, format!("保存到历史失败：{reason}"));
+                        }
+                        false
+                    }
                 }
             }
         }
@@ -315,7 +358,7 @@ where
                 emit_category_received(ctx, b.category_name, b.received, b.failed);
             }
         }
-        (LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name, .. }, payload) => {
+        (LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name, auto, origin_node_id }, payload) => {
             if !empty {
                 if let Err(reason) = validate_category_meta(category_name.as_deref(), category_color.as_deref()) {
                     emit_clip_receive_failed(ctx, reason);
@@ -324,13 +367,14 @@ where
                 if let Some(data) = payload {
                     match batch.as_mut() {
                         // 批量中：静默逐条落库（顺序预排），结束时统一 emit。
+                        // 批量（分组发送）恒手动路径：auto=false、无 origin。
                         Some(b) => {
                             let order = Some(b.base_order + b.next_index);
                             b.next_index += 1;
                             let ok = apply_received(
                                 ctx, &ctx.store, &clip_type, &data,
                                 Some(b.category_name.clone()), b.category_color.clone(),
-                                display_name, order, true,
+                                display_name, order, true, false, None,
                             );
                             if ok { b.received += 1 } else { b.failed += 1 }
                         }
@@ -338,6 +382,7 @@ where
                             apply_received(
                                 ctx, &ctx.store, &clip_type, &data,
                                 category_name, category_color, display_name, None, false,
+                                auto, origin_node_id.as_deref(),
                             );
                         }
                     }
@@ -380,9 +425,10 @@ where
                     return true; // 拒收该帧，会话继续
                 }
                 if let Some(data) = payload {
+                    // ClipResponse（对端应答「请求剪贴板」）恒手动路径：auto=false、无 origin。
                     apply_received(
                         ctx, &ctx.store, &clip_type, &data,
-                        category_name, category_color, display_name, None, false,
+                        category_name, category_color, display_name, None, false, false, None,
                     );
                 }
             }
@@ -548,8 +594,12 @@ pub(crate) async fn run_session_loop<R, W>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::EVENT_DEVICE_CLIP_RECEIVED;
+    use crate::lan_sync::autopush::RecentReceived;
     use crate::lan_sync::NoopEventSink;
     use crate::store::test_support::temp_store;
+    use crate::util::hash_text;
+    use std::sync::Mutex;
     use tokio::io::duplex;
 
     fn test_ctx() -> SessionCtx {
@@ -558,7 +608,170 @@ mod tests {
             store: temp_store(),
             peer_node_id: "ab".repeat(32),
             peer_device_name: "peer-device".to_string(),
+            local_node_id: "aa".repeat(32),
+            recent: Arc::new(RecentReceived::new()),
+            auto_notify: false,
         }
+    }
+
+    /// 事件捕获 sink：apply_received 纯函数级测试用
+    ///（对齐 integration_tests.rs 的 CapturingEventSink）。
+    struct CapturingSink {
+        events: Mutex<Vec<(String, serde_json::Value)>>,
+    }
+
+    impl LanEventSink for CapturingSink {
+        fn emit(&self, event: &str, payload: &serde_json::Value) {
+            self.events
+                .lock()
+                .expect("捕获锁中毒")
+                .push((event.to_string(), payload.clone()));
+        }
+    }
+
+    fn count_events(sink: &CapturingSink, event: &str) -> usize {
+        sink.events
+            .lock()
+            .expect("捕获锁中毒")
+            .iter()
+            .filter(|(name, _)| name.as_str() == event)
+            .count()
+    }
+
+    /// 直接调 apply_received 的测试上下文：指定本机 node_id 与共享 recent。
+    fn apply_ctx(
+        sink: &Arc<CapturingSink>,
+        store: &Store,
+        local_node_id: &str,
+        recent: &Arc<RecentReceived>,
+    ) -> SessionCtx {
+        SessionCtx {
+            sink: sink.clone(),
+            store: store.clone(),
+            peer_node_id: "ab".repeat(32),
+            peer_device_name: "peer-device".to_string(),
+            local_node_id: local_node_id.to_string(),
+            recent: recent.clone(),
+            auto_notify: false,
+        }
+    }
+
+    /// clips 表中该 content_hash 的行数（接收侧真实落库断言）。
+    fn clips_with_hash(store: &Store, hash: &str) -> i64 {
+        let conn = store.connect().expect("测试库连接");
+        conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE content_hash = ?1",
+            [hash],
+            |row| row.get(0),
+        )
+        .expect("查询 clips")
+    }
+
+    /// 1) auto 历史条目：落库 + recent 登记。剪贴板写是尽力而为（无头 CI 上会
+    /// 失败并发诊断事件），故不对事件做任何断言（有无皆合法），只断言
+    /// 返回值、库行与 recent。
+    #[test]
+    fn apply_received_auto_history_inserts_and_registers_recent() {
+        let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+        let store = temp_store();
+        let recent = Arc::new(RecentReceived::new());
+        let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
+
+        let payload = b"auto sync hello".to_vec();
+        let ok = apply_received(
+            &ctx, &store, "text", &payload, None, None, None, None, false, true, None,
+        );
+        assert!(ok, "auto 接收：落库成功即算同步成功");
+        let hash = hash_text("auto sync hello");
+        assert_eq!(clips_with_hash(&store, &hash), 1, "条目应已落入 clips");
+        assert!(recent.contains(&hash), "auto 路径必须登记 recent（供发送侧防回推）");
+    }
+
+    /// 2) 手动历史条目：落库 + 接收事件；不登记 recent。
+    /// 「不触碰剪贴板」是结构性保证（本分支无 write_clipboard_* 调用，
+    /// spec §2 v4→v5 行为变更）：无头 CI 无法断言剪贴板内容，
+    /// 以「事件已发 + 落库成功」证明该路径不依赖剪贴板。
+    #[test]
+    fn apply_received_manual_history_skips_recent_and_notifies() {
+        let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+        let store = temp_store();
+        let recent = Arc::new(RecentReceived::new());
+        let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
+
+        let payload = b"manual send hello".to_vec();
+        let ok = apply_received(
+            &ctx, &store, "text", &payload, None, None, None, None, false, false, None,
+        );
+        assert!(ok, "手动接收：落库成功");
+        let hash = hash_text("manual send hello");
+        assert_eq!(clips_with_hash(&store, &hash), 1, "条目应已落入 clips");
+        assert!(!recent.contains(&hash), "手动路径不登记 recent");
+        assert_eq!(
+            count_events(&sink, EVENT_DEVICE_CLIP_RECEIVED),
+            1,
+            "手动接收应发出 deviceClipReceived 事件"
+        );
+    }
+
+    /// 3) origin 自环防御：auto + origin == 本机 node_id → 静默丢弃
+    ///（无行、无 recent、无任何事件）。
+    #[test]
+    fn apply_received_origin_loop_guard_drops_own_push() {
+        let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+        let store = temp_store();
+        let recent = Arc::new(RecentReceived::new());
+        let local = "aa".repeat(32);
+        let ctx = apply_ctx(&sink, &store, &local, &recent);
+
+        let payload = b"my own echo".to_vec();
+        let ok = apply_received(
+            &ctx, &store, "text", &payload, None, None, None, None, false, true, Some(&local),
+        );
+        assert!(!ok, "自环内容应被拒收");
+        let hash = hash_text("my own echo");
+        assert_eq!(clips_with_hash(&store, &hash), 0, "自环内容不应落库");
+        assert!(!recent.contains(&hash), "自环内容不应登记 recent");
+        assert!(
+            sink.events.lock().expect("捕获锁中毒").is_empty(),
+            "自环静默丢弃：不应发出任何事件"
+        );
+    }
+
+    /// 4) 分组条目（auto 与否）：行为不变——落 category_items、不登记 recent。
+    #[test]
+    fn apply_received_category_items_bypass_auto_and_recent() {
+        let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+        let store = temp_store();
+        let recent = Arc::new(RecentReceived::new());
+        let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
+
+        for (content, auto) in [("grouped auto", true), ("grouped manual", false)] {
+            let payload = content.as_bytes().to_vec();
+            let ok = apply_received(
+                &ctx, &store, "text", &payload,
+                Some("分组".to_string()), Some("#0D9488".to_string()),
+                None, None, false, auto, None,
+            );
+            assert!(ok, "分组条目（auto={auto}）应落库成功");
+            let hash = hash_text(content);
+            assert!(!recent.contains(&hash), "分组路径不登记 recent");
+        }
+        let conn = store.connect().expect("测试库连接");
+        let hits: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM category_items AS ci
+                 JOIN categories AS c ON c.id = ci.category_id
+                 WHERE c.name = '分组' AND ci.text IN ('grouped auto', 'grouped manual')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("查询分组条目");
+        assert_eq!(hits, 2, "两条分组条目都应落在同名分组下");
+        assert_eq!(
+            count_events(&sink, EVENT_DEVICE_CLIP_RECEIVED),
+            2,
+            "分组接收（非批量）逐条发出接收事件"
+        );
     }
 
     /// 收到 Ping：handle_frame 立即在共享写半上回一帧 Pong（会话继续存活）。

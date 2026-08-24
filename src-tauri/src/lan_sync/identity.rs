@@ -40,8 +40,14 @@ mod tests {
     use crate::store::secrets::delete_device_secret;
     use crate::store::test_support::temp_store;
 
+    /// mock keyring 是进程级共享的内存后端，两个测试都会先 delete_device_secret()
+    /// 再各自写入/读取，并行时互相踩踏；必须串行（同 store/settings.rs
+    /// cloud_keyring_tests 的 LOCK 模式）。
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn load_or_create_is_stable_across_calls() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _store = temp_store();
         delete_device_secret().unwrap();
         let a = load_or_create_device_secret().unwrap();
@@ -51,6 +57,7 @@ mod tests {
 
     #[test]
     fn corrupted_secret_fails_loudly() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _store = temp_store();
         delete_device_secret().unwrap();
         put_device_secret("zzzz").unwrap();
