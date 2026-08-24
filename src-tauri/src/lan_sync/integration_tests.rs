@@ -168,10 +168,21 @@ async fn pair_send_disconnect_revoke_full_chain() {
     // 1-4. 配对：双向信任落库 + 双端 Connected（含 node_id == 对端端点身份断言）
     let (ticket, node_b, _node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
 
-    // 5. A → B 发送文本：B 的 clips 表出现该条目（走 content_hash 去重的历史路径）
-    a.send_raw(None, "text", b"integration hello", None, None, None)
-        .await
-        .expect("发送文本");
+    // 5. A → B 发送带分组的文本：B 侧按名称建分组并把条目落 category_items。
+    // 刻意走分组路径而非历史（clips）路径：历史路径接收时会先写系统剪贴板，
+    // 无显示服务器的 CI（headless Linux）上 Clipboard::new() 失败 → 条目不落库
+    // 也无接收事件（确定性失败）；分组路径只落库，任何环境确定可测。
+    const CHAIN_CATEGORY: &str = "全链路分组";
+    a.send_raw(
+        None,
+        "text",
+        b"integration hello",
+        Some(CHAIN_CATEGORY),
+        Some("#0D9488"),
+        None,
+    )
+    .await
+    .expect("发送文本");
     assert!(
         wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED) >= 1).await,
         "B 应收到条目事件；B 事件：{:?}",
@@ -179,17 +190,23 @@ async fn pair_send_disconnect_revoke_full_chain() {
     );
     let clip_payload = first_payload(&sink_b, EVENT_DEVICE_CLIP_RECEIVED).expect("payload");
     assert_eq!(clip_payload["clipType"].as_str(), Some("text"));
-    assert_eq!(clip_payload["categoryName"].as_str(), None, "无分组发送");
-    // 接收侧真实落库（而非仅事件）：B 的 clips 表按原文可查
+    assert_eq!(
+        clip_payload["categoryName"].as_str(),
+        Some(CHAIN_CATEGORY),
+        "带分组发送：接收事件应携带分组名"
+    );
+    // 接收侧真实落库（而非仅事件）：同名分组下恰好 1 条原文条目
     let conn = store_b.connect().expect("B 库连接");
     let hits: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM clips WHERE text = 'integration hello'",
-            [],
+            "SELECT COUNT(*) FROM category_items AS ci
+             JOIN categories AS c ON c.id = ci.category_id
+             WHERE c.name = ?1 AND ci.text = 'integration hello'",
+            [CHAIN_CATEGORY],
             |row| row.get(0),
         )
-        .expect("查询 B 的 clips");
-    assert_eq!(hits, 1, "B 的 clips 表应恰好包含收到的文本条目");
+        .expect("查询 B 的分组条目");
+    assert_eq!(hits, 1, "B 的同名分组应恰好包含收到的文本条目");
 
     // 6. 票据一次性：同一票据第二次 join 失败，绝不再走一次完整配对。
     // 实测收敛行为：A 已信任 B，第二次拨入被按「已配对入站会话」处理并收编
