@@ -54,6 +54,7 @@ use crate::lan_sync::commands::{
     device_send_category, device_send_clip, device_set_auto_sync, open_lan_sync,
     pairing_cancel_invite, pairing_create_invite, pairing_join, pairing_respond,
     sync_transport_settings_get, sync_transport_settings_set,
+    sync_auto_push_settings_get, sync_auto_push_settings_set,
 };
 use crate::models::{AppendCopyState, AppState, MainWindowActivation};
 use crate::paste::{current_main_window_activation, remember_target_app_for_paste};
@@ -254,6 +255,8 @@ pub fn run() {
             device_request_clip,
             sync_transport_settings_get,
             sync_transport_settings_set,
+            sync_auto_push_settings_get,
+            sync_auto_push_settings_set,
             open_lan_sync
         ])
         .setup(|app| {

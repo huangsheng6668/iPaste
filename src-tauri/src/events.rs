@@ -190,6 +190,11 @@ pub(crate) struct PairJoinFailed {
 pub(crate) struct DeviceClipReceived {
     pub(crate) node_id: String,
     pub(crate) clip_type: String,
+    /// serde 序列化 None 时整体省略该键（skip_serializing_if），TS 侧须为
+    /// optional（`categoryName?: string | null`）才与运行时 JSON 一致。
+    /// 注意 ts-rs 12 的裸 `#[ts(optional)]` 会丢掉 `| null` 分支（生成
+    /// `?: string`），须 `optional = nullable` 才得到 `?: string | null`。
+    #[ts(optional = nullable)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) category_name: Option<String>,
 }

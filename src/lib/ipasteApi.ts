@@ -25,6 +25,7 @@ import type {
   ScreenshotSelection,
   SearchResult,
 } from "../types";
+import type { AutoPushSettings } from "../types/generated/AutoPushSettings";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { ClipSource } from "../types/generated/ClipSource";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
@@ -600,6 +601,12 @@ export const ipasteApi = {
       relayUrl,
       hint: "",
     });
+  },
+  syncAutoPushSettingsGet() {
+    return call<AutoPushSettings>("sync_auto_push_settings_get", undefined, { master: true, notify: false });
+  },
+  syncAutoPushSettingsSet(master: boolean, notify: boolean) {
+    return call<AutoPushSettings>("sync_auto_push_settings_set", { master, notify }, { master, notify });
   },
   listAutomations() {
     if (!isTauri) return Promise.resolve(structuredClone(mockAutomations));

@@ -173,13 +173,18 @@ async function onJoin() {
   await sync.join(joinInput.value);
 }
 
-// —— 传输设置（自定义中继）——
+// —— 传输设置（自定义中继 + 自动推送全局开关）——
 
 const relayOpen = ref(false);
 const relayInput = ref("");
 const relaySaved = ref(false);
 const relayError = ref<string | null>(null);
 const savingRelay = ref(false);
+
+// 自动推送全局开关（store 缺省 master=true / notify=false）。
+const autoPushMaster = ref(true);
+const autoPushNotify = ref(false);
+const autoPushError = ref<string | null>(null);
 
 onMounted(async () => {
   if (!isTauri) return;
@@ -188,6 +193,13 @@ onMounted(async () => {
     relayInput.value = settings.relayUrl ?? "";
   } catch {
     // 读取失败保持空输入（= n0 默认中继），不打断面板。
+  }
+  try {
+    const autoPush = await ipasteApi.syncAutoPushSettingsGet();
+    autoPushMaster.value = autoPush.master;
+    autoPushNotify.value = autoPush.notify;
+  } catch {
+    // 读取失败保持缺省开关，不打断面板。
   }
 });
 
@@ -204,6 +216,24 @@ async function onSaveRelay() {
     relayError.value = errorMessage(unknownError);
   } finally {
     savingRelay.value = false;
+  }
+}
+
+// 开关即改即存：以落库返回值回填（round-trip）；失败时回滚到改前状态并提示。
+async function saveAutoPush() {
+  autoPushError.value = null;
+  const previous = { master: autoPushMaster.value, notify: autoPushNotify.value };
+  try {
+    const saved = await ipasteApi.syncAutoPushSettingsSet(
+      autoPushMaster.value,
+      autoPushNotify.value,
+    );
+    autoPushMaster.value = saved.master;
+    autoPushNotify.value = saved.notify;
+  } catch (unknownError) {
+    autoPushMaster.value = previous.master;
+    autoPushNotify.value = previous.notify;
+    autoPushError.value = errorMessage(unknownError);
   }
 }
 
@@ -470,6 +500,28 @@ onUnmounted(() => {
         >
           {{ relayError }}
         </p>
+        <label class="lan-setting-row">
+          <input
+            type="checkbox"
+            v-model="autoPushMaster"
+            @change="saveAutoPush"
+          >
+          <span>{{ t("deviceSync.autoPush.master") }}</span>
+        </label>
+        <label class="lan-setting-row">
+          <input
+            type="checkbox"
+            v-model="autoPushNotify"
+            @change="saveAutoPush"
+          >
+          <span>{{ t("deviceSync.autoPush.notify") }}</span>
+        </label>
+        <p
+          v-if="autoPushError"
+          class="lan-error"
+        >
+          {{ autoPushError }}
+        </p>
       </div>
     </section>
 
@@ -719,6 +771,19 @@ html.dark .lan-sync-panel { border-color: var(--border-hairline); }
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.lan-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.lan-setting-row input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 /* 配对确认弹窗 */

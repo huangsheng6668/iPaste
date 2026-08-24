@@ -18,7 +18,7 @@ use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
 use crate::error::AppError;
 use crate::lan_sync::registry::{build_send_payload, DeviceLinkRegistry};
 use crate::lan_sync::ClipSource;
-use crate::models::{AppState, AutoSyncMode, DeviceInfo};
+use crate::models::{AppState, AutoPushSettings, AutoSyncMode, DeviceInfo};
 use crate::store::Store;
 
 /// 从 Tauri State 取 `Arc<DeviceLinkRegistry>`。缺失（启动失败/尚未就绪）时
@@ -240,6 +240,30 @@ pub(crate) fn sync_transport_settings_set(
         relay_url,
         hint: hint.to_string(),
     })
+}
+
+// —— 自动推送全局设置 ——
+
+/// 读取自动推送全局开关（Spec 2）。走 `State<AppState>` 直连 store，
+/// registry 启动失败时依旧可用（与传输设置命令同一模式）。
+#[tauri::command]
+pub(crate) fn sync_auto_push_settings_get(
+    state: State<'_, AppState>,
+) -> Result<AutoPushSettings, AppError> {
+    state.store.auto_push_settings().map_err(AppError::internal)
+}
+
+/// 更新自动推送全局开关，返回落库后的值。
+#[tauri::command]
+pub(crate) fn sync_auto_push_settings_set(
+    state: State<'_, AppState>,
+    master: bool,
+    notify: bool,
+) -> Result<AutoPushSettings, AppError> {
+    state
+        .store
+        .update_auto_push_settings(master, notify)
+        .map_err(AppError::internal)
 }
 
 // —— 窗口接入 ——
