@@ -92,6 +92,17 @@ impl Store {
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS paired_devices (
+                node_id TEXT PRIMARY KEY,
+                device_name TEXT NOT NULL,
+                relay_url TEXT,
+                direct_addrs TEXT NOT NULL DEFAULT '[]',
+                auto_sync_mode TEXT NOT NULL DEFAULT 'text_only',
+                added_at TEXT NOT NULL,
+                last_seen_at TEXT,
+                revoked_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS sync_tombstones (
                 entity TEXT NOT NULL,
                 entity_id TEXT NOT NULL,

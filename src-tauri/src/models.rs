@@ -478,3 +478,49 @@ pub(crate) struct AutomationInput {
     pub(crate) confirm_before_run: bool,
     pub(crate) close_panel_on_success: bool,
 }
+
+// —— 跨设备同步：信任设备（lan_sync v5）——
+
+/// 每设备自动同步偏好（Spec 2 消费；默认文本类自动）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub(crate) enum AutoSyncMode {
+    TextOnly,
+    All,
+    Off,
+}
+
+/// paired_devices 表的行模型。node_id 为 EndpointId 的 hex（64 字符）。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct PairedDevice {
+    pub(crate) node_id: String,
+    pub(crate) device_name: String,
+    pub(crate) relay_url: Option<String>,
+    /// 直连地址线索（ip:port），JSON 数组存库。
+    pub(crate) direct_addrs: Vec<String>,
+    pub(crate) auto_sync_mode: AutoSyncMode,
+    pub(crate) added_at: String,
+    pub(crate) last_seen_at: Option<String>,
+    pub(crate) revoked_at: Option<String>,
+}
+
+/// 设备在线状态（DeviceLinkRegistry 的运行态，不入库）。
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub(crate) enum DeviceOnline {
+    Offline,
+    Connecting,
+    Connected,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct DeviceInfo {
+    pub(crate) device: PairedDevice,
+    pub(crate) online: DeviceOnline,
+}

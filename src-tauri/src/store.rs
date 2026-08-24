@@ -9,6 +9,7 @@ mod categories;
 mod sync;
 mod automations;
 pub(crate) mod secrets; // lan_sync::identity 读写设备身份私钥
+pub(crate) mod devices; // lan_sync 读写已配对设备（信任表）
 pub(crate) mod rows;
 
 #[cfg(test)]
