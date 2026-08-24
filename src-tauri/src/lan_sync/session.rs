@@ -491,18 +491,18 @@ pub(crate) async fn run_session_loop<R, W>(
                         break;
                     }
                 }
-                Some(ControlMsg::SendClip { clip_type, payload, category_name, category_color, display_name }) => {
+                Some(ControlMsg::SendClip { clip_type, payload, category_name, category_color, display_name, auto, origin_node_id }) => {
                     let empty = payload.is_empty();
-                    // auto/origin_node_id：Spec 2 捕获即自动同步由 Task 7 接线时填写；
-                    // 手动发送恒为非自动、无 origin。
+                    // auto/origin_node_id 透传（Spec 2 捕获即自动同步由后续任务
+                    // 在构造 ControlMsg 时填写）；手动发送恒为非自动、无 origin。
                     let msg = LanMessage::ClipPush {
                         clip_type,
                         empty,
                         category_name,
                         category_color,
                         display_name,
-                        auto: false,
-                        origin_node_id: None,
+                        auto,
+                        origin_node_id,
                     };
                     let mut wh = writer.lock().await;
                     if wh.write_message(&msg, if empty { None } else { Some(&payload) }).await.is_err() {

@@ -2,7 +2,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::Store;
-use crate::models::{AppSettings, Category, CategoryItem, ClipPage, CloudSettings};
+use crate::models::{AppSettings, AutoPushSettings, Category, CategoryItem, ClipPage, CloudSettings};
 use crate::{
     DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_LANGUAGE, DEFAULT_OCR_MODE, DEFAULT_OCR_SHORTCUT,
     DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_OPEN_BEHAVIOR, DEFAULT_RETENTION_DAYS, DEFAULT_SHORTCUT,
@@ -289,6 +289,46 @@ impl Store {
         };
         Ok(cleaned)
     }
+
+    /// 自动推送全局设置（settings 表 KV `sync_auto_push_master/notify`；缺省
+    /// true/false）。坏值（非 "true"/"false"）回退缺省并记 stderr，不阻断读取。
+    pub(crate) fn auto_push_settings(&self) -> Result<AutoPushSettings, String> {
+        let conn = self.connect()?;
+        let read_bool = |key: &str, default: bool| -> Result<bool, String> {
+            Ok(self
+                .setting_value_with_conn(&conn, key)?
+                .map(|value| match value.parse::<bool>() {
+                    Ok(parsed) => parsed,
+                    Err(_) => {
+                        eprintln!("[autopush] settings 键 {key} 坏值（{value}），回退缺省 {default}");
+                        default
+                    }
+                })
+                .unwrap_or(default))
+        };
+        Ok(AutoPushSettings {
+            master: read_bool("sync_auto_push_master", true)?,
+            notify: read_bool("sync_auto_push_notify", false)?,
+        })
+    }
+
+    /// 更新自动推送全局设置，返回落库后的值。
+    pub(crate) fn update_auto_push_settings(
+        &self,
+        master: bool,
+        notify: bool,
+    ) -> Result<AutoPushSettings, String> {
+        let conn = self.connect()?;
+        for (key, value) in [("sync_auto_push_master", master), ("sync_auto_push_notify", notify)] {
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value.to_string()],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(AutoPushSettings { master, notify })
+    }
 }
 
 #[cfg(test)]
@@ -381,6 +421,49 @@ mod tests {
             .unwrap();
         }
         assert_eq!(store.sync_relay_url().unwrap(), None);
+    }
+
+    #[test]
+    fn auto_push_settings_defaults_and_round_trip() {
+        let store = temp_store();
+
+        // 缺省 master=true / notify=false
+        assert_eq!(
+            store.auto_push_settings().unwrap(),
+            crate::models::AutoPushSettings { master: true, notify: false }
+        );
+
+        // 写后往返
+        let saved = store.update_auto_push_settings(false, true).unwrap();
+        assert_eq!(
+            saved,
+            crate::models::AutoPushSettings { master: false, notify: true }
+        );
+        assert_eq!(
+            store.auto_push_settings().unwrap(),
+            crate::models::AutoPushSettings { master: false, notify: true }
+        );
+    }
+
+    #[test]
+    fn auto_push_settings_bad_values_fall_back_to_defaults() {
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            for key in ["sync_auto_push_master", "sync_auto_push_notify"] {
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, 'junk')
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    [key],
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(
+            store.auto_push_settings().unwrap(),
+            crate::models::AutoPushSettings { master: true, notify: false },
+            "坏值回退缺省"
+        );
     }
 }
 

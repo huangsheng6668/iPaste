@@ -12,6 +12,7 @@ pub(crate) mod identity;   // 设备身份（iroh SecretKey）
 pub(crate) mod frame;      // 泛型帧编解码（iroh 无耦合）
 pub(crate) mod ticket;     // 配对票据 + 一次性邀请登记
 pub(crate) mod registry;   // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（命令层消费）
+pub(crate) mod autopush;   // 自动推送基座：类型过滤矩阵 + 回环抑制滑窗（Spec 2 Task 2/3 消费）
 #[cfg(test)]
 mod integration_tests; // 双 endpoint 全链路集成测试（QUIC 回环，Task 9）
 
@@ -91,6 +92,11 @@ pub(crate) enum ControlMsg {
         category_color: Option<String>,
         /// 条目的重命名显示名；None = 未重命名。
         display_name: Option<String>,
+        /// true = 捕获即自动同步（Spec 2 auto 路径；接收端静默入库）。
+        /// 手动发送（send_raw/send_category）恒为 false。
+        auto: bool,
+        /// 发起方 EndpointId hex（Spec 2 回环抑制）；手动发送无 origin。
+        origin_node_id: Option<String>,
     },
     RequestClip,
     /// 本地主动断开。v5 的 registry 经 drop 控制通道触发同一会话退出路径

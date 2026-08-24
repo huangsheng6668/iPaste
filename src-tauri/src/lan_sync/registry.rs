@@ -979,6 +979,9 @@ impl DeviceLinkRegistry {
                 category_name: category_name.map(str::to_string),
                 category_color: category_color.map(str::to_string),
                 display_name: display_name.map(str::to_string),
+                // 手动发送恒为非自动、无 origin（Spec 2 auto 路径由后续任务接线）
+                auto: false,
+                origin_node_id: None,
             };
             if tx.send(msg).await.is_err() {
                 eprintln!("[lan-sync] 发送到 {node_id} 失败：会话已关闭");
@@ -1060,6 +1063,9 @@ impl DeviceLinkRegistry {
                     category_name: Some(category_name.clone()),
                     category_color: Some(category_color.clone()),
                     display_name: item.display_name.clone(),
+                    // 整组发送为手动操作：非自动、无 origin
+                    auto: false,
+                    origin_node_id: None,
                 };
                 if target.tx.send(msg).await.is_ok() {
                     target.sent += 1;

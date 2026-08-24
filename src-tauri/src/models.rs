@@ -491,6 +491,15 @@ pub(crate) enum AutoSyncMode {
     Off,
 }
 
+/// 自动推送全局设置（settings KV `sync_auto_push_master/notify`；缺省 true/false）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct AutoPushSettings {
+    pub(crate) master: bool,
+    pub(crate) notify: bool,
+}
+
 /// paired_devices 表的行模型。node_id 为 EndpointId 的 hex（64 字符）。
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
