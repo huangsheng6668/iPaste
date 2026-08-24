@@ -406,3 +406,50 @@ async fn send_category_delivers_batch_to_paired_device() {
         .expect("查询重命名条目");
     assert_eq!(renamed, 1, "display_name 应随整组发送送达");
 }
+
+/// 撤销后的设备持**有效**票据再次拨入（F2）：host 侧不得弹配对请求
+///（无 pair-request 事件）、不回任何帧（拨号方只能等到自己的超时）——
+/// 静默拒绝 doctrine（spec §3），弹窗 + 可区分拒绝会构成信任态预言机。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn revoked_device_with_valid_invite_is_silently_ignored() {
+    let store_a = temp_store();
+    let store_b = temp_store();
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(store_a, sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(store_b, sink_b.clone())
+        .await
+        .expect("B 端点");
+
+    // 真实配对后 A 撤销 B，再生成全新有效邀请
+    let (_ticket, node_b, _node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
+    a.revoke(&node_b);
+    assert!(
+        wait_until(WAIT, || {
+            a.device_infos()
+                .first()
+                .is_some_and(|info| info.online != DeviceOnline::Connected)
+        })
+        .await,
+        "撤销后 A 侧链路断开"
+    );
+    let fresh_ticket = a.create_invite().await.expect("撤销后可再生成邀请");
+
+    // B 持有效票据 join：A 不得出现任何 pair-request 事件（撤销门静默拒绝）
+    let pair_requests_before = count_events(&sink_a, EVENT_PAIR_REQUEST);
+    let joiner = b.clone();
+    let join_ticket = fresh_ticket.clone();
+    let join_task = tokio::spawn(async move { joiner.join(&join_ticket).await });
+    // 覆盖拨号 + 首帧送达窗口（回环毫秒级，3s 余量充足）
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        count_events(&sink_a, EVENT_PAIR_REQUEST),
+        pair_requests_before,
+        "撤销设备持有效票据拨入不得触发配对请求弹窗；A 事件：{:?}",
+        event_names(&sink_a)
+    );
+    // B 侧只能等到 join 超时（30s），不提前等待；abort 收尾
+    join_task.abort();
+}

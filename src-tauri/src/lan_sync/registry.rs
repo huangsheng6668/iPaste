@@ -61,6 +61,21 @@ const INBOUND_SESSION_POLL: Duration = Duration::from_secs(5);
 /// LAN-only 票据对局域网配对依然有效。
 const INVITE_ONLINE_WAIT: Duration = Duration::from_secs(5);
 
+/// 陌生连接预认证（accept_bi + 首帧 PairRequest）的限时：迟迟不发首帧的
+/// 连接到期静默关闭，防 slow-loris 式无限挂住配对任务（任务堆积）。
+const STRANGER_PREAUTH_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// join 拨号后等待 PairAccept/PairReject 的限时：对端静默丢弃（如邀请无效）
+/// 时拨号方不能无限挂起。测试构建缩短到 2s，超时路径可低成本回归。
+#[cfg(not(test))]
+const JOIN_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const JOIN_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// host 侧等待用户确认配对的限时：超时按拒绝处理（回 PairReject{Declined}），
+/// 防陌生人持有效票据把确认弹窗永久钉死；正常用户 120s 足够操作。
+const PAIR_CONFIRM_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// 第 N 次连续失败后的退避时长（0 基）。纯函数，独立测试。
 fn reconnect_backoff(attempt: usize) -> Duration {
     RECONNECT_BACKOFF.get(attempt).copied().unwrap_or(RECONNECT_BACKOFF_CAP)
@@ -125,6 +140,18 @@ struct PendingPair {
     #[allow(dead_code)]
     node_id: String,
     decision_tx: oneshot::Sender<bool>,
+}
+
+/// send_category 的单目标发送状态（流式逐条发送时的聚合账本）：
+/// `started=false`（BatchStart 未达）的目标不参与后续、不发汇总事件；
+/// `dead=true` 后该目标剩余条目逐条计 failed（与会话中断前的语义一致）。
+struct CategorySendTarget {
+    node_id: String,
+    tx: mpsc::Sender<ControlMsg>,
+    started: bool,
+    dead: bool,
+    sent: u32,
+    failed: u32,
 }
 
 /// DeviceLinkRegistry：所有公开方法供 Task 8 命令层与 Task 9 测试消费。
@@ -285,6 +312,19 @@ impl DeviceLinkRegistry {
                 .contains(node_hex)
     }
 
+    /// 陌生路径的撤销门：对端 node_id 在本地是「已撤销」的行 → 静默拒绝
+    ///（不提示、不回帧——spec §3 撤销即失联）。必须放在邀请校验与用户确认
+    /// 之前：否则撤销设备持有效票据会触发配对弹窗 + 可区分的 PairReject，
+    /// 构成信任态预言机。重新配对需先在设备管理中删除记录。
+    fn is_locally_revoked(&self, node_hex: &str) -> bool {
+        self.inner
+            .store
+            .get_paired_device(node_hex)
+            .ok()
+            .flatten()
+            .is_some_and(|device| device.revoked_at.is_some())
+    }
+
     /// 清除「显式断开」标记（重新配对成功 / 撤销 / 删除时调用）。
     fn clear_disconnected(&self, node_id: &str) {
         self.inner
@@ -315,11 +355,28 @@ impl DeviceLinkRegistry {
         }
         // 陌生连接：首条双向流必须是 PairRequest，其余一切情况静默丢弃
         //（spec §4.2：无邀请的连接不产生任何提示，防提示轰炸/探测）。
-        let Ok((mut send, mut recv)) = conn.accept_bi().await else { return };
-        let mut reader = FrameReader::new(&mut recv);
-        let Ok((LanMessage::PairRequest { version, device_name: peer_name, invite_secret }, _)) =
-            reader.read_message().await
-        else {
+        // 撤销门在最前（读流/校验邀请之前）：已撤销设备持有效票据再次拨入
+        // 也按静默拒绝处理——不弹配对请求、不回任何帧（spec §3）。
+        if self.is_locally_revoked(&node_hex) {
+            return;
+        }
+        // 预认证读取限时（slow-loris 防护）：accept_bi 与首帧 PairRequest
+        // 合计 60s 内不完成为静默关闭，配对任务不无限堆积。
+        let preauth = tokio::time::timeout(STRANGER_PREAUTH_TIMEOUT, async {
+            let (send, mut recv) = conn.accept_bi().await.ok()?;
+            let mut reader = FrameReader::new(&mut recv);
+            let (LanMessage::PairRequest { version, device_name: peer_name, invite_secret }, _) =
+                reader.read_message().await.ok()?
+            else {
+                return None;
+            };
+            Some((send, version, peer_name, invite_secret))
+        })
+        .await
+        .ok()
+        .flatten();
+        let Some((mut send, version, peer_name, invite_secret)) = preauth else {
+            conn.close(VarInt::from_u32(0), b"pair-preauth-timeout");
             return; // 静默拒绝
         };
         if version != LAN_PROTOCOL_VERSION {
@@ -360,11 +417,30 @@ impl DeviceLinkRegistry {
         );
         // Ok(false) = 用户拒绝；Err = pending 槽被新请求覆盖（旧请求按拒绝处理，
         // 但不动槽——槽现在属于新请求）
-        let accepted = matches!(decision_rx.await, Ok(true));
+        let accepted = match tokio::time::timeout(PAIR_CONFIRM_TIMEOUT, decision_rx).await {
+            Ok(decision) => matches!(decision, Ok(true)),
+            Err(_) => {
+                // 120s 无人应答（弹窗被忽略）：按拒绝处理并清理 pending 槽。
+                // 只在槽仍是本请求时清理——本请求的 decision_rx 已随超时 drop，
+                // 槽内 decision_tx 呈 closed 态即为本请求残留；若已被新请求
+                // 覆盖（tx 存活）则不动。
+                let mut pending = self.inner.pending_pair.lock().expect("pending 锁中毒");
+                if pending
+                    .as_ref()
+                    .is_some_and(|slot| slot.decision_tx.is_closed())
+                {
+                    *pending = None;
+                }
+                false
+            }
+        };
         if !accepted {
             reply_reject(&mut send, PairRejectReason::Declined).await;
             return;
         }
+        // 注：PairRequested 事件不带请求 id，前端确认弹窗在前述 120s 自动拒绝后
+        // 仍会停留在屏幕上，直到用户点击（点击时若 pending 已清空，
+        // respond_pair 报「当前没有待确认的配对请求」）——配对本身已被拒。
         // 接受：互写信任表 + PairAccept + 会话流（本端为被拨方 → accept_bi）
         if let Err(reason) =
             self.inner.store.upsert_paired_device(&node_hex, &peer_name, None, &[])
@@ -488,6 +564,12 @@ impl DeviceLinkRegistry {
             self.emit(EVENT_PAIR_JOIN_FAILED, &PairJoinFailed { reason: reason.clone() });
             Err(reason)
         };
+        // 目标是本地已撤销的设备：直接失败，不拨号（spec §3 撤销即失联——
+        // 对端不会接受配对，拨号只会换来静默超时）。重新配对需先删除记录。
+        let target_hex = hex_encode_32(&ticket.endpoint_id);
+        if self.is_locally_revoked(&target_hex) {
+            return fail("该设备已被撤销，如需重新配对请先在设备管理中删除它".to_string());
+        }
         let mut addrs: Vec<TransportAddr> = ticket
             .direct_addrs
             .iter()
@@ -536,9 +618,11 @@ impl DeviceLinkRegistry {
             return fail(format!("对方已断开：{e}"));
         }
         let mut reader = FrameReader::new(&mut recv);
-        let reply = match reader.read_message().await {
-            Ok((msg, _)) => msg,
-            Err(e) => return fail(format!("对方已断开：{e}")),
+        // 等应答限时：对端可能静默丢弃（无邀请/封禁期），不能无限挂起
+        let reply = match tokio::time::timeout(JOIN_REPLY_TIMEOUT, reader.read_message()).await {
+            Ok(Ok((msg, _))) => msg,
+            Ok(Err(e)) => return fail(format!("对方已断开：{e}")),
+            Err(_) => return fail("等待对方响应超时".to_string()),
         };
         let node_hex = hex_encode_32(conn.remote_id().as_bytes());
         match reply {
@@ -904,14 +988,15 @@ impl DeviceLinkRegistry {
     }
 
     /// 整组发送某分组：`BatchStart` → 逐条 `SendClip`（携带分组名/颜色 + 重命名）→
-    /// `BatchEnd`。条目装配从 v4 `lan_send_category` 原样迁移；多目标时逐目标
-    /// emit `DeviceCategorySent`，返回 (组名, 至少送达 1 个目标的条数, 其余计数)。
+    /// `BatchEnd`。条目逐条流式装配发送（v4 的 build_send_payload 共用，不再
+    /// 预装配整个分组）；多目标时逐目标 emit `DeviceCategorySent`，返回
+    /// (组名, 至少送达 1 个目标的条数, 其余计数)。
     pub(crate) async fn send_category(
         &self,
         target: Option<&str>,
         category_id: &str,
     ) -> Result<(String, u32, u32), String> {
-        let targets = self.online_targets(target)?;
+        let online = self.online_targets(target)?;
         let conn = self.inner.store.connect()?;
         let category = self.inner.store.get_category_with_conn(&conn, category_id)?;
         let items = self
@@ -922,68 +1007,90 @@ impl DeviceLinkRegistry {
         if items.is_empty() {
             return Err("该分组没有可发送的条目".to_string());
         }
-        // 先装配全部条目：单条 payload 构建失败（如图片文件缺失）跳过并计数，
-        // 不中断整组（v4 行为）
-        let mut built: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
-        let mut build_failed: u32 = 0;
-        for item in &items {
-            match build_send_payload(&item.clip_type, &item.text) {
-                Ok(payload) => built.push((item.clip_type.clone(), payload, item.display_name.clone())),
-                Err(reason) => {
-                    eprintln!("[lan-sync] 整组发送跳过条目 {}：{reason}", item.id);
-                    build_failed += 1;
-                }
-            }
-        }
         let item_count = items.len().min(u32::MAX as usize) as u32;
         let category_name = category.name.clone();
         let category_color = category.color.clone();
-        // 每条目是否至少送达 1 个目标（跨目标聚合）
-        let mut delivered = vec![false; built.len()];
-        for (node_id, tx) in targets {
-            if tx
+        // 逐条流式发送（不预装配全部 payload）：单条构建失败（如图片文件缺失）
+        // 跳过并计数、不中断整组（v4 行为）。条目外层 / 目标内层——同一时刻
+        // 内存只持一条 payload（外加各目标通道在途副本），避免 10k 条 × ~8MB
+        // 的整组放大；每目标通道内的消息顺序仍是 BatchStart → 条目 → BatchEnd。
+        let mut targets: Vec<CategorySendTarget> = Vec::with_capacity(online.len());
+        for (node_id, tx) in online {
+            let started = tx
                 .send(ControlMsg::BatchStart {
                     category_name: category_name.clone(),
                     category_color: Some(category_color.clone()),
                     item_count,
                 })
                 .await
-                .is_err()
-            {
-                continue; // 该目标会话已死：跳过
-            }
-            let mut target_sent: u32 = 0;
-            let mut target_failed: u32 = build_failed;
-            for (index, (clip_type, payload, display_name)) in built.iter().enumerate() {
+                .is_ok();
+            // BatchStart 都送不达（会话已死）的目标：跳过且不发汇总事件（v4 行为）
+            targets.push(CategorySendTarget {
+                node_id,
+                tx,
+                started,
+                dead: !started,
+                sent: 0,
+                failed: 0,
+            });
+        }
+        let mut build_failed: u32 = 0;
+        let mut delivered_any_count: u32 = 0; // 至少送达 1 个目标的条数（跨目标聚合）
+        for item in &items {
+            let payload = match build_send_payload(&item.clip_type, &item.text) {
+                Ok(payload) => payload,
+                Err(reason) => {
+                    eprintln!("[lan-sync] 整组发送跳过条目 {}：{reason}", item.id);
+                    build_failed += 1;
+                    for target in &mut targets {
+                        target.failed += 1; // 构建失败对所有目标计失败
+                    }
+                    continue;
+                }
+            };
+            let mut delivered_this = false;
+            for target in &mut targets {
+                if target.dead {
+                    target.failed += 1; // 会话已断：该目标剩余条目逐条计失败
+                    continue;
+                }
                 let msg = ControlMsg::SendClip {
-                    clip_type: clip_type.clone(),
+                    clip_type: item.clip_type.clone(),
                     payload: payload.clone(),
                     category_name: Some(category_name.clone()),
                     category_color: Some(category_color.clone()),
-                    display_name: display_name.clone(),
+                    display_name: item.display_name.clone(),
                 };
-                if tx.send(msg).await.is_ok() {
-                    target_sent += 1;
-                    delivered[index] = true;
+                if target.tx.send(msg).await.is_ok() {
+                    target.sent += 1;
+                    delivered_this = true;
                 } else {
-                    // 通道关闭（会话已断）：该目标剩余条目必然失败，中止
-                    target_failed += (built.len() - index) as u32;
-                    break;
+                    // 通道关闭（会话已断）：该目标剩余条目必然失败，停发
+                    target.dead = true;
+                    target.failed += 1;
                 }
             }
-            let _ = tx.send(ControlMsg::BatchEnd).await;
+            if delivered_this {
+                delivered_any_count += 1;
+            }
+        }
+        for target in &mut targets {
+            if !target.started {
+                continue;
+            }
+            let _ = target.tx.send(ControlMsg::BatchEnd).await;
             self.emit(
                 EVENT_DEVICE_CATEGORY_SENT,
                 &DeviceCategorySent {
-                    node_id: node_id.clone(),
+                    node_id: target.node_id.clone(),
                     category_name: category_name.clone(),
-                    sent: target_sent,
-                    failed: target_failed,
+                    sent: target.sent,
+                    failed: target.failed,
                 },
             );
         }
-        let sent = delivered.iter().filter(|hit| **hit).count() as u32;
-        let failed = build_failed + (built.len() as u32 - sent);
+        let sent = delivered_any_count;
+        let failed = item_count.saturating_sub(sent);
         Ok((category_name, sent, failed))
     }
 
@@ -1730,5 +1837,90 @@ mod tests {
         registry.disconnect(&node);
         registry.revoke(&node);
         assert!(!registry.inner.disconnected.lock().unwrap().contains(&node));
+    }
+
+    /// 撤销门 helper（F2）：只有「行存在且 revoked_at 非空」才拦；
+    /// 无记录/未撤销/已删除都不拦（删除后重新视为陌生设备）。
+    #[tokio::test]
+    async fn locally_revoked_guard_distinguishes_states() {
+        let (registry, _sink) = test_registry().await;
+        let node = hex32(5);
+        assert!(!registry.is_locally_revoked(&node), "无记录：不拦（走陌生配对流程）");
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "MBP", None, &[])
+            .unwrap();
+        assert!(!registry.is_locally_revoked(&node), "已配对未撤销：不拦（走已配对分支）");
+        registry.inner.store.revoke_device(&node).unwrap();
+        assert!(registry.is_locally_revoked(&node), "已撤销：静默拒绝");
+        registry.inner.store.delete_device(&node).unwrap();
+        assert!(!registry.is_locally_revoked(&node), "已删除：重新视为陌生设备");
+    }
+
+    /// join 前置撤销门（F2）：票据指向本地已撤销设备 → 不拨号直接失败，
+    /// 错误提示先删除记录；Err 与 EVENT_PAIR_JOIN_FAILED 双通道（与其他
+    /// join 失败一致）。
+    #[tokio::test]
+    async fn join_fails_fast_when_target_locally_revoked() {
+        let (registry, sink) = test_registry().await;
+        let node = hex32(6);
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "旧设备", None, &[])
+            .unwrap();
+        registry.inner.store.revoke_device(&node).unwrap();
+        // 票据 endpoint_id 只需 hex 对得上 store 行（不拨号，无需合法曲线点）
+        let bytes = [0x06u8; 32];
+        assert_eq!(hex_encode_32(&bytes), node);
+        let ticket = PairTicket {
+            version: 1,
+            endpoint_id: bytes,
+            relay_url: None,
+            direct_addrs: vec![],
+            invite_secret: [0u8; 16],
+        };
+        let err = registry
+            .join(&ticket.encode())
+            .await
+            .expect_err("已撤销目标应立即失败");
+        assert!(err.contains("已被撤销"), "实际错误：{err}");
+        let events = find_events(&sink, EVENT_PAIR_JOIN_FAILED);
+        assert_eq!(events.len(), 1, "失败应 emit join-failed 事件");
+        assert!(events[0]["reason"].as_str().unwrap().contains("已被撤销"));
+    }
+
+    /// join 应答等待超时（F5）：对端校验通过但停在用户确认（无人应答）时，
+    /// join 不得无限挂起——JOIN_REPLY_TIMEOUT（测试构建 2s）后返回
+    /// 「等待对方响应超时」并 emit join-failed；host 侧的 120s 用户确认
+    /// 限时远晚于 join 超时，保证先在拨号方触发。
+    #[tokio::test]
+    async fn join_reply_wait_times_out() {
+        let (host, host_sink) = test_registry().await;
+        let (joiner, sink) = test_registry().await;
+        // host 生成有效邀请：对端 PairRequest 校验通过 → 走到用户确认等待
+        //（连接保持打开、不回帧），拨号方只能靠自己的 30s 超时收场
+        let secret = host.inner.invites.lock().unwrap().create();
+        let addr = host.inner.endpoint.addr();
+        let direct_addrs: Vec<String> = addr.ip_addrs().map(|a| a.to_string()).collect();
+        assert!(!direct_addrs.is_empty(), "回环端点应有直连地址");
+        let ticket = PairTicket {
+            version: 1,
+            endpoint_id: *host.inner.endpoint.id().as_bytes(),
+            relay_url: None,
+            direct_addrs,
+            invite_secret: secret,
+        };
+        let err = joiner.join(&ticket.encode()).await.expect_err("对端不回帧时应超时失败");
+        assert_eq!(err, "等待对方响应超时");
+        let events = find_events(&sink, EVENT_PAIR_JOIN_FAILED);
+        assert_eq!(events.len(), 1, "超时失败应 emit join-failed");
+        assert_eq!(events[0]["reason"].as_str(), Some("等待对方响应超时"));
+        // host 确实停在用户确认（而不是提前断开）：已弹出配对请求事件
+        assert!(
+            !find_events(&host_sink, EVENT_PAIR_REQUEST).is_empty(),
+            "host 应已进入用户确认等待（连接保持打开）"
+        );
     }
 }

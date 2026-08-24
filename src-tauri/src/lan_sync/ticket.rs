@@ -139,15 +139,25 @@ impl InviteRegistry {
         self.active = None;
     }
 
-    /// 校验并核销：过期/不匹配/已用均返回 false（一次性：成功即作废）。
+    /// 校验并核销：**校验成功即焚；校验失败邀请保留**（spec §4.2：只有成功
+    /// 才消耗一次性邀请）。失败即焚会让局域网攻击者轮换 NodeId 发垃圾密钥
+    /// 即可烧掉全部邀请、阻断正常配对（DoS）。过期视为已死（不回填）。
     /// 常数时间比较，防时序侧信道。
     pub(crate) fn verify_and_consume(&mut self, secret_hex: &str) -> bool {
         let Some(invite) = self.active.take() else { return false };
         if Instant::now() > invite.expires_at {
-            return false;
+            return false; // 已过期：邀请作废，无需回填
         }
-        let Ok(bytes) = hex_decode_16(secret_hex) else { return false };
-        constant_time_eq(&bytes, &invite.secret)
+        let Ok(bytes) = hex_decode_16(secret_hex) else {
+            self.active = Some(invite); // 输入非法定长 hex：误输入/探测，保留邀请
+            return false;
+        };
+        if constant_time_eq(&bytes, &invite.secret) {
+            true // 匹配：保持取走状态（一次性核销）
+        } else {
+            self.active = Some(invite); // 密钥不匹配：回填，等待真正的配对方
+            false
+        }
     }
 
     /// 测试辅助：把当前邀请的过期时间改到过去（不引入时钟抽象，YAGNI）。
@@ -247,6 +257,24 @@ mod tests {
         let mut reg = InviteRegistry::new();
         let _secret = reg.create();
         assert!(!reg.verify_and_consume(&"00".repeat(16)));
+    }
+
+    /// 失败不焚毁（F1 回归）：错误密钥/坏 hex 之后，正确密钥仍可核销；
+    /// 核销成功后才是一次性。
+    #[test]
+    fn invite_survives_failed_verification() {
+        let mut reg = InviteRegistry::new();
+        let secret = reg.create();
+        let correct: String = secret.iter().map(|b| format!("{b:02x}")).collect();
+        // 错误密钥（合法定长 hex）：不得烧掉邀请
+        assert!(!reg.verify_and_consume(&"00".repeat(16)));
+        // 非法 hex（探测垃圾）：同样不得烧掉邀请
+        assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
+        assert!(!reg.verify_and_consume("aabb"));
+        // 正确密钥在一系列失败尝试后仍应核销成功
+        assert!(reg.verify_and_consume(&correct), "失败尝试后正确密钥应仍有效");
+        // 成功即焚：一次性语义保持
+        assert!(!reg.verify_and_consume(&correct), "核销成功后二次校验失败");
     }
 
     #[test]

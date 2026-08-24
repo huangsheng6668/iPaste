@@ -13,7 +13,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 搜索历史与分类片段；键盘为主的选择与回贴流程。
 - 图片查看器：预览、缩放、复制回剪贴板、OCR 提取文本（macOS 系统 Vision / Windows PaddleOCR 资源）。
 - 追加复制：临时合并多段文本复制。
-- 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。
+- 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。心跳死亡检测委托给 QUIC（conn.closed 监视任务），不做应用层漏 Pong 计数——对 spec §5 的既定偏差。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
 - 快捷动作：保存 shell 命令为面板动作（可确认、输出流式展示、JSON 导入导出）。
 - 多语言界面与签名自动更新（GitHub Releases / Cloudflare R2）。

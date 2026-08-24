@@ -16,6 +16,7 @@ import type {
   SettingsChangedEvent,
 } from "../types";
 import type { DeviceClipReceived } from "../types/generated/DeviceClipReceived";
+import type { DeviceCategoryReceived } from "../types/generated/DeviceCategoryReceived";
 
 type IpasteStore = ReturnType<typeof useIpasteStore>;
 
@@ -112,9 +113,17 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
     }
   });
 
-  // 跨设备同步：收到对端剪贴板时提示（pairJoinFailed 等配对流反馈由
-  // lan-sync 窗口的 useDeviceSync 就地展示，主窗口不重复 toast）。
+  // 跨设备同步：收到对端剪贴板/整组时提示并刷新列表——同步落库发生在 Rust
+  // 侧，前端 store 不会自动感知，需像 panelVisibilityChanged 一样主动 load
+  //（v4 行为恢复）。pairJoinFailed 等配对流反馈由 lan-sync 窗口的
+  // useDeviceSync 就地展示，主窗口不重复 toast。
   await listen<DeviceClipReceived>(IPASTE_EVENTS.deviceClipReceived, () => {
     ui.pushToast(t("deviceSync.clipReceived"));
+    void store.load();
+  });
+
+  await listen<DeviceCategoryReceived>(IPASTE_EVENTS.deviceCategoryReceived, () => {
+    ui.pushToast(t("deviceSync.categoryReceived"));
+    void store.load();
   });
 }

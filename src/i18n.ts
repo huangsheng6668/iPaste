@@ -407,6 +407,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https:// (empty = default relay)",
     "deviceSync.relay.restartHint": "Restart iPaste to apply relay changes",
     "deviceSync.clipReceived": "Clipboard received from a device",
+    "deviceSync.categoryReceived": "Category received from a device",
   },
   "zh-CN": {
     "automation.entry": "动作",
@@ -788,6 +789,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https://（留空使用默认中继）",
     "deviceSync.relay.restartHint": "重启 iPaste 后生效",
     "deviceSync.clipReceived": "已接收来自设备的剪贴板",
+    "deviceSync.categoryReceived": "已接收来自设备的分类",
   },
   "ja": {
     "automation.entry": "アクション",
@@ -1158,6 +1160,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https://（空欄でデフォルト）",
     "deviceSync.relay.restartHint": "リレー変更の適用には iPaste の再起動が必要です",
     "deviceSync.clipReceived": "デバイスからクリップボードを受信しました",
+    "deviceSync.categoryReceived": "デバイスからカテゴリを受信しました",
   },
   "ko": {
     "automation.entry": "동작",
@@ -1528,6 +1531,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https:// (비워두면 기본값)",
     "deviceSync.relay.restartHint": "릴레이 변경 사항은 iPaste 재시작 후 적용됩니다",
     "deviceSync.clipReceived": "기기에서 클립보드를 받았습니다",
+    "deviceSync.categoryReceived": "기기에서 카테고리를 받았습니다",
   },
   "es": {
     "automation.entry": "Acciones",
@@ -1898,6 +1902,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https:// (vacío = relé predeterminado)",
     "deviceSync.relay.restartHint": "Reinicia iPaste para aplicar los cambios del relé",
     "deviceSync.clipReceived": "Portapapeles recibido de un dispositivo",
+    "deviceSync.categoryReceived": "Categoría recibida de un dispositivo",
   },
   "fr": {
     "automation.entry": "Actions",
@@ -2268,6 +2273,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https:// (vide = relais par défaut)",
     "deviceSync.relay.restartHint": "Redémarrez iPaste pour appliquer les changements de relais",
     "deviceSync.clipReceived": "Presse-papiers reçu d'un appareil",
+    "deviceSync.categoryReceived": "Catégorie reçue d'un appareil",
   },
   "de": {
     "automation.entry": "Aktionen",
@@ -2638,6 +2644,7 @@ export const messages = {
     "deviceSync.relay.placeholder": "https:// (leer = Standard-Relay)",
     "deviceSync.relay.restartHint": "iPaste neu starten, um Relay-Änderungen zu übernehmen",
     "deviceSync.clipReceived": "Zwischenablage von einem Gerät empfangen",
+    "deviceSync.categoryReceived": "Kategorie von einem Gerät empfangen",
   },
 } as const;
 
