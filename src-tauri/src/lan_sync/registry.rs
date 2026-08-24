@@ -15,7 +15,7 @@
 // 接线后移除）。
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -58,6 +58,13 @@ const RECONNECT_BACKOFF_CAP: Duration = Duration::from_secs(300);
 /// 拨号/加入的超时：中继路径下 QUIC 握手可能较慢，给足 15s。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// 入站会话在线时 link_task 的轮询间隔：对端会话死亡后由下一轮接管重拨。
+const INBOUND_SESSION_POLL: Duration = Duration::from_secs(5);
+
+/// create_invite 等待中继连接（endpoint.online()）的上限；超时非致命，
+/// LAN-only 票据对局域网配对依然有效。
+const INVITE_ONLINE_WAIT: Duration = Duration::from_secs(5);
+
 /// 第 N 次连续失败后的退避时长（0 基）。纯函数，独立测试。
 fn reconnect_backoff(attempt: usize) -> Duration {
     RECONNECT_BACKOFF.get(attempt).copied().unwrap_or(RECONNECT_BACKOFF_CAP)
@@ -92,6 +99,11 @@ struct Inner {
     pending_pair: Mutex<Option<PendingPair>>,
     /// 配对防爆破，key = 对端 node_id hex。
     guard: PairGuard,
+    /// 用户显式断开的设备（node_id hex）：已配对也静默拒绝入站会话、本端不重拨。
+    /// 仅内存态——重启即清空（与「重新配对或重启应用后恢复」语义一致）。
+    disconnected: Mutex<HashSet<String>>,
+    /// 中继是否禁用（RelayMode::Disabled）：禁用时 create_invite 无需等待 online。
+    relay_disabled: bool,
     /// 入站接受循环任务句柄（shutdown 时 abort）。
     accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// links 条目代次计数：会话结束时只清理仍属于自己的登记（防误删新会话）。
@@ -132,6 +144,7 @@ impl DeviceLinkRegistry {
         sink: Arc<dyn LanEventSink>,
         relay: RelayMode,
     ) -> Result<Arc<Self>, String> {
+        let relay_disabled = matches!(relay, RelayMode::Disabled);
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret)
             .alpns(vec![IPASTE_ALPN.to_vec()])
@@ -139,7 +152,7 @@ impl DeviceLinkRegistry {
             .bind()
             .await
             .map_err(|e| format!("无法启动同步端点：{e}"))?;
-        Self::from_endpoint(endpoint, store, sink).await
+        Self::from_endpoint(endpoint, store, sink, relay_disabled).await
     }
 
     /// 测试入口：最小预设 + 禁用中继 + 随机端口（hermetic，不触外网）。
@@ -155,13 +168,14 @@ impl DeviceLinkRegistry {
             .bind()
             .await
             .map_err(|e| format!("无法启动测试端点：{e}"))?;
-        Self::from_endpoint(endpoint, store, sink).await
+        Self::from_endpoint(endpoint, store, sink, true).await
     }
 
     async fn from_endpoint(
         endpoint: Endpoint,
         store: Store,
         sink: Arc<dyn LanEventSink>,
+        relay_disabled: bool,
     ) -> Result<Arc<Self>, String> {
         let registry = Arc::new(Self {
             inner: Arc::new(Inner {
@@ -172,6 +186,8 @@ impl DeviceLinkRegistry {
                 links: Mutex::new(HashMap::new()),
                 pending_pair: Mutex::new(None),
                 guard: PairGuard::new(),
+                disconnected: Mutex::new(HashSet::new()),
+                relay_disabled,
                 accept_task: Mutex::new(None),
                 gen: AtomicU64::new(1),
             }),
@@ -266,11 +282,38 @@ impl DeviceLinkRegistry {
         }
     }
 
+    /// 入站会话门：已配对（信任且未撤销）且未被用户显式断开。
+    fn inbound_allowed(&self, node_hex: &str) -> bool {
+        let trusted = self.inner.store.is_trusted(node_hex).unwrap_or(false);
+        trusted
+            && !self
+                .inner
+                .disconnected
+                .lock()
+                .expect("disconnected 锁中毒")
+                .contains(node_hex)
+    }
+
+    /// 清除「显式断开」标记（重新配对成功 / 撤销 / 删除时调用）。
+    fn clear_disconnected(&self, node_id: &str) {
+        self.inner
+            .disconnected
+            .lock()
+            .expect("disconnected 锁中毒")
+            .remove(node_id);
+    }
+
     /// 单条入站连接：已配对 → 直接进会话；陌生 → 票据配对流程。
     async fn handle_inbound(self: Arc<Self>, conn: Connection) {
         let remote = conn.remote_id();
         let node_hex = hex_encode_32(remote.as_bytes());
         if self.inner.store.is_trusted(&node_hex).unwrap_or(false) {
+            // 用户显式断开过：静默拒绝（不进会话也不进配对流程；
+            // 恢复需重新配对或重启应用——重启清空内存态标记）
+            if !self.inbound_allowed(&node_hex) {
+                conn.close(VarInt::from_u32(0), b"disconnected");
+                return;
+            }
             // 已配对：对端是拨号方 → 对端开首条（会话）流，本地 accept_bi
             if let Ok((send, recv)) = conn.accept_bi().await {
                 let dead_rx = Self::watch_conn_death(conn.clone());
@@ -345,6 +388,8 @@ impl DeviceLinkRegistry {
             reply_reject(&mut send, PairRejectReason::Unknown).await;
             return;
         }
+        // 重新配对成功：解除此前的「显式断开」标记
+        self.clear_disconnected(&node_hex);
         let me_name = device_name();
         let my_id = self.inner.endpoint.id();
         let mut writer = FrameWriter::new(&mut send);
@@ -381,7 +426,19 @@ impl DeviceLinkRegistry {
 
     /// 生成配对票据（覆盖旧邀请）并 emit PairInviteState。票据携带本端
     /// EndpointId + 当前中继 + 当前直连地址。
-    pub(crate) fn create_invite(&self) -> Result<String, String> {
+    ///
+    /// 先尽力等待中继连接（`endpoint.online()`，上限 5s）：刚 bind 的端点在
+    /// relay 分配前 `endpoint.addr().relay_urls()` 为空，会产出 LAN-only 票据，
+    /// 跨网配对必失败。超时非致命——LAN-only 票据对局域网配对依然有效；
+    /// 中继禁用（测试）时无从等待，直接跳过。
+    pub(crate) async fn create_invite(&self) -> Result<String, String> {
+        if !self.inner.relay_disabled {
+            let _ = tokio::time::timeout(
+                INVITE_ONLINE_WAIT,
+                self.inner.endpoint.online(),
+            )
+            .await;
+        }
         let endpoint_addr = self.inner.endpoint.addr();
         let relay = endpoint_addr.relay_urls().next().map(|url| url.to_string());
         let direct_addrs: Vec<String> =
@@ -509,6 +566,8 @@ impl DeviceLinkRegistry {
                 if !self.inner.store.is_trusted(&node_hex).unwrap_or(false) {
                     return fail("该设备此前已被撤销，请先在设备管理中删除后再配对".to_string());
                 }
+                // 重新配对成功：解除此前的「显式断开」标记
+                self.clear_disconnected(&node_hex);
                 drop((send, recv)); // 关配对流（FIN），随后开第二条（会话）流
                 // 拨号方开第二条流（会话流）
                 let (session_send, session_recv) = match conn.open_bi().await {
@@ -561,6 +620,15 @@ impl DeviceLinkRegistry {
         );
     }
 
+    /// links 里该设备是否已有「会话在线」的登记（Connected 且控制通道存活）。
+    /// 典型场景：对端拨来的入站会话收编了本端登记。
+    fn has_live_session(&self, node_id: &str) -> bool {
+        let links = self.inner.links.lock().expect("links 锁中毒");
+        links.get(node_id).is_some_and(|handle| {
+            handle.status == DeviceOnline::Connected && handle.control_tx.is_some()
+        })
+    }
+
     /// 每设备后台任务：循环「拨号 → 会话 → 断开 → 退避重拨」（spec §5）。
     /// 每轮从 store 刷新信任态与地址线索（运行中可能被更新/撤销）。
     async fn link_task(self: Arc<Self>, node_id: String) {
@@ -569,6 +637,14 @@ impl DeviceLinkRegistry {
         while let Some(device) = self.inner.store.get_paired_device(&node_id).ok().flatten() {
             if device.revoked_at.is_some() {
                 break;
+            }
+            // 对端拨来的会话已在本端在线（收编后的入站登记）：跳过本端拨号。
+            // 否则双向 link_task 互踢——A 重拨收编 B 的会话 → B 的会话死 →
+            // B 重拨收编 A 的会话 → ……以 5s 一次的节奏永久连接抖动。
+            // 对端会话死亡（control_tx 清空）后由下一轮循环自然接管重拨。
+            if self.has_live_session(&node_id) {
+                tokio::time::sleep(INBOUND_SESSION_POLL).await;
+                continue; // 不增加退避计数：这不是拨号失败
             }
             self.set_status(&node_id, DeviceOnline::Connecting);
             match self
@@ -938,6 +1014,7 @@ impl DeviceLinkRegistry {
             eprintln!("[lan-sync] 撤销设备失败：{reason}");
         }
         self.kill_link(node_id);
+        self.clear_disconnected(node_id); // 撤销行本身即拒绝入站，标记无意义
         self.emit_status(node_id, DeviceOnline::Offline);
         self.emit_device_list();
     }
@@ -945,6 +1022,7 @@ impl DeviceLinkRegistry {
     /// 彻底删除记录：此后该设备拨号等同陌生设备。
     pub(crate) fn delete_device(&self, node_id: &str) {
         self.kill_link(node_id);
+        self.clear_disconnected(node_id);
         if let Err(reason) = self.inner.store.delete_device(node_id) {
             eprintln!("[lan-sync] 删除设备失败：{reason}");
         }
@@ -960,9 +1038,15 @@ impl DeviceLinkRegistry {
         self.emit_device_list();
     }
 
-    /// 用户主动断开某设备（会话 + 重拨任务一并停；重新配对或重启应用后恢复）。
+    /// 用户主动断开某设备：杀会话 + 停重拨 + 记入内存态断开标记——此后对端
+    /// 重拨一律静默拒绝，直到重新配对成功或重启应用（重启清空标记）。
     pub(crate) fn disconnect(&self, node_id: &str) {
         self.kill_link(node_id);
+        self.inner
+            .disconnected
+            .lock()
+            .expect("disconnected 锁中毒")
+            .insert(node_id.to_string());
         self.emit_status(node_id, DeviceOnline::Offline);
         self.emit_device_list();
     }
@@ -1112,10 +1196,14 @@ mod tests {
     #[tokio::test]
     async fn create_and_cancel_invite_emit_state() {
         let (registry, sink) = test_registry().await;
-        let ticket = registry.create_invite().expect("invite");
+        let ticket = registry.create_invite().await.expect("invite");
         assert!(ticket.starts_with("ipaste-pair-v1:"));
         let decoded = PairTicket::decode(&ticket).expect("decodable ticket");
         assert_eq!(decoded.endpoint_id, *registry.inner.endpoint.id().as_bytes());
+        // RelayMode::Disabled（relay_disabled=true 跳过 online 等待）：票据无中继，
+        // 只有直连地址——即 online() 超时兜底的 LAN-only 形态，必须依然可解析。
+        assert_eq!(decoded.relay_url, None);
+        assert!(!decoded.direct_addrs.is_empty(), "本端直连地址应进票据");
 
         let events = find_events(&sink, EVENT_PAIR_INVITE_STATE);
         assert_eq!(events.len(), 1, "create_invite 应 emit 一次邀请状态");
@@ -1347,5 +1435,78 @@ mod tests {
         // shutdown 幂等且不 panic
         registry.shutdown();
         registry.shutdown();
+    }
+
+    /// 互踢震荡修复（Fix 1）：入站会话在线（Connected + 活跃控制通道）时，
+    /// link_task 不得拨号——拨号路径的第一步就是 set_status(Connecting) 事件，
+    /// 若未跳过会立刻观察到状态事件并随后 Offline（拨号指向不可达地址必失败）。
+    #[tokio::test]
+    async fn link_task_skips_dial_when_inbound_session_live() {
+        let (registry, sink) = test_registry().await;
+        let node = hex32(1);
+        // 地址指向 TEST-NET（不可达）：若 link_task 误拨号，Connecting → 15s 内 Offline
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "MBP", None, &["203.0.113.1:1".into()])
+            .unwrap();
+        let (tx, _rx) = mpsc::channel(16);
+        registry.inner.links.lock().unwrap().insert(
+            node.clone(),
+            LinkHandle {
+                gen: registry.next_gen(),
+                control_tx: Some(tx),
+                status: DeviceOnline::Connected,
+                task: None,
+            },
+        );
+        let task = tokio::spawn(registry.clone().link_task(node.clone()));
+        // 留足调度余量：未跳过时 Connecting 事件在 spawn 后毫秒级出现
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let statuses = find_events(&sink, EVENT_DEVICE_STATUS_CHANGED);
+        assert!(
+            statuses.is_empty(),
+            "入站会话在线时 link_task 不应拨号（不应出现任何状态事件）：{statuses:?}"
+        );
+        assert_eq!(
+            registry.device_infos()[0].online,
+            DeviceOnline::Connected,
+            "在线登记不被 link_task 覆写"
+        );
+        // 会话结束后（drop 控制通道）跳过条件解除——此处仅验证跳过路径本身可退出
+        task.abort();
+    }
+
+    /// 持久断开（Fix 2）：disconnect() 后入站门关闭，重新配对/撤销/删除解除。
+    /// 真实入站连接的拒绝行为由 handle_inbound 的同一道门（inbound_allowed）
+    /// 保证，Task 9 的双端集成测试覆盖。
+    #[tokio::test]
+    async fn disconnect_blocks_inbound_until_repair() {
+        let (registry, _sink) = test_registry().await;
+        let node = hex32(2);
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "MBP", None, &[])
+            .unwrap();
+        assert!(registry.inbound_allowed(&node), "已配对未断开：允许入站会话");
+
+        registry.disconnect(&node);
+        assert!(
+            !registry.inbound_allowed(&node),
+            "显式断开后：已配对也静默拒绝入站会话"
+        );
+        assert!(registry.inner.disconnected.lock().unwrap().contains(&node));
+        // store 行保留（断开 ≠ 撤销），设备列表仍可见
+        assert_eq!(registry.device_infos().len(), 1);
+
+        // 重新配对成功（join/accept 路径的清除点）→ 恢复
+        registry.clear_disconnected(&node);
+        assert!(registry.inbound_allowed(&node), "重新配对后恢复入站");
+
+        // 撤销/删除也清标记（tidiness：撤销行本身即拒绝入站）
+        registry.disconnect(&node);
+        registry.revoke(&node);
+        assert!(!registry.inner.disconnected.lock().unwrap().contains(&node));
     }
 }
