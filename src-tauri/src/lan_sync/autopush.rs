@@ -19,6 +19,19 @@ pub(crate) fn type_allowed(mode: AutoSyncMode, clip_type: &str) -> bool {
     }
 }
 
+/// 目标过滤（纯函数）：把准入矩阵应用到「在线目标 × 每设备偏好」列表，
+/// 返回应收 auto 推送的目标名。fan_out_auto 的锁外过滤阶段消费（Task 3）。
+pub(crate) fn fan_out_targets(
+    targets: &[(String, AutoSyncMode)],
+    clip_type: &str,
+) -> Vec<String> {
+    targets
+        .iter()
+        .filter(|(_, mode)| type_allowed(*mode, clip_type))
+        .map(|(node, _)| node.clone())
+        .collect()
+}
+
 /// 最近接收哈希滑窗：发送侧查（防回推）、接收侧插（auto 路径专用）。
 /// 惰性清理：每次访问先剔除过期项；重复插入刷新时间戳并挪到队尾。
 pub(crate) struct RecentReceived {
@@ -106,5 +119,44 @@ mod tests {
         assert!(recent.contains("h0"), "刷新过的不会被挤出");
         assert!(!recent.contains("h1"), "最老的被挤出");
         assert!(recent.contains("new"));
+    }
+
+    /// fan_out_targets：过滤矩阵应用到在线目标列表——按每设备偏好筛出
+    /// 应收 auto 推送的目标（text 场景）。
+    #[test]
+    fn fan_out_targets_filters_by_mode_for_text() {
+        let targets = vec![
+            ("all-dev".to_string(), AutoSyncMode::All),
+            ("text-dev".to_string(), AutoSyncMode::TextOnly),
+            ("off-dev".to_string(), AutoSyncMode::Off),
+        ];
+        let got = fan_out_targets(&targets, "text");
+        assert_eq!(got, vec!["all-dev".to_string(), "text-dev".to_string()]);
+        // link/color/html 同为文本四类
+        for t in ["link", "color", "html"] {
+            assert_eq!(fan_out_targets(&targets, t).len(), 2, "{t} 应放行 all+text 偏好");
+        }
+    }
+
+    /// fan_out_targets：image/file 只有 all 偏好放行（TextOnly/Off 均拒）。
+    #[test]
+    fn fan_out_targets_image_requires_all() {
+        let targets = vec![
+            ("all-dev".to_string(), AutoSyncMode::All),
+            ("text-dev".to_string(), AutoSyncMode::TextOnly),
+            ("off-dev".to_string(), AutoSyncMode::Off),
+        ];
+        for t in ["image", "file"] {
+            let got = fan_out_targets(&targets, t);
+            assert_eq!(got, vec!["all-dev".to_string()], "{t} 仅 all 偏好放行");
+        }
+    }
+
+    /// fan_out_targets：空列表与全 Off 列表返回空（不 panic）。
+    #[test]
+    fn fan_out_targets_empty_input_yields_empty_output() {
+        assert!(fan_out_targets(&[], "text").is_empty());
+        let all_off = vec![("a".to_string(), AutoSyncMode::Off)];
+        assert!(fan_out_targets(&all_off, "text").is_empty());
     }
 }

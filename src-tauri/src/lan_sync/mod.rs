@@ -21,7 +21,7 @@ pub use registry::DeviceLinkRegistry;
 use std::sync::Arc;
 
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use ts_rs::TS;
 
 /// 事件出口抽象：生产环境转发到 Tauri 前端；测试用 Noop（不构造任何
@@ -45,6 +45,22 @@ impl LanEventSink for TauriEventSink {
 /// 生产事件出口构造器（lib.rs setup 接线消费）。
 pub(crate) fn tauri_event_sink(app: AppHandle) -> Arc<dyn LanEventSink> {
     Arc::new(TauriEventSink { app })
+}
+
+/// 捕获线程的 fire-and-forget 扇出入口（Spec 2 Task 3）：本函数只做
+/// try_state 取 registry + spawn，同步快速返回，绝不阻塞捕获循环。
+/// registry 未被 manage（同步服务启动失败/未启动）时静默返回——捕获照常。
+pub(crate) fn fan_out_spawned(app: &tauri::AppHandle, clip: &crate::models::ClipItem) {
+    let Some(registry) = app.try_state::<Arc<DeviceLinkRegistry>>() else {
+        return; // 同步不可用：捕获路径不受影响
+    };
+    let registry = registry.inner().clone();
+    let clip = clip.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(reason) = registry.fan_out_auto(&clip).await {
+            eprintln!("[auto-push] 扇出失败：{reason}");
+        }
+    });
 }
 
 /// 测试事件出口：空操作。

@@ -87,11 +87,15 @@ pub(crate) fn spawn_clipboard_watcher(
                         let _ = app.emit(
                             EVENT_CLIPBOARD_CAPTURED,
                             ClipboardCaptured {
-                                clip,
+                                clip: clip.clone(),
                                 clip_total_count,
                                 was_inserted,
                             },
                         );
+                        if was_inserted {
+                            // 捕获即自动同步（Spec 2）：fire-and-forget，不阻塞捕获线程。
+                            crate::lan_sync::fan_out_spawned(&app, &clip);
+                        }
                     }
                     Ok(None) => {}
                     Err(error) => {

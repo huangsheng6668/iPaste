@@ -29,7 +29,7 @@ use crate::events::{
     EVENT_DEVICE_STATUS_CHANGED, EVENT_PAIR_INVITE_STATE, EVENT_PAIR_JOIN_FAILED,
     EVENT_PAIR_REQUEST,
 };
-use crate::lan_sync::autopush::RecentReceived;
+use crate::lan_sync::autopush::{fan_out_targets, RecentReceived};
 use crate::lan_sync::frame::{FrameReader, FrameWriter};
 use crate::lan_sync::pair_guard::PairGuard;
 use crate::lan_sync::protocol::{
@@ -38,7 +38,7 @@ use crate::lan_sync::protocol::{
 use crate::lan_sync::session::{fingerprint_hex, run_session_loop, SessionCtx};
 use crate::lan_sync::ticket::{InviteRegistry, PairTicket, INVITE_TTL};
 use crate::lan_sync::{device_name, ControlMsg, LanEventSink};
-use crate::models::{AutoSyncMode, DeviceInfo, DeviceOnline};
+use crate::models::{AutoSyncMode, ClipItem, DeviceInfo, DeviceOnline};
 use crate::store::Store;
 
 /// 重拨退避序列：5s→10s→20s→40s→80s→160s，之后恒为 300s（spec §5）。
@@ -117,6 +117,9 @@ struct Inner {
     /// 最近接收哈希滑窗（registry 级单例）：auto 接收路径登记，Task 3 的发送侧
     /// 扇出经同一实例防回推。
     recent: Arc<RecentReceived>,
+    /// auto 推送因目标队列满/会话死亡而丢弃的累计计数（诊断用；
+    /// fan_out_auto 的 try_send 路径递增）。
+    auto_dropped: AtomicU64,
     /// 中继是否禁用（RelayMode::Disabled）：禁用时 create_invite 无需等待 online。
     relay_disabled: bool,
     /// 入站接受循环任务句柄（shutdown 时 abort）。
@@ -215,6 +218,7 @@ impl DeviceLinkRegistry {
                 guard: PairGuard::new(),
                 disconnected: Mutex::new(HashSet::new()),
                 recent: Arc::new(RecentReceived::new()),
+                auto_dropped: AtomicU64::new(0),
                 relay_disabled,
                 accept_task: Mutex::new(None),
                 gen: AtomicU64::new(1),
@@ -1124,6 +1128,85 @@ impl DeviceLinkRegistry {
         Ok(())
     }
 
+    // —— 捕获即扇出（Spec 2 发送侧）——
+
+    /// 捕获即扇出（spec §1）：master 开关 → recent 命中跳过（回环第一道）→
+    /// payload 构建（超限跳过）→ 在线目标两段式过滤 → try_send（队列满丢弃
+    /// 计数，绝不阻塞捕获）。Err 仅在 payload 构建失败时返回；其余抑制路径
+    /// 一律静默 Ok（同步不得拖垮捕获路径）。
+    pub(crate) async fn fan_out_auto(&self, clip: &ClipItem) -> Result<(), String> {
+        // 闸门 1：master 总开关关闭——短路在 payload 构建之前（不读图片文件）。
+        let settings = self.inner.store.auto_push_settings()?;
+        if !settings.master {
+            return Ok(());
+        }
+        // 闸门 2：recent 命中（回环窗口内刚从对端收到的内容）——同样短路在
+        // payload 构建之前，防回推的同时省掉图片读盘。
+        if self.inner.recent.contains(&clip.content_hash) {
+            return Ok(());
+        }
+        // payload 规则与手动 send_raw 一致：image = 文件读出转 data url
+        // （clip.text 为落盘路径），其余 = text 原文。图片超限在 build_send_payload
+        // 内被拒（Err）；文本类超出 LAN_MAX_PAYLOAD 则跳过本次扇出（非错误）。
+        let payload = build_send_payload(&clip.clip_type, &clip.text)?;
+        if payload.len() > LAN_MAX_PAYLOAD {
+            eprintln!(
+                "[auto-push] payload 超出单帧上限（{} 字节），跳过本次自动推送",
+                payload.len()
+            );
+            return Ok(());
+        }
+        // 两段式锁纪律：第一段在 links 锁内只收集 Connected 链路的 (node, 控制通道)，
+        // 仅 clone sender——锁内无 SQLite/IO（无 await 纪律 + 最小化锁持有）。
+        let candidates: Vec<(String, mpsc::Sender<ControlMsg>)> = {
+            let links = self.inner.links.lock().expect("links 锁中毒");
+            links
+                .iter()
+                .filter(|(_, handle)| handle.status == DeviceOnline::Connected)
+                .filter_map(|(node, handle)| {
+                    handle.control_tx.as_ref().map(|tx| (node.clone(), tx.clone()))
+                })
+                .collect()
+        };
+        // 第二段在锁外查每设备偏好（同步 SQLite），过滤交给纯函数 fan_out_targets。
+        // store 无行（如设备刚被删除）按 TextOnly 兜底。
+        let modes: Vec<(String, AutoSyncMode)> = candidates
+            .iter()
+            .map(|(node, _)| {
+                let mode = self
+                    .inner
+                    .store
+                    .get_paired_device(node)
+                    .ok()
+                    .flatten()
+                    .map(|device| device.auto_sync_mode)
+                    .unwrap_or(AutoSyncMode::TextOnly);
+                (node.clone(), mode)
+            })
+            .collect();
+        let allowed: HashSet<String> =
+            fan_out_targets(&modes, &clip.clip_type).into_iter().collect();
+        let my_id = hex_encode_32(self.inner.endpoint.id().as_bytes());
+        for (node, tx) in candidates {
+            if !allowed.contains(&node) {
+                continue; // 该设备偏好不接收此类型：不发
+            }
+            let msg = ControlMsg::SendClip {
+                clip_type: clip.clip_type.clone(),
+                payload: payload.clone(),
+                // 捕获路径无分组/重命名语义（brief 约定）
+                category_name: None,
+                category_color: None,
+                display_name: None,
+                auto: true,
+                origin_node_id: Some(my_id.clone()),
+            };
+            // 队列满/会话已死：try_send_auto 内已计数并记日志，不重试、不等待。
+            let _ = try_send_auto(&tx, msg, &self.inner.auto_dropped);
+        }
+        Ok(())
+    }
+
     // —— 设备管理 ——
 
     /// store 行 + links 状态合成；撤销的恒 Offline（即使有残留登记）。
@@ -1266,6 +1349,24 @@ async fn reply_reject(send: &mut SendStream, reason: PairRejectReason) {
 pub(crate) fn max_sendable_image_bytes() -> u64 {
     let expanded = (LAN_MAX_PAYLOAD - "data:image/png;base64,".len()) as u64;
     expanded / 4 * 3
+}
+
+/// auto 推送的投递原语：try_send 入队，队列满或会话已死时经 `dropped` 计数
+/// 后丢弃并记日志——同步等待容量，是「扇出绝不阻塞捕获」的核心保证
+///（fan_out_auto 消费）。返回 true = 已入队。
+fn try_send_auto(
+    tx: &mpsc::Sender<ControlMsg>,
+    msg: ControlMsg,
+    dropped: &AtomicU64,
+) -> bool {
+    match tx.try_send(msg) {
+        Ok(()) => true,
+        Err(_) => {
+            let count = dropped.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!("[auto-push] 目标队列满或会话已关闭，丢弃第 {count} 条自动推送");
+            false
+        }
+    }
 }
 
 /// 把待发送的条目内容编码成同步 payload 字节（v4 lan_send_clip/lan_send_category
@@ -1942,6 +2043,155 @@ mod tests {
         assert!(
             !find_events(&host_sink, EVENT_PAIR_REQUEST).is_empty(),
             "host 应已进入用户确认等待（连接保持打开）"
+        );
+    }
+
+    /// try_send_auto：队列满时计数丢弃、不阻塞（容量 1 塞满后第二条失败 → 计数 +1）。
+    #[test]
+    fn try_send_auto_counts_drop_when_channel_full() {
+        let (tx, _rx) = mpsc::channel(1);
+        let dropped = AtomicU64::new(0);
+        assert!(try_send_auto(&tx, ControlMsg::BatchEnd, &dropped), "首条应入队");
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+        // 容量已满：同步返回失败并计数，绝不等待容量（fire-and-forget 保证）
+        assert!(!try_send_auto(&tx, ControlMsg::BatchEnd, &dropped), "满队应丢弃");
+        assert_eq!(dropped.load(Ordering::Relaxed), 1, "丢弃计数 +1");
+        assert!(!try_send_auto(&tx, ControlMsg::BatchEnd, &dropped), "继续满队仍丢弃");
+        assert_eq!(dropped.load(Ordering::Relaxed), 2, "计数持续累计");
+    }
+
+    /// try_send_auto：会话已死（接收端 drop）同样计数丢弃——与满队列同一处理。
+    #[test]
+    fn try_send_auto_counts_drop_when_session_closed() {
+        let (tx, rx) = mpsc::channel(16);
+        drop(rx);
+        let dropped = AtomicU64::new(0);
+        assert!(!try_send_auto(&tx, ControlMsg::BatchEnd, &dropped), "死通道应丢弃");
+        assert_eq!(dropped.load(Ordering::Relaxed), 1, "丢弃计数 +1");
+    }
+
+    /// 测试用 ClipItem 装配（fan_out_auto 的输入形态：text 字段为文本原文或
+    /// 图片落盘路径——与捕获入库后的约定一致）。
+    fn text_clip(clip_type: &str, hash: &str, text: &str) -> ClipItem {
+        ClipItem {
+            id: crate::util::new_id(),
+            clip_type: clip_type.to_string(),
+            content_hash: hash.to_string(),
+            display_name: None,
+            preview_text: text.chars().take(20).collect(),
+            text: text.to_string(),
+            source_app: None,
+            last_captured_at: String::new(),
+            favorite_count: 0,
+            is_pinned: false,
+        }
+    }
+
+    /// fan_out_auto 闸门：master 关 / recent 命中都在 payload 构建之前短路——
+    /// 被抑制时即使图片路径不可读也不报错（build_send_payload 根本不会被调用）。
+    #[tokio::test]
+    async fn fan_out_auto_short_circuits_before_payload_build() {
+        let (registry, _sink) = test_registry().await;
+        let store = &registry.inner.store;
+        // 图片条目的 text 指向不存在路径：若错误地先构建 payload 会返回 Err
+        let bad_image = text_clip("image", "hash-bad", "/definitely/not/here/x.png");
+
+        // master 关：静默 Ok，无投递
+        store.update_auto_push_settings(false, false).unwrap();
+        let mut rx = fake_connected_link(&registry, &hex32(1));
+        registry
+            .fan_out_auto(&bad_image)
+            .await
+            .expect("master 关应短路返回 Ok");
+        assert!(rx.try_recv().is_err(), "master 关：无投递");
+
+        // master 开 + recent 命中：同样短路在 payload 构建之前
+        store.update_auto_push_settings(true, false).unwrap();
+        registry.inner.recent.insert("hash-bad");
+        registry
+            .fan_out_auto(&bad_image)
+            .await
+            .expect("recent 命中应短路返回 Ok");
+        assert!(rx.try_recv().is_err(), "recent 命中：无投递");
+    }
+
+    /// fan_out_auto 投递：在线目标按每设备偏好过滤；SendClip 携带 auto=true +
+    /// origin（本端 node_id）；超限文本跳过扇出但不是错误；payload 构建失败是
+    /// 唯一 Err 来源。
+    #[tokio::test]
+    async fn fan_out_auto_dispatches_with_per_device_filtering() {
+        let (registry, _sink) = test_registry().await;
+        let store = &registry.inner.store;
+        store.update_auto_push_settings(true, false).unwrap();
+        store.upsert_paired_device(&hex32(1), "MBP", None, &[]).unwrap();
+        store.set_auto_sync_mode(&hex32(1), AutoSyncMode::All).unwrap();
+        store.upsert_paired_device(&hex32(2), "PC", None, &[]).unwrap();
+        store.set_auto_sync_mode(&hex32(2), AutoSyncMode::Off).unwrap();
+        store.upsert_paired_device(&hex32(3), "Phone", None, &[]).unwrap(); // 默认 TextOnly
+        let mut rx1 = fake_connected_link(&registry, &hex32(1));
+        let mut rx2 = fake_connected_link(&registry, &hex32(2));
+        let mut rx3 = fake_connected_link(&registry, &hex32(3));
+        let mut rx4 = fake_connected_link(&registry, &hex32(9)); // store 无行：按 TextOnly 兜底
+
+        let clip = text_clip("text", "hash-t1", "hello auto");
+        registry.fan_out_auto(&clip).await.unwrap();
+
+        let my_id = registry.inner_endpoint_id_hex_for_test();
+        for (label, rx) in [("all", &mut rx1), ("text-only", &mut rx3), ("unknown", &mut rx4)] {
+            match rx.try_recv() {
+                Ok(ControlMsg::SendClip {
+                    clip_type, payload, auto, origin_node_id, ..
+                }) => {
+                    assert_eq!(clip_type, "text");
+                    assert_eq!(payload, b"hello auto");
+                    assert!(auto, "{label}：应为 auto 推送");
+                    assert_eq!(
+                        origin_node_id.as_deref(),
+                        Some(my_id.as_str()),
+                        "{label}：origin 应为本端 node_id"
+                    );
+                }
+                other => panic!("{label} 设备应收到 auto 推送：{other:?}"),
+            }
+        }
+        assert!(rx2.try_recv().is_err(), "Off 偏好不得收到");
+
+        // 图片条目：只有 All 设备收到；TextOnly / 未知（TextOnly 兜底）被过滤。
+        // 用真实临时图片文件，避免 payload 构建失败干扰断言。
+        let dir = std::env::temp_dir().join(format!("ipaste-fanout-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png_path = dir.join("img.png");
+        std::fs::write(&png_path, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+        let image_clip = text_clip("image", "hash-img", png_path.to_str().unwrap());
+        registry.fan_out_auto(&image_clip).await.unwrap();
+        match rx1.try_recv() {
+            Ok(ControlMsg::SendClip { payload, auto, .. }) => {
+                assert!(auto, "图片 auto 推送");
+                let text = String::from_utf8(payload).unwrap();
+                assert!(
+                    text.starts_with("data:image/png;base64,"),
+                    "图片 payload 应为 data url：{text}"
+                );
+            }
+            other => panic!("All 设备应收到图片 auto 推送：{other:?}"),
+        }
+        assert!(rx3.try_recv().is_err(), "TextOnly 不收图片");
+        assert!(rx4.try_recv().is_err(), "未知设备（TextOnly 兜底）不收图片");
+        std::fs::remove_dir_all(&dir).ok();
+
+        // 超限文本（> LAN_MAX_PAYLOAD）：跳过整次扇出且返回 Ok
+        let big = text_clip("text", "hash-big", &"x".repeat(LAN_MAX_PAYLOAD + 1));
+        registry
+            .fan_out_auto(&big)
+            .await
+            .expect("超限跳过不是错误");
+        assert!(rx1.try_recv().is_err(), "超限：无投递");
+
+        // payload 构建失败（图片文件缺失）是唯一 Err 来源
+        let missing = text_clip("image", "hash-miss", "/definitely/not/here/y.png");
+        assert!(
+            registry.fan_out_auto(&missing).await.is_err(),
+            "payload 构建失败应返回 Err"
         );
     }
 }
