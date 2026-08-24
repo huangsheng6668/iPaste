@@ -15,6 +15,7 @@ import type {
   ListeningChangedEvent,
   SettingsChangedEvent,
 } from "../types";
+import type { DeviceClipReceived } from "../types/generated/DeviceClipReceived";
 
 type IpasteStore = ReturnType<typeof useIpasteStore>;
 
@@ -109,5 +110,11 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
     if (action?.closePanelOnSuccess && status === "success") {
       store.closePanelRequested = true;
     }
+  });
+
+  // 跨设备同步：收到对端剪贴板时提示（pairJoinFailed 等配对流反馈由
+  // lan-sync 窗口的 useDeviceSync 就地展示，主窗口不重复 toast）。
+  await listen<DeviceClipReceived>(IPASTE_EVENTS.deviceClipReceived, () => {
+    ui.pushToast(t("deviceSync.clipReceived"));
   });
 }

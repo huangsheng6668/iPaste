@@ -229,8 +229,8 @@ defineExpose({
         <button
           type="button"
           class="icon-button"
-          :aria-label="t('lan.title')"
-          :data-tooltip="t('lan.title')"
+          :aria-label="t('deviceSync.title')"
+          :data-tooltip="t('deviceSync.title')"
           @click="onLanSync"
         >
           <Wifi class="size-3.5" />

@@ -132,8 +132,8 @@ function onLanSync() {
       type="button"
       class="icon-button"
       tabindex="-1"
-      :aria-label="t('lan.title')"
-      :data-tooltip="t('lan.title')"
+      :aria-label="t('deviceSync.title')"
+      :data-tooltip="t('deviceSync.title')"
       @click.stop="onLanSync"
     >
       <Wifi class="size-4" />
