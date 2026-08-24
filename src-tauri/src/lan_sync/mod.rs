@@ -5,12 +5,17 @@
 //! Task 8 重写命令层（commands.rs 占位中）。
 
 pub(crate) mod protocol;
-pub(crate) mod session;    // v5 泛型明文会话循环（Task 7 接线）
+pub(crate) mod session;    // v5 泛型明文会话循环（registry 接线）
 pub(crate) mod commands;   // 占位：Task 8 以 iroh 会话命令重写
-pub(crate) mod pair_guard; // 配对防爆破（Task 7 配对门消费）
-pub(crate) mod identity;   // 设备身份（iroh SecretKey），Task 7 接线
+pub(crate) mod pair_guard; // 配对防爆破（registry 配对门消费）
+pub(crate) mod identity;   // 设备身份（iroh SecretKey）
 pub(crate) mod frame;      // 泛型帧编解码（iroh 无耦合）
-pub(crate) mod ticket;     // 配对票据 + 一次性邀请登记（Task 7 接线）
+pub(crate) mod ticket;     // 配对票据 + 一次性邀请登记
+pub(crate) mod registry;   // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（Task 8 命令层消费）
+
+// Task 8 的命令层接线前无消费方，先压制 unused 导入告警。
+#[allow(unused_imports)]
+pub use registry::DeviceLinkRegistry;
 
 use std::sync::Arc;
 
