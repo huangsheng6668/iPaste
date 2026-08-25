@@ -198,7 +198,7 @@ L'application de bureau peut se connecter à une iPaste sync API autohébergée 
 
 ### Synchronisation entre appareils
 
-Deux instances d'iPaste s'apparient en échangeant un ticket d'invitation à usage unique : un appareil crée l'invitation, l'autre rejoint avec le ticket, et les deux parties confirment avant tout transfert. Les appareils se connectent directement via Internet sur QUIC (perçage NAT ; un relais ne retransmet que du texte chiffré en cas d'échec) ; les clips et des catégories entières circulent entre appareils appairés, et une catégorie absente chez le destinataire est créée automatiquement. Les appareils appairés peuvent être gérés ou révoqués à tout moment, et les connexions se rétablissent automatiquement après une coupure.
+Deux instances d'iPaste s'apparient en échangeant un ticket d'invitation à usage unique : un appareil crée l'invitation, l'autre rejoint avec le ticket, et les deux parties confirment avant tout transfert. Les appareils se connectent directement via Internet sur QUIC (perçage NAT ; un relais ne retransmet que du texte chiffré en cas d'échec) ; les clips et des catégories entières circulent entre appareils appairés, et une catégorie absente chez le destinataire est créée automatiquement. Les appareils appairés peuvent être gérés ou révoqués à tout moment, et les connexions se rétablissent automatiquement après une coupure. La capture peut aussi déclencher une synchronisation automatique : les clips de type texte sont poussés automatiquement, les images et les fichiers s'envoient manuellement, avec un réglage par appareil ou une désactivation globale.
 
 ### Quick Actions
 

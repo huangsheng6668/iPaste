@@ -198,7 +198,7 @@ Die Desktop-App kann sich über eine API-Adresse und einen API-Schlüssel in Pre
 
 ### Geräteübergreifende Synchronisierung
 
-Zwei iPaste-Instanzen koppeln sich durch den Austausch eines einmaligen Einladungs-Tokens: Ein Gerät erstellt die Einladung, das andere tritt mit dem Token bei, und beide Seiten bestätigen vor jeder Übertragung. Die Geräte verbinden sich direkt über das Internet per QUIC (NAT-Durchbruch; schlägt er fehl, leitet ein Relay nur Chiffrat weiter); Clips und ganze Kategorien fließen zwischen gekoppelten Geräten, und eine auf der Empfängerseite fehlende Kategorie wird automatisch erstellt. Gekoppelte Geräte lassen sich jederzeit verwalten oder widerrufen, und Verbindungen bauen sich nach Trennungen automatisch wieder auf.
+Zwei iPaste-Instanzen koppeln sich durch den Austausch eines einmaligen Einladungs-Tokens: Ein Gerät erstellt die Einladung, das andere tritt mit dem Token bei, und beide Seiten bestätigen vor jeder Übertragung. Die Geräte verbinden sich direkt über das Internet per QUIC (NAT-Durchbruch; schlägt er fehl, leitet ein Relay nur Chiffrat weiter); Clips und ganze Kategorien fließen zwischen gekoppelten Geräten, und eine auf der Empfängerseite fehlende Kategorie wird automatisch erstellt. Gekoppelte Geräte lassen sich jederzeit verwalten oder widerrufen, und Verbindungen bauen sich nach Trennungen automatisch wieder auf. Zusätzlich wird beim Erfassen automatisch synchronisiert: Textähnliche Clips werden automatisch gepusht, Bilder und Dateien manuell gesendet, anpassbar pro Gerät oder global deaktivierbar.
 
 ### Quick Actions
 

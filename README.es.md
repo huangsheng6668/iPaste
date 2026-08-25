@@ -199,7 +199,7 @@ La app de escritorio puede conectarse a una iPaste sync API autohospedada usando
 
 ### Sincronización entre dispositivos
 
-Dos instancias de iPaste se emparejan intercambiando un ticket de invitación de un solo uso: un dispositivo crea la invitación, el otro se une con el ticket y ambos confirman antes de cualquier transferencia. Los dispositivos se conectan directamente por internet mediante QUIC (perforación NAT; un relé reenvía solo texto cifrado si falla), y los clips y las categorías completas fluyen entre dispositivos emparejados; una categoría que no exista en el receptor se crea automáticamente. Los dispositivos emparejados pueden gestionarse o revocarse en cualquier momento, y las conexiones se reconectan automáticamente tras un corte.
+Dos instancias de iPaste se emparejan intercambiando un ticket de invitación de un solo uso: un dispositivo crea la invitación, el otro se une con el ticket y ambos confirman antes de cualquier transferencia. Los dispositivos se conectan directamente por internet mediante QUIC (perforación NAT; un relé reenvía solo texto cifrado si falla), y los clips y las categorías completas fluyen entre dispositivos emparejados; una categoría que no exista en el receptor se crea automáticamente. Los dispositivos emparejados pueden gestionarse o revocarse en cualquier momento, y las conexiones se reconectan automáticamente tras un corte. También se admite la sincronización automática al capturar: los clips de tipo texto se envían automáticamente, las imágenes y los archivos se envían manualmente, y puede ajustarse por dispositivo o desactivarse de forma global.
 
 ### Quick Actions
 
