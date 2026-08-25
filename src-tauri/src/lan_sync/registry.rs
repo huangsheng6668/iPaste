@@ -38,7 +38,7 @@ use crate::lan_sync::protocol::{
 use crate::lan_sync::session::{fingerprint_hex, run_session_loop, SessionCtx};
 use crate::lan_sync::ticket::{InviteRegistry, PairTicket, INVITE_TTL};
 use crate::lan_sync::{device_name, ControlMsg, LanEventSink};
-use crate::models::{AutoSyncMode, ClipItem, DeviceInfo, DeviceOnline};
+use crate::models::{AppendCopyState, AutoSyncMode, ClipItem, DeviceInfo, DeviceOnline};
 use crate::store::Store;
 
 /// 重拨退避序列：5s→10s→20s→40s→80s→160s，之后恒为 300s（spec §5）。
@@ -122,6 +122,10 @@ struct Inner {
     auto_dropped: AtomicU64,
     /// 中继是否禁用（RelayMode::Disabled）：禁用时 create_invite 无需等待 online。
     relay_disabled: bool,
+    /// 追加复制会话状态（与 AppState/clipboard watcher 共享同一实例）：
+    /// 会话活跃时 auto 接收跳过剪贴板写（session.rs 消费）。直接引用
+    /// models::AppendCopyState——同 crate pub(crate)，无需更轻的共享标志。
+    append_state: Arc<Mutex<AppendCopyState>>,
     /// 入站接受循环任务句柄（shutdown 时 abort）。
     accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// links 条目代次计数：会话结束时只清理仍属于自己的登记（防误删新会话）。
@@ -135,6 +139,11 @@ struct LinkHandle {
     /// `None` = 无活跃会话（重拨任务在退避/拨号中，或已被撤销清理）。
     control_tx: Option<mpsc::Sender<ControlMsg>>,
     status: DeviceOnline,
+    /// 整组批量（BatchStart…BatchEnd）正在经该链路发送：send_category 在
+    /// 入队 BatchStart 前置位、BatchEnd 入队后清除；fan_out_auto 在 links 锁内
+    /// 据此跳过忙碌链路——auto 帧绝不插进批量中段（对端会把中段帧折叠进
+    /// 打开的分组，污染用户分拣的分组内容）。
+    batch_busy: bool,
     /// 该设备重拨任务（link_task）的句柄；配对/入站建立的会话为 `None`
     /// （会话结束后由 registry 重新起任务接管重拨）。abort(&self) 不需要所有权。
     task: Option<tokio::task::JoinHandle<()>>,
@@ -168,11 +177,14 @@ pub struct DeviceLinkRegistry {
 
 impl DeviceLinkRegistry {
     /// 生产入口：固定设备身份 + n0 预设（默认中继 + DNS 地址发现）+ 指定中继模式。
+    /// `append_state` 与 AppState/clipboard watcher 共享（追加会话期间 auto 接收
+    /// 跳过剪贴板写的判据，见 session.rs）。
     pub(crate) async fn start(
         secret: SecretKey,
         store: Store,
         sink: Arc<dyn LanEventSink>,
         relay: RelayMode,
+        append_state: Arc<Mutex<AppendCopyState>>,
     ) -> Result<Arc<Self>, String> {
         let relay_disabled = matches!(relay, RelayMode::Disabled);
         let endpoint = Endpoint::builder(presets::N0)
@@ -182,10 +194,11 @@ impl DeviceLinkRegistry {
             .bind()
             .await
             .map_err(|e| format!("无法启动同步端点：{e}"))?;
-        Self::from_endpoint(endpoint, store, sink, relay_disabled).await
+        Self::from_endpoint(endpoint, store, sink, relay_disabled, append_state).await
     }
 
     /// 测试入口：最小预设 + 禁用中继 + 随机端口（hermetic，不触外网）。
+    /// 追加复制状态用独立默认实例（禁用态）：测试默认不受该闸门影响。
     #[cfg(test)]
     pub(crate) async fn start_for_test(
         store: Store,
@@ -198,7 +211,14 @@ impl DeviceLinkRegistry {
             .bind()
             .await
             .map_err(|e| format!("无法启动测试端点：{e}"))?;
-        Self::from_endpoint(endpoint, store, sink, true).await
+        Self::from_endpoint(
+            endpoint,
+            store,
+            sink,
+            true,
+            Arc::new(Mutex::new(AppendCopyState::default())),
+        )
+        .await
     }
 
     async fn from_endpoint(
@@ -206,6 +226,7 @@ impl DeviceLinkRegistry {
         store: Store,
         sink: Arc<dyn LanEventSink>,
         relay_disabled: bool,
+        append_state: Arc<Mutex<AppendCopyState>>,
     ) -> Result<Arc<Self>, String> {
         let registry = Arc::new(Self {
             inner: Arc::new(Inner {
@@ -220,6 +241,7 @@ impl DeviceLinkRegistry {
                 recent: Arc::new(RecentReceived::new()),
                 auto_dropped: AtomicU64::new(0),
                 relay_disabled,
+                append_state,
                 accept_task: Mutex::new(None),
                 gen: AtomicU64::new(1),
             }),
@@ -702,6 +724,7 @@ impl DeviceLinkRegistry {
                 gen: self.next_gen(),
                 control_tx: None,
                 status: DeviceOnline::Connecting,
+                batch_busy: false,
                 task: Some(task),
             },
         );
@@ -853,18 +876,21 @@ impl DeviceLinkRegistry {
             use std::collections::hash_map::Entry;
             match links.entry(node_hex.clone()) {
                 // 已有登记：收编（旧 control_tx 在赋值时 drop → 旧会话收到 None 干净关闭；
-                // 旧重拨任务保留，不 abort）
+                // 旧重拨任务保留，不 abort）。批量忙标记随收编复位——旧通道的
+                // 批量（若有）已随旧会话死亡，新通道上必然无批量在途。
                 Entry::Occupied(mut occupied) => {
                     let handle = occupied.get_mut();
                     handle.gen = my_gen;
                     handle.control_tx = Some(control_tx);
                     handle.status = DeviceOnline::Connected;
+                    handle.batch_busy = false;
                 }
                 Entry::Vacant(vacant) => {
                     vacant.insert(LinkHandle {
                         gen: my_gen,
                         control_tx: Some(control_tx),
                         status: DeviceOnline::Connected,
+                        batch_busy: false,
                         task: None,
                     });
                 }
@@ -895,6 +921,9 @@ impl DeviceLinkRegistry {
                 .auto_push_settings()
                 .map(|settings| settings.notify)
                 .unwrap_or(false),
+            // 追加复制会话状态（与 watcher 共享同一实例）：auto 接收据此跳过
+            // 剪贴板写，防对端内容被 merge 进本地追加缓冲。
+            append_copy_state: self.inner.append_state.clone(),
         };
         run_session_loop(read, write, ctx, control_rx, dead).await;
         // 会话结束：只清理仍属于自己的登记（gen 相同）；被新会话收编则不动。
@@ -979,6 +1008,42 @@ impl DeviceLinkRegistry {
         }
     }
 
+    /// 置/清某链路的「批量发送进行中」标记。仅当登记的控制通道仍是本批量的
+    /// 通道时生效（same_channel）：会话被收编/替换后，旧批量的清理不得误改
+    /// 新会话的标记（收编时新登记已复位为 false）。
+    fn mark_batch_busy(&self, node_id: &str, tx: &mpsc::Sender<ControlMsg>, busy: bool) {
+        let mut links = self.inner.links.lock().expect("links 锁中毒");
+        if let Some(handle) = links.get_mut(node_id) {
+            let same = handle
+                .control_tx
+                .as_ref()
+                .is_some_and(|current| current.same_channel(tx));
+            if same {
+                handle.batch_busy = busy;
+            }
+        }
+    }
+
+    /// auto 推送的单链路投递：**同一次 links 锁内**完成「批量忙检查 + try_send」。
+    /// 与 send_category 的「先置忙标记、再入队 BatchStart」配合，从结构上排除
+    /// auto 帧插进 BatchStart…BatchEnd 中段：锁内看到不忙 ⇒ BatchStart 尚未
+    /// 入队 ⇒ 本条 auto 帧只可能排在批量之前；锁内看到忙 ⇒ 跳过并计数
+    /// （auto 推送本就有损设计）。返回 true = 已入队。
+    fn try_send_auto_guarded(
+        &self,
+        node_id: &str,
+        tx: &mpsc::Sender<ControlMsg>,
+        msg: ControlMsg,
+    ) -> bool {
+        let links = self.inner.links.lock().expect("links 锁中毒");
+        if links.get(node_id).is_some_and(|handle| handle.batch_busy) {
+            count_auto_drop(&self.inner.auto_dropped, &format!("目标 {node_id} 整组发送进行中"));
+            return false;
+        }
+        // 锁内 try_send 是同步非阻塞调用，不违反「无 await 持锁」纪律。
+        try_send_auto(tx, msg, &self.inner.auto_dropped)
+    }
+
     /// 发送单条剪贴板内容（无分组语义时 category_* 传 None）。
     /// 指定设备不在线 / 无任何在线设备时报错；个别目标会话已死时跳过并记日志。
     pub(crate) async fn send_raw(
@@ -1038,6 +1103,11 @@ impl DeviceLinkRegistry {
         // 的整组放大；每目标通道内的消息顺序仍是 BatchStart → 条目 → BatchEnd。
         let mut targets: Vec<CategorySendTarget> = Vec::with_capacity(online.len());
         for (node_id, tx) in online {
+            // 先置「批量进行中」再入队 BatchStart（顺序关键）：fan_out_auto 的
+            // 忙检查与 try_send 在同一次 links 锁内完成，标记先于 BatchStart
+            // 可见 ⇒ 并发的 auto 帧只可能排在批量之前或被跳过，绝不会插进
+            // 批量中段（接收端另有 belt：auto 帧永不折叠进打开的分组）。
+            self.mark_batch_busy(&node_id, &tx, true);
             let started = tx
                 .send(ControlMsg::BatchStart {
                     category_name: category_name.clone(),
@@ -1046,6 +1116,10 @@ impl DeviceLinkRegistry {
                 })
                 .await
                 .is_ok();
+            if !started {
+                // BatchStart 未达（会话已死）：回滚标记，防忙碌标记永久滞留
+                self.mark_batch_busy(&node_id, &tx, false);
+            }
             // BatchStart 都送不达（会话已死）的目标：跳过且不发汇总事件（v4 行为）
             targets.push(CategorySendTarget {
                 node_id,
@@ -1104,6 +1178,9 @@ impl DeviceLinkRegistry {
                 continue;
             }
             let _ = target.tx.send(ControlMsg::BatchEnd).await;
+            // BatchEnd 已入队后清「批量进行中」：此后入队的 auto 帧只可能排在
+            // BatchEnd 之后（安全）。窗口内 fan_out 仍会跳过——auto 有损，无害。
+            self.mark_batch_busy(&target.node_id, &target.tx, false);
             self.emit(
                 EVENT_DEVICE_CATEGORY_SENT,
                 &DeviceCategorySent {
@@ -1131,9 +1208,10 @@ impl DeviceLinkRegistry {
     // —— 捕获即扇出（Spec 2 发送侧）——
 
     /// 捕获即扇出（spec §1）：master 开关 → recent 命中跳过（回环第一道）→
-    /// payload 构建（超限跳过）→ 在线目标两段式过滤 → try_send（队列满丢弃
-    /// 计数，绝不阻塞捕获）。Err 仅在 payload 构建失败时返回；其余抑制路径
-    /// 一律静默 Ok（同步不得拖垮捕获路径）。
+    /// 无在线候选跳过 → payload 构建（超限跳过）→ 在线目标两段式过滤 →
+    /// 锁内忙检查 + try_send（批量进行中/队列满均丢弃计数，绝不阻塞捕获）。
+    /// Err 仅在 payload 构建失败时返回；其余抑制路径一律静默 Ok
+    /// （同步不得拖垮捕获路径）。
     pub(crate) async fn fan_out_auto(&self, clip: &ClipItem) -> Result<(), String> {
         // 闸门 1：master 总开关关闭——短路在 payload 构建之前（不读图片文件）。
         let settings = self.inner.store.auto_push_settings()?;
@@ -1143,6 +1221,24 @@ impl DeviceLinkRegistry {
         // 闸门 2：recent 命中（回环窗口内刚从对端收到的内容）——同样短路在
         // payload 构建之前，防回推的同时省掉图片读盘。
         if self.inner.recent.contains(&clip.content_hash) {
+            return Ok(());
+        }
+        // 闸门 3：无在线候选——同样短路在 payload 构建之前（无人在线时不读
+        // 图片文件、不做 base64）。auto 推送静默语义，此处静默 Ok（与手动
+        // 发送的「没有在线的目标设备」报错口径不同）。
+        // 两段式锁纪律：第一段在 links 锁内只收集 Connected 链路的 (node, 控制通道)，
+        // 仅 clone sender——锁内无 SQLite/IO（无 await 纪律 + 最小化锁持有）。
+        let candidates: Vec<(String, mpsc::Sender<ControlMsg>)> = {
+            let links = self.inner.links.lock().expect("links 锁中毒");
+            links
+                .iter()
+                .filter(|(_, handle)| handle.status == DeviceOnline::Connected)
+                .filter_map(|(node, handle)| {
+                    handle.control_tx.as_ref().map(|tx| (node.clone(), tx.clone()))
+                })
+                .collect()
+        };
+        if candidates.is_empty() {
             return Ok(());
         }
         // payload 规则与手动 send_raw 一致：image = 文件读出转 data url
@@ -1156,18 +1252,6 @@ impl DeviceLinkRegistry {
             );
             return Ok(());
         }
-        // 两段式锁纪律：第一段在 links 锁内只收集 Connected 链路的 (node, 控制通道)，
-        // 仅 clone sender——锁内无 SQLite/IO（无 await 纪律 + 最小化锁持有）。
-        let candidates: Vec<(String, mpsc::Sender<ControlMsg>)> = {
-            let links = self.inner.links.lock().expect("links 锁中毒");
-            links
-                .iter()
-                .filter(|(_, handle)| handle.status == DeviceOnline::Connected)
-                .filter_map(|(node, handle)| {
-                    handle.control_tx.as_ref().map(|tx| (node.clone(), tx.clone()))
-                })
-                .collect()
-        };
         // 第二段在锁外查每设备偏好（同步 SQLite），过滤交给纯函数 fan_out_targets。
         // store 无行（如设备刚被删除）按 TextOnly 兜底。
         let modes: Vec<(String, AutoSyncMode)> = candidates
@@ -1201,8 +1285,9 @@ impl DeviceLinkRegistry {
                 auto: true,
                 origin_node_id: Some(my_id.clone()),
             };
-            // 队列满/会话已死：try_send_auto 内已计数并记日志，不重试、不等待。
-            let _ = try_send_auto(&tx, msg, &self.inner.auto_dropped);
+            // 批量忙检查 + try_send 在 links 锁内原子完成（见 try_send_auto_guarded）：
+            // 队列满/会话已死/批量进行中均计数丢弃，不重试、不等待。
+            let _ = self.try_send_auto_guarded(&node, &tx, msg);
         }
         Ok(())
     }
@@ -1357,6 +1442,12 @@ pub(crate) fn max_sendable_image_bytes() -> u64 {
     expanded / 4 * 3
 }
 
+/// auto 推送丢弃的统一计数 + 日志（队列满/会话已死/批量进行中共用口径）。
+fn count_auto_drop(dropped: &AtomicU64, reason: &str) {
+    let count = dropped.fetch_add(1, Ordering::Relaxed) + 1;
+    eprintln!("[auto-push] {reason}，丢弃第 {count} 条自动推送");
+}
+
 /// auto 推送的投递原语：try_send 入队，队列满或会话已死时经 `dropped` 计数
 /// 后丢弃并记日志——同步等待容量，是「扇出绝不阻塞捕获」的核心保证
 ///（fan_out_auto 消费）。返回 true = 已入队。
@@ -1368,8 +1459,7 @@ fn try_send_auto(
     match tx.try_send(msg) {
         Ok(()) => true,
         Err(_) => {
-            let count = dropped.fetch_add(1, Ordering::Relaxed) + 1;
-            eprintln!("[auto-push] 目标队列满或会话已关闭，丢弃第 {count} 条自动推送");
+            count_auto_drop(dropped, "目标队列满或会话已关闭");
             false
         }
     }
@@ -1457,6 +1547,7 @@ mod tests {
                     gen: registry.next_gen(),
                     control_tx: Some(tx),
                     status: DeviceOnline::Connected,
+                    batch_busy: false,
                     task: None,
                 },
             );
@@ -1819,6 +1910,7 @@ mod tests {
                 gen: registry.next_gen(),
                 control_tx: Some(tx),
                 status: DeviceOnline::Connected,
+                batch_busy: false,
                 task: None,
             },
         );
@@ -2102,6 +2194,13 @@ mod tests {
         // 图片条目的 text 指向不存在路径：若错误地先构建 payload 会返回 Err
         let bad_image = text_clip("image", "hash-bad", "/definitely/not/here/x.png");
 
+        // 无在线候选：同样短路在 payload 构建之前（无人在线不读图片文件）
+        store.update_auto_push_settings(true, false).unwrap();
+        registry
+            .fan_out_auto(&bad_image)
+            .await
+            .expect("无在线候选应短路返回 Ok");
+
         // master 关：静默 Ok，无投递
         store.update_auto_push_settings(false, false).unwrap();
         let mut rx = fake_connected_link(&registry, &hex32(1));
@@ -2119,6 +2218,57 @@ mod tests {
             .await
             .expect("recent 命中应短路返回 Ok");
         assert!(rx.try_recv().is_err(), "recent 命中：无投递");
+    }
+
+    /// 批量互斥（Critical 发送侧）：链路的批量标记置位期间，fan_out_auto 跳过
+    /// 该链路并按丢弃计数；标记清除后恢复投递。标记的置/清由 send_category
+    /// 在 BatchStart 入队前 / BatchEnd 入队后完成（此处直接操纵登记模拟中段）。
+    #[tokio::test]
+    async fn fan_out_auto_skips_link_with_batch_in_flight() {
+        let (registry, _sink) = test_registry().await;
+        let store = &registry.inner.store;
+        store.update_auto_push_settings(true, false).unwrap();
+        store.upsert_paired_device(&hex32(1), "MBP", None, &[]).unwrap();
+        store.set_auto_sync_mode(&hex32(1), AutoSyncMode::All).unwrap();
+        let mut rx = fake_connected_link(&registry, &hex32(1));
+
+        // 模拟整组发送中段：BatchStart 已入队、BatchEnd 未入队
+        registry
+            .inner
+            .links
+            .lock()
+            .unwrap()
+            .get_mut(&hex32(1))
+            .unwrap()
+            .batch_busy = true;
+        let clip = text_clip("text", "hash-busy", "during batch");
+        registry.fan_out_auto(&clip).await.unwrap();
+        assert!(rx.try_recv().is_err(), "批量进行中的链路不得收到 auto 推送");
+        assert_eq!(
+            registry.inner.auto_dropped.load(Ordering::Relaxed),
+            1,
+            "忙碌跳过应计入 auto_dropped"
+        );
+
+        // 批量结束（标记清除）：恢复投递
+        registry
+            .inner
+            .links
+            .lock()
+            .unwrap()
+            .get_mut(&hex32(1))
+            .unwrap()
+            .batch_busy = false;
+        registry.fan_out_auto(&clip).await.unwrap();
+        assert!(
+            matches!(rx.try_recv(), Ok(ControlMsg::SendClip { auto, .. }) if auto),
+            "标记清除后应恢复 auto 投递"
+        );
+        assert_eq!(
+            registry.inner.auto_dropped.load(Ordering::Relaxed),
+            1,
+            "恢复投递不再计数"
+        );
     }
 
     /// fan_out_auto 投递：在线目标按每设备偏好过滤；SendClip 携带 auto=true +

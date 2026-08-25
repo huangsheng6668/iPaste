@@ -360,12 +360,16 @@ pub fn run() {
                     };
                     let sink = lan_sync::tauri_event_sink(app.handle().clone());
                     let sync_store = store.clone();
+                    // 追加复制会话状态与 watcher 共享同一实例：活跃期间 auto 接收
+                    // 跳过剪贴板写（防对端内容被 merge 进本地追加缓冲）。
+                    let append_state = state.append_copy_state.clone();
                     let registry = tauri::async_runtime::block_on(async move {
                         lan_sync::DeviceLinkRegistry::start(
                             secret,
                             sync_store,
                             sink,
                             relay_mode,
+                            append_state,
                         )
                         .await
                     });

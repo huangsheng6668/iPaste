@@ -3,7 +3,7 @@
 //! 传输安全由 iroh QUIC TLS 承担（线格式即明文 JSON header + payload，见
 //! frame.rs）；本文件只负责「读任务 + 控制主循环」的会话编排与入站帧处理。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -20,13 +20,12 @@ use crate::lan_sync::autopush::RecentReceived;
 use crate::lan_sync::frame::{FrameReader, FrameWriter};
 use crate::lan_sync::protocol::{LAN_BATCH_MAX_ITEMS, LanMessage};
 use crate::lan_sync::{ControlMsg, LanEventSink};
-use crate::models::ClipboardRead;
+use crate::models::{AppendCopyState, ClipboardRead};
 use crate::store::Store;
 use crate::util::clean_display_name;
 
 /// 单个会话的固定上下文：事件出口、落库句柄与对端标识。
-/// Task 7 的 DeviceLinkRegistry 在建立双向流后构造它并调用 `run_session_loop`。
-#[allow(dead_code)] // 构造方在 Task 7 接线；本任务仅会话循环与测试消费
+/// DeviceLinkRegistry 在建立双向流后构造它并调用 `run_session_loop`。
 pub(crate) struct SessionCtx {
     pub sink: Arc<dyn LanEventSink>,
     pub store: Store,
@@ -36,12 +35,22 @@ pub(crate) struct SessionCtx {
     /// 本机 EndpointId 的 hex（64 字符）：接收侧 origin 自环防御的比对基准
     ///（spec §3 第三道）。
     pub local_node_id: String,
-    /// 最近接收哈希滑窗（共享 registry 级单例）：auto 路径登记，Task 3 的
-    /// 发送侧经它防回推。
+    /// 最近接收哈希滑窗（共享 registry 级单例）：auto 路径登记，发送侧
+    /// 扇出经同一实例防回推。
     pub recent: Arc<RecentReceived>,
     /// auto 接收的轻提示开关（settings.auto_push.notify）：仅控制 auto 成功后
     /// 是否 emit deviceClipReceived；诊断事件不受此开关影响。
     pub auto_notify: bool,
+    /// 追加复制会话状态（与 clipboard watcher 共享同一实例）：活跃期间
+    /// auto 接收跳过剪贴板写（见 append_session_active）。
+    pub append_copy_state: Arc<Mutex<AppendCopyState>>,
+}
+
+/// 追加复制会话是否活跃（is_enabled 且已有 session）：活跃期间本机 watcher
+/// 会把新剪贴板内容 merge 进追加缓冲——auto 接收此刻不得写剪贴板，否则
+/// 对端内容会被并进本地用户的追加文本（内容仍落历史 + recent，同步不缺）。
+fn append_session_active(state: &AppendCopyState) -> bool {
+    state.is_enabled && state.session_id.is_some()
 }
 
 /// 会话内统一事件出口：payload 序列化失败按 Null 发出（与 v4 行为一致）。
@@ -51,8 +60,7 @@ fn emit<E: serde::Serialize>(ctx: &SessionCtx, event: &str, payload: E) {
 }
 
 /// EndpointId 前 4 字节 hex —— UI 指纹短码（非安全锚点，仅展示核对用）。
-/// Task 7 配对流程消费；纯函数独立测试。
-#[allow(dead_code)]
+/// registry 的配对流程消费；纯函数独立测试。
 pub(crate) fn fingerprint_hex(endpoint_id: &[u8; 32]) -> String {
     endpoint_id.iter().take(4).map(|b| format!("{b:02x}")).collect()
 }
@@ -63,8 +71,9 @@ pub(crate) fn fingerprint_hex(endpoint_id: &[u8; 32]) -> String {
 ///   按 `auto` 分流（spec §2/§3）：
 ///   - `auto=true`（对端捕获即自动同步）：**先落库**再登记 `recent`（仅 auto 路径，
 ///     供发送侧防回推），随后**尽力**写系统剪贴板（失败只发诊断事件、不推翻同步
-///     结果——无头 CI/剪贴板被占用时同步本身不受影响），成功后按 `auto_notify`
-///     决定是否 emit 轻提示。
+///     结果——无头 CI/剪贴板被占用时同步本身不受影响）；追加复制会话活跃期间
+///     跳过剪贴板写（防对端内容被 merge 进本地追加缓冲）。剪贴板写成败均按
+///     `auto_notify` 决定是否 emit 轻提示（内容已在历史可用，提示不该被写失败吞掉）。
 ///   - `auto=false`（手动发送）：落库 + 提示，**不接管本机剪贴板**（v4 行为变更，
 ///     spec §2：手动收到的内容进历史即可，覆盖用户当前剪贴板反而打扰）。
 ///   - origin 自环防御（spec §3 第三道）：`auto=true` 且 `origin_node_id` 是本机
@@ -198,16 +207,32 @@ fn apply_received(
                     Ok(_) => {}
                 }
                 ctx.recent.insert(&hash);
-                let write_result = if clip_type == "image" {
+                // 追加合并期间不接管剪贴板：本地用户正在追加复制会话中，此刻
+                // 写剪贴板会被 watcher 捕获并 merge 进追加缓冲（对端内容混进
+                // 本地合并文本）。内容已在历史 + recent，同步不受影响。
+                let append_active = ctx
+                    .append_copy_state
+                    .lock()
+                    .map(|state| append_session_active(&state))
+                    .unwrap_or(false);
+                let write_result = if append_active {
+                    Ok(())
+                } else if clip_type == "image" {
                     write_clipboard_image(&text)
                 } else {
                     write_clipboard_text(item_text.trim())
                 };
-                if let Err(reason) = write_result {
-                    // 诊断但不计失败：条目已入库，剪贴板写失败不推翻同步结果。
-                    // 不受 silent 门控：auto 恒单条（批量帧走 false/None），无汇总场景。
-                    emit_clip_receive_failed(ctx, format!("写入系统剪贴板失败：{reason}"));
-                } else if ctx.auto_notify {
+                match write_result {
+                    Err(reason) => {
+                        // 诊断但不计失败：条目已入库，剪贴板写失败不推翻同步结果。
+                        // 不受 silent 门控：auto 恒单条（批量帧走 false/None），无汇总场景。
+                        emit_clip_receive_failed(ctx, format!("写入系统剪贴板失败：{reason}"));
+                    }
+                    Ok(()) => {}
+                }
+                if ctx.auto_notify {
+                    // 开了轻提示的用户无论剪贴板写成败都收到 toast：内容已在
+                    // 历史可用，写失败也有诊断事件兜底，不该静默吞掉提示。
                     emit_clip_received(ctx, clip_type.to_string(), None);
                 }
                 true
@@ -368,7 +393,11 @@ where
                     match batch.as_mut() {
                         // 批量中：静默逐条落库（顺序预排），结束时统一 emit。
                         // 批量（分组发送）恒手动路径：auto=false、无 origin。
-                        Some(b) => {
+                        // 守卫 `!auto`：发送侧虽有批量忙标记防 auto 帧插入批量
+                        //（registry），此处再兜底——即使 auto 帧因任何原因混进
+                        // 批量中段，也绝不被折叠进打开的分组（那会污染对端用户
+                        // 分拣的分组），一律走下面的单条路径按 auto 语义处理。
+                        Some(b) if !auto => {
                             let order = Some(b.base_order + b.next_index);
                             b.next_index += 1;
                             let ok = apply_received(
@@ -378,7 +407,7 @@ where
                             );
                             if ok { b.received += 1 } else { b.failed += 1 }
                         }
-                        None => {
+                        _ => {
                             apply_received(
                                 ctx, &ctx.store, &clip_type, &data,
                                 category_name, category_color, display_name, None, false,
@@ -594,7 +623,7 @@ pub(crate) async fn run_session_loop<R, W>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::EVENT_DEVICE_CLIP_RECEIVED;
+    use crate::events::{EVENT_DEVICE_CATEGORY_RECEIVED, EVENT_DEVICE_CLIP_RECEIVED};
     use crate::lan_sync::autopush::RecentReceived;
     use crate::lan_sync::NoopEventSink;
     use crate::store::test_support::temp_store;
@@ -611,6 +640,7 @@ mod tests {
             local_node_id: "aa".repeat(32),
             recent: Arc::new(RecentReceived::new()),
             auto_notify: false,
+            append_copy_state: Arc::new(Mutex::new(AppendCopyState::default())),
         }
     }
 
@@ -653,6 +683,7 @@ mod tests {
             local_node_id: local_node_id.to_string(),
             recent: recent.clone(),
             auto_notify: false,
+            append_copy_state: Arc::new(Mutex::new(AppendCopyState::default())),
         }
     }
 
@@ -771,6 +802,153 @@ mod tests {
             count_events(&sink, EVENT_DEVICE_CLIP_RECEIVED),
             2,
             "分组接收（非批量）逐条发出接收事件"
+        );
+    }
+
+    /// 5) 批量互斥接收侧兜底（Critical）：BatchStart → ClipPush{auto:true} →
+    /// ClipPush{auto:false} → BatchEnd——混进批量中段的 auto 帧绝不被折叠进
+    /// 打开的分组：它按 auto 语义落历史（clips），批量计数只算手动帧（1 收），
+    /// 分组里只有手动帧的内容。
+    #[tokio::test]
+    async fn auto_frame_mid_batch_never_joins_category_batch() {
+        let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+        let store = temp_store();
+        let recent = Arc::new(RecentReceived::new());
+        let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
+        let (_client, server) = duplex(4096);
+        let (_read_half, write_half) = tokio::io::split(server);
+        let writer = Arc::new(tokio::sync::Mutex::new(FrameWriter::new(write_half)));
+
+        let clip_push = |auto: bool, payload: Vec<u8>| {
+            (
+                LanMessage::ClipPush {
+                    clip_type: "text".into(),
+                    empty: false,
+                    category_name: None,
+                    category_color: None,
+                    display_name: None,
+                    auto,
+                    origin_node_id: None,
+                },
+                Some(payload),
+            )
+        };
+        let mut batch = None;
+        // 1) 打开批量
+        assert!(
+            handle_frame(
+                (
+                    LanMessage::CategoryBatchStart {
+                        category_name: "工作".into(),
+                        category_color: Some("#0D9488".into()),
+                        item_count: 1,
+                    },
+                    None,
+                ),
+                &ctx,
+                &writer,
+                &mut batch,
+            )
+            .await
+        );
+        assert!(batch.is_some(), "BatchStart 应进入批量态");
+
+        // 2) 批量中段混入 auto 帧（发送侧忙标记漏防的兜底场景）
+        assert!(handle_frame(clip_push(true, b"auto leak".to_vec()), &ctx, &writer, &mut batch).await);
+        // 3) 正常的批量成员（手动帧）
+        assert!(handle_frame(clip_push(false, b"batch member".to_vec()), &ctx, &writer, &mut batch).await);
+        // 4) 结束批量
+        assert!(handle_frame((LanMessage::CategoryBatchEnd, None), &ctx, &writer, &mut batch).await);
+        assert!(batch.is_none(), "BatchEnd 应退出批量态");
+
+        // auto 帧落历史（clips），绝不进分组
+        let auto_hash = hash_text("auto leak");
+        assert_eq!(clips_with_hash(&store, &auto_hash), 1, "auto 帧必须落历史");
+        assert!(recent.contains(&auto_hash), "auto 帧照常登记 recent（防回推）");
+
+        // 批量计数正确：只收到 1 条（手动帧），0 失败
+        let category_events: Vec<serde_json::Value> = sink
+            .events
+            .lock()
+            .expect("捕获锁中毒")
+            .iter()
+            .filter(|(name, _)| name.as_str() == EVENT_DEVICE_CATEGORY_RECEIVED)
+            .map(|(_, payload)| payload.clone())
+            .collect();
+        assert_eq!(category_events.len(), 1, "BatchEnd 应 emit 一次汇总");
+        assert_eq!(category_events[0]["categoryName"].as_str(), Some("工作"));
+        assert_eq!(category_events[0]["count"].as_u64(), Some(1), "auto 帧不计入批量");
+        assert_eq!(category_events[0]["failed"].as_u64(), Some(0));
+
+        // 分组里只有手动帧：auto 帧的内容绝不在 category_items
+        let conn = store.connect().expect("测试库连接");
+        let auto_in_category: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM category_items AS ci
+                 JOIN categories AS c ON c.id = ci.category_id
+                 WHERE c.name = '工作' AND ci.text = 'auto leak'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("查询分组条目");
+        assert_eq!(auto_in_category, 0, "auto 帧不得混进分组");
+        let member_in_category: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM category_items AS ci
+                 JOIN categories AS c ON c.id = ci.category_id
+                 WHERE c.name = '工作' AND ci.text = 'batch member'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("查询分组条目");
+        assert_eq!(member_in_category, 1, "手动帧是批量分组的唯一成员");
+    }
+
+    /// 6) 追加会话判定（Important）：is_enabled 且有 session 才算活跃——
+    /// 与 clipboard.rs capture_append_copy_item 的 merge 判据同口径。
+    #[test]
+    fn append_session_active_requires_enabled_and_session() {
+        let mut state = AppendCopyState::default();
+        assert!(!append_session_active(&state), "默认（未开启）：不活跃");
+        state.is_enabled = true;
+        assert!(!append_session_active(&state), "开启但无 session：不活跃");
+        state.session_id = Some("s1".into());
+        assert!(append_session_active(&state), "开启且有 session：活跃");
+        state.is_enabled = false;
+        assert!(!append_session_active(&state), "有 session 但已关闭：不活跃");
+    }
+
+    /// 7) 追加会话活跃期间的 auto 接收（Important）：跳过剪贴板写决策已生效
+    /// （append_session_active 为真 → 写路径短路），同步本体不受影响——条目
+    /// 照常落历史 + recent，本地追加缓冲不被对端内容污染。
+    #[test]
+    fn apply_received_auto_skips_clipboard_write_during_append_session() {
+        let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+        let store = temp_store();
+        let recent = Arc::new(RecentReceived::new());
+        let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
+        // 构造活跃追加会话（is_enabled + session_id）
+        {
+            let mut append = ctx.append_copy_state.lock().unwrap();
+            append.is_enabled = true;
+            append.session_id = Some("append-s1".into());
+            append.text = "本地已有文本".into();
+        }
+
+        let payload = b"peer content during append".to_vec();
+        let ok = apply_received(
+            &ctx, &store, "text", &payload, None, None, None, None, false, true, None,
+        );
+        assert!(ok, "追加会话期间 auto 接收仍算同步成功");
+        let hash = hash_text("peer content during append");
+        assert_eq!(clips_with_hash(&store, &hash), 1, "条目应照常落入 clips");
+        assert!(recent.contains(&hash), "recent 照常登记（防回推不受影响）");
+        // 决策口径：活跃为真 → 写路径必然短路（无头 CI 上未短路则会多出一条
+        // 「写入系统剪贴板失败」诊断事件；此处断言同步面完整即可）
+        assert_eq!(
+            count_events(&sink, EVENT_DEVICE_CLIP_RECEIVED),
+            0,
+            "auto_notify 关闭：不逐条提示"
         );
     }
 

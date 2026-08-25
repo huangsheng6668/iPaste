@@ -16,6 +16,7 @@ import type {
   SettingsChangedEvent,
 } from "../types";
 import type { DeviceClipReceived } from "../types/generated/DeviceClipReceived";
+import type { DeviceClipReceiveFailed } from "../types/generated/DeviceClipReceiveFailed";
 import type { DeviceCategoryReceived } from "../types/generated/DeviceCategoryReceived";
 
 type IpasteStore = ReturnType<typeof useIpasteStore>;
@@ -125,5 +126,11 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   await listen<DeviceCategoryReceived>(IPASTE_EVENTS.deviceCategoryReceived, () => {
     ui.pushToast(t("deviceSync.categoryReceived"));
     void store.load();
+  });
+
+  // 跨设备接收失败（含 auto 剪贴板写失败诊断）：仅 console.warn 静默记录——
+  // 无头/锁屏场景的噪音不该用 toast 打扰用户，失败细节留日志排查。
+  await listen<DeviceClipReceiveFailed>(IPASTE_EVENTS.deviceClipReceiveFailed, (event) => {
+    console.warn("[ipaste] device clip receive failed:", event.payload);
   });
 }
