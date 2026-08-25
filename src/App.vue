@@ -27,6 +27,7 @@ import { usePanelKeyboard } from "./composables/usePanelKeyboard";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
+import { sendTargets as buildSendTargets, type SendTarget } from "./lib/deviceDisplay";
 import { isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
@@ -50,11 +51,28 @@ let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
 let lastUpdateCheckAt = 0;
 let suppressNextItemSelect = false;
 
-const clipMenu = useClipContextMenu(store, { onStartRename: startEditingClipName, onFullClose: closeFloatingLayers });
+// —— 「发送到」目标列表（瞬态：右键与悬停展开时拉取，不做持久事件订阅）——
+const sendTargetList = ref<SendTarget[]>([]);
+
+async function refreshSendTargets() {
+  if (!isTauri) return;
+  try {
+    sendTargetList.value = buildSendTargets(await ipasteApi.deviceList());
+  } catch {
+    // 拉取失败保留上次列表；空列表时子菜单回退「暂无在线设备」提示。
+  }
+}
+
+const clipMenu = useClipContextMenu(store, {
+  onStartRename: startEditingClipName,
+  onFullClose: closeFloatingLayers,
+  refreshSendTargets,
+});
 const {
   contextMenu,
   editingCategoryId,
   showMoveSubmenu,
+  showSendSubmenu,
   pendingDeleteContextKey,
   pendingDeleteByKey,
   contextDeleteLabel,
@@ -65,10 +83,15 @@ const {
   addContextItemToCategory,
   deleteContextItem,
   createCategoryForContextItem,
+  sendClipTo,
   openMoveSubmenu,
   scheduleCloseMoveSubmenu,
   closeMoveSubmenu,
   clearMoveSubmenuCloseTimer,
+  openSendSubmenu,
+  scheduleCloseSendSubmenu,
+  closeSendSubmenu,
+  clearSendSubmenuCloseTimer,
   resetPendingDelete,
 } = clipMenu;
 
@@ -151,6 +174,7 @@ const itemDrag = useDragSort<ClipViewItem>({
   onDragStarted: () => {
     pendingDeleteContextKey.value = null;
     closeMoveSubmenu();
+    closeSendSubmenu();
   },
   onDragFinished: () => {
     suppressNextItemSelect = true;
@@ -242,6 +266,7 @@ onUnmounted(() => {
   window.removeEventListener("blur", closeFloatingLayers);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   clearMoveSubmenuCloseTimer();
+  clearSendSubmenuCloseTimer();
   cleanupClipListScroll();
   clearQuickPreviewTimer();
   cleanupItemDrag();
@@ -586,6 +611,8 @@ async function focusEditingClipName() {
       :delete-label="contextDeleteLabel(contextMenu.item)"
       :delete-confirming="pendingDeleteContextKey === contextItemKey(contextMenu.item)"
       :show-move-submenu="showMoveSubmenu"
+      :send-targets="sendTargetList"
+      :show-send-submenu="showSendSubmenu"
       @paste="pasteContextItem"
       @copy="copyContextItem"
       @rename="renameContextItem"
@@ -594,6 +621,9 @@ async function focusEditingClipName() {
       @delete="deleteContextItem"
       @open-move-submenu="openMoveSubmenu"
       @schedule-close-move-submenu="scheduleCloseMoveSubmenu"
+      @send-clip="sendClipTo"
+      @open-send-submenu="openSendSubmenu"
+      @schedule-close-send-submenu="scheduleCloseSendSubmenu"
       @reset-pending-delete="resetPendingDelete"
     />
 

@@ -30,3 +30,22 @@ export function fingerprintOf(nodeId: string): string {
 export function cleanTicketInput(raw: string): string {
   return raw.trim().replace(/\s+/g, "");
 }
+
+/** 右键「发送到」子菜单的广播目标哨兵 id（deviceSendClip 的 target = null）。 */
+export const SEND_TARGET_ALL = "__all__";
+
+/** 「发送到」子菜单条目：`isAll` 表广播全部在线；设备条目携带显示名。 */
+export type SendTarget = { id: string; name: string | null; isAll: boolean };
+
+/** 右键「发送到」目标列表：恒有「全部在线」入口 + 各在线未撤销设备；离线/撤销不出现。 */
+export function sendTargets(devices: DeviceInfo[]): SendTarget[] {
+  const online = devices.filter((entry) => entry.online === "connected" && !entry.device.revokedAt);
+  return [
+    { id: SEND_TARGET_ALL, name: null, isAll: true },
+    ...online.map((entry) => ({
+      id: entry.device.nodeId,
+      name: entry.device.deviceName,
+      isAll: false,
+    })),
+  ];
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanTicketInput, fingerprintOf, sortDevices } from "./deviceDisplay";
+import { cleanTicketInput, fingerprintOf, SEND_TARGET_ALL, sendTargets, sortDevices } from "./deviceDisplay";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
 function device(
@@ -63,6 +63,36 @@ describe("fingerprintOf", () => {
 
   it("returns short ids unchanged", () => {
     expect(fingerprintOf("abcd")).toBe("abcd");
+  });
+});
+
+describe("sendTargets", () => {
+  it("returns only the all-online entry when no devices exist", () => {
+    expect(sendTargets([])).toEqual([{ id: SEND_TARGET_ALL, name: null, isAll: true }]);
+  });
+
+  it("keeps online devices in input order and maps their names", () => {
+    const laptop = device({ nodeId: "n1", deviceName: "Laptop", addedAt: "2026-01-01T00:00:00Z" }, "connected");
+    const phone = device({ nodeId: "n2", deviceName: "Phone", addedAt: "2026-01-02T00:00:00Z" }, "connected");
+    expect(sendTargets([phone, laptop])).toEqual([
+      { id: SEND_TARGET_ALL, name: null, isAll: true },
+      { id: "n2", name: "Phone", isAll: false },
+      { id: "n1", name: "Laptop", isAll: false },
+    ]);
+  });
+
+  it("excludes offline, connecting and revoked devices", () => {
+    const online = device({ nodeId: "online", deviceName: "Online", addedAt: "2026-01-01T00:00:00Z" }, "connected");
+    const connecting = device({ nodeId: "connecting", deviceName: "Connecting", addedAt: "2026-01-02T00:00:00Z" }, "connecting");
+    const offline = device({ nodeId: "offline", deviceName: "Offline", addedAt: "2026-01-03T00:00:00Z" }, "offline");
+    const revoked = device(
+      { nodeId: "revoked", deviceName: "Revoked", addedAt: "2026-01-04T00:00:00Z", revokedAt: "2026-02-01T00:00:00Z" },
+      "connected",
+    );
+    expect(sendTargets([offline, revoked, online, connecting]).map((target) => target.id)).toEqual([
+      SEND_TARGET_ALL,
+      "online",
+    ]);
   });
 });
 

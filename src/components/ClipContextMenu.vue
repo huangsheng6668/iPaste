@@ -1,8 +1,19 @@
 <script setup lang="ts">
-import { ChevronRight, ClipboardCopy, CornerDownLeft, FolderInput, Pencil, Plus, Trash2 } from "lucide-vue-next";
-import { nextTick, ref, watch } from "vue";
+import {
+  ChevronRight,
+  ClipboardCopy,
+  CornerDownLeft,
+  FolderInput,
+  MonitorSmartphone,
+  Pencil,
+  Plus,
+  Send,
+  Trash2,
+} from "lucide-vue-next";
+import { nextTick, ref, watch, type Ref } from "vue";
 import { t } from "../i18n";
 import { categoryDisplayName } from "../lib/format";
+import { fingerprintOf, type SendTarget } from "../lib/deviceDisplay";
 import type { Category, ClipViewItem } from "../types";
 
 const props = defineProps<{
@@ -11,6 +22,8 @@ const props = defineProps<{
   deleteLabel: string;
   deleteConfirming: boolean;
   showMoveSubmenu: boolean;
+  sendTargets: SendTarget[];
+  showSendSubmenu: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -22,14 +35,21 @@ const emit = defineEmits<{
   delete: [];
   "open-move-submenu": [];
   "schedule-close-move-submenu": [];
+  "send-clip": [targetId: string];
+  "open-send-submenu": [];
+  "schedule-close-send-submenu": [];
   "reset-pending-delete": [];
 }>();
 
 const contextMenuElement = ref<HTMLElement | null>(null);
 const moveSubmenuBranchElement = ref<HTMLElement | null>(null);
 const moveSubmenuElement = ref<HTMLElement | null>(null);
+const sendSubmenuBranchElement = ref<HTMLElement | null>(null);
+const sendSubmenuElement = ref<HTMLElement | null>(null);
 const submenuAlignLeft = ref(false);
 const submenuOffsetTop = ref(0);
+const sendSubmenuAlignLeft = ref(false);
+const sendSubmenuOffsetTop = ref(0);
 const menuPosition = ref({ x: 0, y: 0 });
 
 watch(
@@ -53,6 +73,17 @@ watch(
   },
 );
 
+watch(
+  () => props.showSendSubmenu,
+  (open) => {
+    if (open) {
+      void nextTick(positionSendSubmenu);
+    } else {
+      sendSubmenuOffsetTop.value = 0;
+    }
+  },
+);
+
 function positionContextMenu() {
   if (!props.contextMenu || !contextMenuElement.value) return;
 
@@ -65,19 +96,33 @@ function positionContextMenu() {
     y: clamp(menuPosition.value.y, padding, maxY),
   };
   positionMoveSubmenu();
+  positionSendSubmenu();
 }
 
-function positionMoveSubmenu() {
-  if (!moveSubmenuBranchElement.value || !moveSubmenuElement.value) return;
+function positionSubmenu(
+  branchElement: HTMLElement | null,
+  submenuElement: HTMLElement | null,
+  alignLeft: Ref<boolean>,
+  offsetTop: Ref<number>,
+) {
+  if (!branchElement || !submenuElement) return;
 
-  const branchRect = moveSubmenuBranchElement.value.getBoundingClientRect();
-  const submenuRect = moveSubmenuElement.value.getBoundingClientRect();
+  const branchRect = branchElement.getBoundingClientRect();
+  const submenuRect = submenuElement.getBoundingClientRect();
   const padding = 8;
   const maxY = Math.max(padding, window.innerHeight - submenuRect.height - padding);
 
-  submenuAlignLeft.value = branchRect.right + submenuRect.width + padding > window.innerWidth
+  alignLeft.value = branchRect.right + submenuRect.width + padding > window.innerWidth
     && branchRect.left - submenuRect.width - padding >= padding;
-  submenuOffsetTop.value = clamp(branchRect.top, padding, maxY) - branchRect.top;
+  offsetTop.value = clamp(branchRect.top, padding, maxY) - branchRect.top;
+}
+
+function positionMoveSubmenu() {
+  positionSubmenu(moveSubmenuBranchElement.value, moveSubmenuElement.value, submenuAlignLeft, submenuOffsetTop);
+}
+
+function positionSendSubmenu() {
+  positionSubmenu(sendSubmenuBranchElement.value, sendSubmenuElement.value, sendSubmenuAlignLeft, sendSubmenuOffsetTop);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -182,6 +227,68 @@ function clamp(value: number, min: number, max: number) {
           <Plus class="size-4" />
           <span>{{ t("context.createCategory") }}</span>
         </button>
+      </div>
+    </div>
+    <div
+      ref="sendSubmenuBranchElement"
+      class="context-menu-branch"
+      :class="{ 'context-menu-branch-left': sendSubmenuAlignLeft }"
+      @mouseenter="emit('open-send-submenu')"
+      @mouseleave="emit('schedule-close-send-submenu')"
+    >
+      <button
+        type="button"
+        class="context-menu-item"
+        tabindex="-1"
+        role="menuitem"
+        @click.stop="emit('open-send-submenu')"
+      >
+        <Send class="size-4" />
+        <span>{{ t("deviceSync.sendTo.title") }}</span>
+        <ChevronRight class="ml-auto size-4 text-slate-400" />
+      </button>
+      <div
+        v-if="showSendSubmenu"
+        ref="sendSubmenuElement"
+        class="clip-context-submenu"
+        :class="{ 'clip-context-submenu-left': sendSubmenuAlignLeft }"
+        :style="{ top: `${sendSubmenuOffsetTop}px` }"
+        @mouseenter="emit('open-send-submenu')"
+        @mouseleave="emit('schedule-close-send-submenu')"
+      >
+        <template v-if="sendTargets.length > 1">
+          <button
+            v-for="target in sendTargets"
+            :key="target.id"
+            type="button"
+            class="context-menu-item"
+            tabindex="-1"
+            role="menuitem"
+            @click="emit('send-clip', target.id)"
+          >
+            <Send
+              v-if="target.isAll"
+              class="size-4 shrink-0"
+            />
+            <MonitorSmartphone
+              v-else
+              class="size-4 shrink-0"
+            />
+            <span class="min-w-0 flex-1 truncate">
+              {{ target.isAll ? t("deviceSync.sendTo.all") : (target.name ?? fingerprintOf(target.id)) }}
+            </span>
+            <span
+              v-if="!target.isAll && target.name"
+              class="font-mono text-xs text-slate-400"
+            >{{ fingerprintOf(target.id) }}</span>
+          </button>
+        </template>
+        <div
+          v-else
+          class="context-menu-label"
+        >
+          {{ t("deviceSync.sendTo.none") }}
+        </div>
       </div>
     </div>
     <div class="context-menu-separator" />

@@ -410,6 +410,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "Notify on auto-sync",
     "deviceSync.clipReceived": "Clipboard received from a device",
     "deviceSync.categoryReceived": "Category received from a device",
+    "deviceSync.sendTo.title": "Send to…",
+    "deviceSync.sendTo.all": "All online devices",
+    "deviceSync.sendTo.none": "No devices online",
+    "deviceSync.sendTo.current": "Send current clipboard",
   },
   "zh-CN": {
     "automation.entry": "动作",
@@ -794,6 +798,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "自动同步时提示",
     "deviceSync.clipReceived": "已接收来自设备的剪贴板",
     "deviceSync.categoryReceived": "已接收来自设备的分类",
+    "deviceSync.sendTo.title": "发送到…",
+    "deviceSync.sendTo.all": "全部在线设备",
+    "deviceSync.sendTo.none": "暂无在线设备",
+    "deviceSync.sendTo.current": "发送当前剪贴板",
   },
   "ja": {
     "automation.entry": "アクション",
@@ -1167,6 +1175,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "自動同期時に通知",
     "deviceSync.clipReceived": "デバイスからクリップボードを受信しました",
     "deviceSync.categoryReceived": "デバイスからカテゴリを受信しました",
+    "deviceSync.sendTo.title": "送信先…",
+    "deviceSync.sendTo.all": "オンラインの全デバイス",
+    "deviceSync.sendTo.none": "オンラインのデバイスなし",
+    "deviceSync.sendTo.current": "現在のクリップボードを送信",
   },
   "ko": {
     "automation.entry": "동작",
@@ -1540,6 +1552,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "자동 동기화 시 알림",
     "deviceSync.clipReceived": "기기에서 클립보드를 받았습니다",
     "deviceSync.categoryReceived": "기기에서 카테고리를 받았습니다",
+    "deviceSync.sendTo.title": "보내기…",
+    "deviceSync.sendTo.all": "모든 온라인 기기",
+    "deviceSync.sendTo.none": "온라인 기기 없음",
+    "deviceSync.sendTo.current": "현재 클립보드 보내기",
   },
   "es": {
     "automation.entry": "Acciones",
@@ -1913,6 +1929,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "Notificar al sincronizar automáticamente",
     "deviceSync.clipReceived": "Portapapeles recibido de un dispositivo",
     "deviceSync.categoryReceived": "Categoría recibida de un dispositivo",
+    "deviceSync.sendTo.title": "Enviar a…",
+    "deviceSync.sendTo.all": "Todos los dispositivos en línea",
+    "deviceSync.sendTo.none": "No hay dispositivos en línea",
+    "deviceSync.sendTo.current": "Enviar portapapeles actual",
   },
   "fr": {
     "automation.entry": "Actions",
@@ -2286,6 +2306,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "Notifier lors de la synchronisation automatique",
     "deviceSync.clipReceived": "Presse-papiers reçu d'un appareil",
     "deviceSync.categoryReceived": "Catégorie reçue d'un appareil",
+    "deviceSync.sendTo.title": "Envoyer à…",
+    "deviceSync.sendTo.all": "Tous les appareils en ligne",
+    "deviceSync.sendTo.none": "Aucun appareil en ligne",
+    "deviceSync.sendTo.current": "Envoyer le presse-papiers actuel",
   },
   "de": {
     "automation.entry": "Aktionen",
@@ -2659,6 +2683,10 @@ export const messages = {
     "deviceSync.autoPush.notify": "Bei automatischer Synchronisierung benachrichtigen",
     "deviceSync.clipReceived": "Zwischenablage von einem Gerät empfangen",
     "deviceSync.categoryReceived": "Kategorie von einem Gerät empfangen",
+    "deviceSync.sendTo.title": "Senden an…",
+    "deviceSync.sendTo.all": "Alle online Geräte",
+    "deviceSync.sendTo.none": "Keine Geräte online",
+    "deviceSync.sendTo.current": "Aktuelle Zwischenablage senden",
   },
 } as const;
 

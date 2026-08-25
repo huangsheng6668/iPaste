@@ -6,7 +6,7 @@ import { t, type I18nKey } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { isTauri } from "../lib/env";
 import { errorMessage } from "../lib/appError";
-import { fingerprintOf, statusKey, type DeviceStatusKey } from "../lib/deviceDisplay";
+import { fingerprintOf, sendTargets as buildSendTargets, statusKey, type DeviceStatusKey } from "../lib/deviceDisplay";
 import { INVALID_TICKET, useDeviceSync } from "../composables/useDeviceSync";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
@@ -35,6 +35,15 @@ async function runDeviceAction(action: () => Promise<unknown>) {
 
 function isRevoked(entry: DeviceInfo) {
   return Boolean(entry.device.revokedAt);
+}
+
+// —— 手动发送（设备列表 section 底部快捷按钮）——
+
+// 复用 sendTargets 纯函数判定「有可发送目标」：除 __all__ 外还有在线未撤销设备。
+const hasOnlineDevice = computed(() => buildSendTargets(devices.value).length > 1);
+
+function sendCurrent() {
+  void runDeviceAction(() => ipasteApi.deviceSendClip(null, { kind: "current" }));
 }
 
 // DeviceOnline 的 serde 值（connected）与 i18n key（online）不同名，显式映射保住字面量类型。
@@ -349,6 +358,14 @@ onUnmounted(() => {
       >
         {{ actionError }}
       </p>
+      <button
+        type="button"
+        class="lan-button"
+        :disabled="!hasOnlineDevice"
+        @click="sendCurrent"
+      >
+        {{ t("deviceSync.sendTo.current") }}
+      </button>
     </section>
 
     <!-- 邀请设备（host 侧） -->
