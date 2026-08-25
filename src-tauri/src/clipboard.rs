@@ -70,6 +70,10 @@ pub(crate) fn spawn_clipboard_watcher(
                     continue;
                 }
 
+                // 追加复制路径标记：capture_append_copy_item 返回 Some 表示本次
+                // 捕获属于追加会话（首条 INSERT 或后续合并 UPDATE），扇出钩子
+                // 据此整体跳过（见下方 was_inserted 分支）。
+                let mut from_append_copy = false;
                 let capture_result = capture_append_copy_item(
                     &store,
                     &append_copy_state,
@@ -78,7 +82,10 @@ pub(crate) fn spawn_clipboard_watcher(
                     &item,
                 )
                 .and_then(|append_copy_clip| match append_copy_clip {
-                    Some(result) => Ok(Some(result)),
+                    Some(result) => {
+                        from_append_copy = true;
+                        Ok(Some(result))
+                    }
                     None => store.insert_captured_item(item),
                 });
 
@@ -92,8 +99,11 @@ pub(crate) fn spawn_clipboard_watcher(
                                 was_inserted,
                             },
                         );
-                        if was_inserted {
+                        if was_inserted && !from_append_copy {
                             // 捕获即自动同步（Spec 2）：fire-and-forget，不阻塞捕获线程。
+                            // 追加复制合并期间不自动推送（对端不应看到半合并内容）：
+                            // 追加会话的捕获一律不扇出（含首条 INSERT），合并后的
+                            // 完整内容仍可手动发送。
                             crate::lan_sync::fan_out_spawned(&app, &clip);
                         }
                     }

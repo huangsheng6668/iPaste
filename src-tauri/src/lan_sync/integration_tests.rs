@@ -19,8 +19,10 @@ use crate::events::{
 };
 use crate::lan_sync::registry::DeviceLinkRegistry;
 use crate::lan_sync::LanEventSink;
-use crate::models::DeviceOnline;
+use crate::models::{AutoSyncMode, ClipItem, DeviceOnline};
 use crate::store::test_support::temp_store;
+use crate::store::Store;
+use crate::util::{hash_bytes, hash_text, new_id, now, preview};
 
 /// 每步等待窗口（brief 约定 10s 轮询上限；本地回环实际毫秒级完成）。
 const WAIT: Duration = Duration::from_secs(10);
@@ -452,4 +454,199 @@ async fn revoked_device_with_valid_invite_is_silently_ignored() {
     );
     // B 侧只能等到 join 超时（30s），不提前等待；abort 收尾
     join_task.abort();
+}
+
+// —— 自动推送全链路（Spec 2 Task 6）——
+
+/// 否定断言的固定等待窗：回环投递毫秒级完成，2s 已是百倍级余量；
+/// 比 WAIT 短是为了不让「证明没有发生」拖慢 CI。
+const NEGATIVE_WINDOW: Duration = Duration::from_secs(2);
+
+/// 构造捕获路径形态的文本 ClipItem（fan_out_auto 的输入）。
+/// content_hash 按捕获侧口径 = hash_text(原文)（B 的接收路径会按内容重算出
+/// 同一哈希，见 captured_item_from_payload），其余字段取最小合法值。
+fn text_clip(content: &str) -> ClipItem {
+    ClipItem {
+        id: new_id(),
+        clip_type: "text".to_string(),
+        content_hash: hash_text(content),
+        display_name: None,
+        preview_text: preview(content),
+        text: content.to_string(),
+        source_app: None,
+        last_captured_at: now(),
+        favorite_count: 0,
+        is_pinned: false,
+    }
+}
+
+/// 构造图片 ClipItem：text = 已落盘 png 的路径（捕获侧口径），content_hash =
+/// hash_bytes(png)。接收端会按 data url 重解码并落自己的文件与哈希，
+/// 断言只认 clip_type，不比对哈希。
+fn image_clip(png_path: &str, content_hash: &str) -> ClipItem {
+    ClipItem {
+        id: new_id(),
+        clip_type: "image".to_string(),
+        content_hash: content_hash.to_string(),
+        display_name: None,
+        preview_text: "1 x 1".to_string(),
+        text: png_path.to_string(),
+        source_app: None,
+        last_captured_at: now(),
+        favorite_count: 0,
+        is_pinned: false,
+    }
+}
+
+/// 编码一张真实可解码的 1x1 png：接收路径的 image_from_bytes 要能解出来，
+/// 裸签名字节过不了解码。
+fn tiny_png_bytes() -> Vec<u8> {
+    use image::ImageEncoder as _;
+
+    let img = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_pixel(
+        1,
+        1,
+        image::Rgba([0x10, 0x80, 0xF0, 0xFF]),
+    );
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(img.as_raw(), 1, 1, image::ColorType::Rgba8.into())
+        .expect("编码 1x1 png");
+    png
+}
+
+/// 某库 clips 表中 text 恰为该原文的行数。
+/// 断言口径刻意按 text 匹配而非 content_hash：auto 接收路径的哈希由
+/// captured_item_from_payload 按**内容**重算（不信任发送端字段），图片还会
+/// 重编码出新哈希——text/clip_type 才是两端一致的稳定观测面。
+fn clip_rows_with_text(store: &Store, text: &str) -> i64 {
+    let conn = store.connect().expect("库连接");
+    conn.query_row("SELECT COUNT(*) FROM clips WHERE text = ?1", [text], |row| {
+        row.get(0)
+    })
+    .expect("查询 clips 表")
+}
+
+/// 某库 clips 表中 image 条目的行数。
+fn image_clip_rows(store: &Store) -> i64 {
+    let conn = store.connect().expect("库连接");
+    conn.query_row(
+        "SELECT COUNT(*) FROM clips WHERE clip_type = 'image'",
+        [],
+        |row| row.get(0),
+    )
+    .expect("查询 clips 表 image 行")
+}
+
+/// 自动推送全链路（真实 QUIC 回环）：配对 → TextOnly 文本扇出送达落库并登记
+/// recent → 环抑制（B 回扇出被自己的 recent 命中短路，A 永不收到）→ 偏好过滤
+/// （Off 拒收文本 / All 收 image）→ 手动对照（落库但不登记 recent）。
+///
+/// 全程不触系统剪贴板：auto 接收路径的剪贴板写是尽力而为的诊断性副作用
+/// （无头环境必失败、事件不计入同步结果），所有断言只看 clips 表行与 recent
+/// 滑窗——headless CI 确定。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn autopush_full_chain() {
+    let store_a = temp_store();
+    let store_b = temp_store();
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(store_a.clone(), sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(store_b.clone(), sink_b.clone())
+        .await
+        .expect("B 端点");
+
+    // 1) 配对（复用 harness）
+    let (_ticket, node_b, _node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
+
+    // 2) 显式设一遍 TextOnly（缺省即 TextOnly，显式化测试意图）
+    a.set_auto_sync(&node_b, AutoSyncMode::TextOnly);
+
+    // 3-4) 文本捕获即扇出
+    const AUTO_TEXT: &str = "auto-hello";
+    let auto_clip = text_clip(AUTO_TEXT);
+    a.fan_out_auto(&auto_clip).await.expect("A 扇出文本");
+
+    // 5) B 的 clips 表出现该原文行（哈希由 B 按内容重算，断言按 text 匹配）
+    assert!(
+        wait_until(WAIT, || clip_rows_with_text(&store_b, AUTO_TEXT) == 1).await,
+        "TextOnly 偏好下文本自动推送应落 B 的历史表"
+    );
+
+    // 6) auto 接收路径登记 recent（供发送侧防回推）
+    let auto_hash = hash_text(AUTO_TEXT);
+    assert!(
+        b.recent_contains(&auto_hash),
+        "auto 路径必须登记 recent（B 侧防回推的前提）"
+    );
+
+    // 7) 环断言：B 对同一条目回扇出必须被自己的 recent 命中短路（never sent），
+    //    A 的 clips 表在等待窗内不出现该原文。A 侧的捕获是 watcher 行为、
+    //    不参与本测试——B 的 recent 短路 + A 无行共同佐证回环被抑制。
+    b.fan_out_auto(&auto_clip).await.expect("B 回扇出（应静默短路）");
+    assert!(
+        b.recent_contains(&auto_hash),
+        "短路前提：recent 命中在等待窗内仍有效（TTL 60s）"
+    );
+    tokio::time::sleep(NEGATIVE_WINDOW).await;
+    assert_eq!(
+        clip_rows_with_text(&store_a, AUTO_TEXT),
+        0,
+        "环断言：B 的 recent 命中应短路回扇出，A 不得收到回推内容"
+    );
+
+    // 8a) 偏好过滤 - Off：新哈希的文本扇出，B 无行
+    a.set_auto_sync(&node_b, AutoSyncMode::Off);
+    const OFF_TEXT: &str = "auto-off-never-arrives";
+    let off_clip = text_clip(OFF_TEXT);
+    a.fan_out_auto(&off_clip).await.expect("A 扇出（应被偏好过滤）");
+    tokio::time::sleep(NEGATIVE_WINDOW).await;
+    assert_eq!(
+        clip_rows_with_text(&store_b, OFF_TEXT),
+        0,
+        "Off 偏好：B 不应收到任何类型的自动推送"
+    );
+
+    // 8b) 偏好过滤 - All：image 扇出（A 先落盘 1x1 png，clip.text=路径），B 收到
+    //     并落自己的 image 行（B 侧重解码、存自己的文件路径——只认 clip_type）
+    a.set_auto_sync(&node_b, AutoSyncMode::All);
+    let png = tiny_png_bytes();
+    let png_hash = hash_bytes(&png);
+    let png_path = store_a.save_image_bytes(&png_hash, &png).expect("A 落盘图片");
+    let clip_image = image_clip(&png_path, &png_hash);
+    a.fan_out_auto(&clip_image).await.expect("A 扇出图片");
+    assert!(
+        wait_until(WAIT, || image_clip_rows(&store_b) == 1).await,
+        "All 偏好：B 应收到 image 自动推送并落库"
+    );
+
+    // 9) 手动对照：send_raw 落库 + 接收事件，但不登记 recent——auto/手动两路径
+    //    的可观测分界。手动路径成功恒 emit EVENT_DEVICE_CLIP_RECEIVED（非
+    //    silent），与 DB 行一起等齐后再断言 recent。
+    const MANUAL_TEXT: &str = "manual-contrast";
+    a.send_raw(
+        Some(&node_b),
+        "text",
+        MANUAL_TEXT.as_bytes(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("手动发送");
+    assert!(
+        wait_until(WAIT, || {
+            count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED) >= 1
+                && clip_rows_with_text(&store_b, MANUAL_TEXT) == 1
+        })
+        .await,
+        "手动发送应落 B 的历史表并 emit 接收事件；B 事件：{:?}",
+        event_names(&sink_b)
+    );
+    assert!(
+        !b.recent_contains(&hash_text(MANUAL_TEXT)),
+        "手动路径不得登记 recent（否则会误伤后续同内容自动推送的回环判定）"
+    );
 }

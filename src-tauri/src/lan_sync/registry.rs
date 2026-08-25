@@ -1319,6 +1319,12 @@ impl DeviceLinkRegistry {
     pub(crate) fn inner_endpoint_id_hex_for_test(&self) -> String {
         hex_encode_32(self.inner.endpoint.id().as_bytes())
     }
+
+    /// 集成测试观察口：registry 级 recent 滑窗是否已登记该哈希（auto 接收路径
+    /// 插入、发送侧 fan_out_auto 消费——auto/手动两路径的可观测分界，Spec 2）。
+    pub(crate) fn recent_contains(&self, hash: &str) -> bool {
+        self.inner.recent.contains(hash)
+    }
 }
 
 /// 拨号方在会话流上的首发帧。iroh 的流语义：仅 `open_bi` 不足以让对端的
