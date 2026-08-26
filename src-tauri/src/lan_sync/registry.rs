@@ -911,15 +911,15 @@ impl DeviceLinkRegistry {
         {
             let mut links = self.inner.links.lock().expect("links 锁中毒");
             // A1 登记前复验（TOCTOU）：入站分流（首帧路由）与这里的登记之间，
-            // revoke/disconnect 可能恰好落地——kill_link 找不到条目可杀，随后
-            // Vacant 插入会让已撤销/已断开的设备顶着 Connected 幽灵会话继续
-            // 收推送。在**持有 links 锁的同一临界区**内复验并登记，两种交错都
-            // 收敛干净：
-            // - revoke 先写 store 再 kill_link：此处读到撤销前（可信）→ 随后被
-            //   阻塞在锁上的 kill_link 移除登记；读到撤销后 → 此处直接拒绝；
-            // - disconnect 先 kill_link 再置标记：能读到标记 ⇒ kill_link 已完成
-            //   （当时无条目可删）→ 此处拒绝；读不到 → 随后的 kill_link 会移除
-            //   本条登记。
+            // revoke/disconnect/delete 可能恰好落地——kill_link 找不到条目可杀，随后
+            // Vacant 插入会让已撤销/已断开/已删除的设备顶着 Connected 幽灵会话继续
+            // 收推送。在**持有 links 锁的同一临界区**内复验并登记，配合三条路径
+            // 统一「状态写先行」的顺序（与 revoke 同形），任意交错都收敛干净：
+            // - disconnect 先置标记 / delete 先删 store 行 / revoke 先写撤销：
+            //   状态写先行 ⇒ 随后 run_session 的 admission 检查必然读到（标记
+            //   或已删除/已撤销的行）→ 直接拒绝登记；
+            // - 若本处赶在状态写之前抢到 links 锁完成登记 ⇒ 随后被阻塞在锁上的
+            //   kill_link 兜底清理已存在的登记。
             // 临界区内嵌套 disconnected 锁与 store 读是安全的：全仓只有本处以
             // links → disconnected 顺序嵌套，无反向路径；store 不回调 registry
             // 锁。会话建立低频，临界区内一次 store 读可接受。
@@ -1402,13 +1402,14 @@ impl DeviceLinkRegistry {
         self.emit_device_list();
     }
 
-    /// 彻底删除记录：此后该设备拨号等同陌生设备。
+    /// 彻底删除记录：此后该设备拨号等同陌生设备。先删 store 行再断链
+    /// （状态写先行，与 revoke 同形——admission 的 store 读必然看到已删除）。
     pub(crate) fn delete_device(&self, node_id: &str) {
-        self.kill_link(node_id);
-        self.clear_disconnected(node_id);
         if let Err(reason) = self.inner.store.delete_device(node_id) {
             eprintln!("[lan-sync] 删除设备失败：{reason}");
         }
+        self.kill_link(node_id);
+        self.clear_disconnected(node_id);
         self.emit_status(node_id, DeviceOnline::Offline);
         self.emit_device_list();
     }
@@ -1421,15 +1422,16 @@ impl DeviceLinkRegistry {
         self.emit_device_list();
     }
 
-    /// 用户主动断开某设备：杀会话 + 停重拨 + 记入内存态断开标记——此后对端
+    /// 用户主动断开某设备：先记入内存态断开标记，再杀会话/停重拨（状态写先行，
+    /// 与 revoke 同形——关闭 run_session 准入与登记间的 TOCTOU 窗口）——此后对端
     /// 重拨一律静默拒绝，直到重新配对成功或重启应用（重启清空标记）。
     pub(crate) fn disconnect(&self, node_id: &str) {
-        self.kill_link(node_id);
         self.inner
             .disconnected
             .lock()
             .expect("disconnected 锁中毒")
             .insert(node_id.to_string());
+        self.kill_link(node_id);
         self.emit_status(node_id, DeviceOnline::Offline);
         self.emit_device_list();
     }
