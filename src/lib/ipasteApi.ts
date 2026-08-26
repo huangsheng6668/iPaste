@@ -29,6 +29,7 @@ import type { AutoPushSettings } from "../types/generated/AutoPushSettings";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { ClipSource } from "../types/generated/ClipSource";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
+import type { PairRequested } from "../types/generated/PairRequested";
 import { clipMatchesSearch } from "./clipSearch";
 import { isTauri } from "./env";
 
@@ -579,6 +580,9 @@ export const ipasteApi = {
   },
   pairingRespond(accept: boolean) {
     return call<void>("pairing_respond", { accept });
+  },
+  pairingPending() {
+    return call<PairRequested | null>("pairing_pending", undefined, null);
   },
   deviceSendClip(target: string | null, source: LanClipSource) {
     return call<void>("device_send_clip", { target, source });

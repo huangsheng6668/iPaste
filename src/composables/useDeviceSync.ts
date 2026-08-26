@@ -24,10 +24,21 @@ export function useDeviceSync() {
   const inviteExpiresAt = ref<number | null>(null);
   const joinError = ref<string | null>(null);
   const pairRequest = ref<PairRequested | null>(null);
+  // 配对应答命令失败（如 120s 自动拒绝后已无待确认请求）的透出通道（B2）。
+  const pairError = ref<string | null>(null);
+  // 初始/事件刷新的设备列表加载失败横幅（B4）：降级提示，不阻断任何订阅。
+  const loadError = ref<string | null>(null);
 
   const refresh = async () => {
     if (!isTauri) return;
-    devices.value = sortDevices(await ipasteApi.deviceList());
+    try {
+      devices.value = sortDevices(await ipasteApi.deviceList());
+      loadError.value = null;
+    } catch (unknownError) {
+      // 加载失败就地降级为横幅（不再向上抛出）：onMounted 的监听订阅、
+      // 后续事件的恢复性刷新都不受阻断；成功后横幅自动清除。
+      loadError.value = errorMessage(unknownError);
+    }
   };
 
   const createInvite = async () => {
@@ -60,7 +71,12 @@ export function useDeviceSync() {
 
   const respondPair = (accept: boolean) => {
     pairRequest.value = null;
-    void ipasteApi.pairingRespond(accept);
+    pairError.value = null;
+    void ipasteApi.pairingRespond(accept).catch((unknownError: unknown) => {
+      // 应答命令失败（如 120s 自动拒绝后请求已不存在）：错误串就地上浮到
+      // 面板配对区展示，而不是被 void 静默吞掉。
+      pairError.value = errorMessage(unknownError);
+    });
   };
 
   const disconnect = (nodeId: string) => ipasteApi.deviceDisconnect(nodeId).then(refresh);
@@ -72,6 +88,8 @@ export function useDeviceSync() {
   let unlistenFns: UnlistenFn[] = [];
   onMounted(async () => {
     if (!isTauri) return;
+    // 初始列表失败已降级为 loadError 横幅（refresh 内部捕获），此处不再让
+    // 异常中断 onMounted——五种事件监听必须无条件注册（B4）。
     await refresh();
     // 逐个类型化订阅；refresh 之外的回调直接消费生成的 payload 类型。
     unlistenFns.push(await listen(IPASTE_EVENTS.deviceListChanged, () => void refresh()));
@@ -85,6 +103,8 @@ export function useDeviceSync() {
     );
     unlistenFns.push(
       await listen<PairRequested>(IPASTE_EVENTS.pairRequest, (event) => {
+        // 新请求到达时清除上一轮应答的残留错误（B2）。
+        pairError.value = null;
         pairRequest.value = event.payload;
       }),
     );
@@ -94,6 +114,15 @@ export function useDeviceSync() {
         joinError.value = event.payload.reason;
       }),
     );
+    // 面板重开时恢复后端尚未超时作废的待确认配对请求（B1b）：lan-sync 窗口
+    // 是瞬态窗，请求到达时窗口多半已重建；120s 时限仍由后端权威掌控。
+    try {
+      const pending = await ipasteApi.pairingPending();
+      if (pending) pairRequest.value = pending;
+    } catch (unknownError) {
+      // 查询失败仅跳过恢复；后续新请求仍经事件正常到达。
+      console.warn("[ipaste] pairing_pending query failed:", unknownError);
+    }
   });
   onUnmounted(() => {
     unlistenFns.forEach((fn) => fn());
@@ -106,6 +135,8 @@ export function useDeviceSync() {
     inviteExpiresAt,
     joinError,
     pairRequest,
+    pairError,
+    loadError,
     refresh,
     createInvite,
     cancelInvite,

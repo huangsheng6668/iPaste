@@ -816,7 +816,7 @@ pub(crate) fn open_lan_sync_window(app: &tauri::AppHandle) -> Result<(), String>
         AuxiliaryWindowConfig {
             label: LAN_SYNC_WINDOW.to_string(),
             url: "index.html?window=lan-sync".to_string(),
-            title: "iPaste · Lan Sync".to_string(),
+            title: "iPaste · Device Sync".to_string(),
             geometry: LAN_SYNC_WINDOW_GEOMETRY,
             decorations: false,
             always_on_top: true,

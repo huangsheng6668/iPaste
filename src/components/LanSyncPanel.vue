@@ -12,7 +12,7 @@ import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
 const sync = useDeviceSync();
-const { devices, inviteTicket, inviteExpiresAt, joinError, pairRequest } = sync;
+const { devices, inviteTicket, inviteExpiresAt, joinError, pairRequest, pairError, loadError } = sync;
 
 // —— 窗口壳 ——
 
@@ -28,8 +28,10 @@ async function runDeviceAction(action: () => Promise<unknown>) {
   actionError.value = null;
   try {
     await action();
+    return true;
   } catch (unknownError) {
     actionError.value = errorMessage(unknownError);
+    return false;
   }
 }
 
@@ -58,9 +60,14 @@ function statusText(entry: DeviceInfo) {
   return t(STATUS_LABEL_KEYS[statusKey(entry.online)]);
 }
 
-function onAutoSyncChange(entry: DeviceInfo, event: Event) {
-  const mode = (event.target as HTMLSelectElement).value as AutoSyncMode;
-  void runDeviceAction(() => sync.setAutoSync(entry.device.nodeId, mode));
+async function onAutoSyncChange(entry: DeviceInfo, event: Event) {
+  const select = event.target as HTMLSelectElement;
+  const mode = select.value as AutoSyncMode;
+  const succeeded = await runDeviceAction(() => sync.setAutoSync(entry.device.nodeId, mode));
+  if (!succeeded) {
+    // 设置失败：select 显示回滚为后端权威值，避免停留在未生效的选择（B5）。
+    select.value = entry.device.autoSyncMode;
+  }
 }
 
 function onDisconnect(entry: DeviceInfo) {
@@ -113,6 +120,13 @@ const inviteCountdown = computed(() => {
   const minutes = String(Math.floor(remaining / 60)).padStart(2, "0");
   const seconds = String(remaining % 60).padStart(2, "0");
   return `${minutes}:${seconds}`;
+});
+
+// 票据仍在展示但倒计时已归零（后端已作废）：UI 停止广告死票据（B3）——
+// 复制禁用、票据置灰划线、倒计时文案换「已过期」；再次生成邀请会正常覆盖。
+const inviteExpired = computed(() => {
+  if (!inviteTicket.value || !inviteExpiresAt.value) return false;
+  return inviteExpiresAt.value - nowMs.value <= 0;
 });
 
 watch(
@@ -277,6 +291,13 @@ onUnmounted(() => {
     <section class="lan-section">
       <h2 class="lan-section-title">{{ t("deviceSync.list.title") }}</h2>
       <p
+        v-if="loadError"
+        class="lan-error"
+        :title="loadError"
+      >
+        {{ t("deviceSync.list.loadFailed") }}
+      </p>
+      <p
         v-if="devices.length === 0"
         class="lan-empty"
       >
@@ -375,6 +396,7 @@ onUnmounted(() => {
         <div class="lan-ticket-row">
           <input
             class="lan-input"
+            :class="{ 'lan-ticket-expired': inviteExpired }"
             readonly
             :value="inviteTicket"
             aria-readonly="true"
@@ -382,6 +404,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="lan-button"
+            :disabled="inviteExpired"
             @click="copyTicket"
           >
             <Check
@@ -402,7 +425,13 @@ onUnmounted(() => {
           {{ t("deviceSync.invite.copyFailed") }}
         </p>
         <div class="lan-ticket-row">
-          <span class="lan-hint">{{ t("deviceSync.invite.expiresIn", { time: inviteCountdown }) }}</span>
+          <span class="lan-hint">
+            {{
+              inviteExpired
+                ? t("deviceSync.invite.expired")
+                : t("deviceSync.invite.expiresIn", { time: inviteCountdown })
+            }}
+          </span>
           <button
             type="button"
             class="lan-button"
@@ -574,6 +603,15 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <!-- 配对应答失败的残留错误（B2）：弹窗已关，以非模态浮层就地展示，
+         新配对请求到达时清除。 -->
+    <p
+      v-else-if="pairError"
+      class="lan-error lan-pair-error"
+      role="alert"
+    >
+      {{ pairError }}
+    </p>
   </div>
 </template>
 
@@ -755,6 +793,11 @@ html.dark .lan-sync-panel { border-color: var(--border-hairline); }
   gap: 8px;
   flex-wrap: wrap;
 }
+/* 已过期票据（B3）：置灰划线，不再广告死票据。 */
+.lan-ticket-expired {
+  color: var(--text-2);
+  text-decoration: line-through;
+}
 .lan-label {
   font-size: 12px;
   color: var(--text-2);
@@ -843,5 +886,22 @@ html.dark .lan-sync-panel { border-color: var(--border-hairline); }
   display: flex;
   gap: 8px;
   margin-top: 4px;
+}
+/* 配对应答失败的浮层错误（B2）：非模态、不拦截交互，新请求到达即清除。 */
+.lan-pair-error {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--bg-app);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 11;
 }
 </style>

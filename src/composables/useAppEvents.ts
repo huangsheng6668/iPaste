@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/env";
+import { ipasteApi } from "../lib/ipasteApi";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import { t } from "../i18n";
 import type { I18nKey } from "../i18n";
@@ -18,6 +19,7 @@ import type {
 import type { DeviceClipReceived } from "../types/generated/DeviceClipReceived";
 import type { DeviceClipReceiveFailed } from "../types/generated/DeviceClipReceiveFailed";
 import type { DeviceCategoryReceived } from "../types/generated/DeviceCategoryReceived";
+import type { PairRequested } from "../types/generated/PairRequested";
 
 type IpasteStore = ReturnType<typeof useIpasteStore>;
 
@@ -116,8 +118,9 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
 
   // 跨设备同步：收到对端剪贴板/整组时提示并刷新列表——同步落库发生在 Rust
   // 侧，前端 store 不会自动感知，需像 panelVisibilityChanged 一样主动 load
-  //（v4 行为恢复）。pairJoinFailed 等配对流反馈由 lan-sync 窗口的
-  // useDeviceSync 就地展示，主窗口不重复 toast。
+  //（v4 行为恢复）。pairJoinFailed 等配对失败反馈由 lan-sync 窗口的
+  // useDeviceSync 就地展示，主窗口不重复 toast；配对请求本身例外，见下方
+  // pairRequest 监听。
   await listen<DeviceClipReceived>(IPASTE_EVENTS.deviceClipReceived, () => {
     ui.pushToast(t("deviceSync.clipReceived"));
     void store.load();
@@ -132,5 +135,16 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   // 无头/锁屏场景的噪音不该用 toast 打扰用户，失败细节留日志排查。
   await listen<DeviceClipReceiveFailed>(IPASTE_EVENTS.deviceClipReceiveFailed, (event) => {
     console.warn("[ipaste] device clip receive failed:", event.payload);
+  });
+
+  // 配对请求可见性兜底（v0.9.2）：唯一的 ipaste://pair-request 弹窗逻辑在
+  // 瞬态的 lan-sync 窗口里，窗口关闭时请求完全不可见，120s 后端自动拒绝会让
+  // 对端误以为被拒。主窗口常驻监听：拉起设备管理窗（含恢复待确认请求）并
+  // toast 提示用户前去确认。
+  await listen<PairRequested>(IPASTE_EVENTS.pairRequest, (event) => {
+    void ipasteApi.openLanSync().catch((error: unknown) => {
+      console.warn("[ipaste] open lan-sync window failed:", error);
+    });
+    ui.pushToast(t("deviceSync.pair.incoming", { name: event.payload.deviceName }));
   });
 }
