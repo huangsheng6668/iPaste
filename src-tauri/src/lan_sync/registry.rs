@@ -1,8 +1,9 @@
 //! DeviceLinkRegistry：iroh Endpoint 生命周期 + 每设备连接管理（spec §5）。
 //!
 //! 职责：
-//! - 持有 iroh `Endpoint`（协议 v5 的唯一传输），入站连接分流（已配对 → 会话流；
-//!   陌生 → 票据配对流程）。
+//! - 持有 iroh `Endpoint`（协议 v5 的唯一传输），入站连接按**首帧**分流
+//!   （`PairRequest` → 票据配对门（不看信任态，v0.9.2 A2）；其余 → 会话流，
+//!   信任与「显式断开」门由 run_session 的登记前复验把关（v0.9.2 A1））。
 //! - 已配对设备各一条后台重拨任务（link_task）：拨号 → 会话 → 断开 → 指数退避重拨。
 //! - 邀请/加入配对（`create_invite`/`join`/`respond_pair`）。
 //! - 按设备分发发送指令（`send_raw`/`send_category`/`request_clip`）与设备管理
@@ -12,15 +13,17 @@
 //! 无 `.await` 的短临界区内持有；跨 await 的共享一律 clone 出来再操作。
 
 use std::collections::{HashMap, HashSet};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use base64::Engine as _;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream, VarInt};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, TransportAddr};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::events::{
@@ -30,7 +33,7 @@ use crate::events::{
     EVENT_PAIR_REQUEST,
 };
 use crate::lan_sync::autopush::{fan_out_targets, RecentReceived};
-use crate::lan_sync::frame::{FrameReader, FrameWriter};
+use crate::lan_sync::frame::{read_message_with_raw, FrameReader, FrameWriter};
 use crate::lan_sync::pair_guard::PairGuard;
 use crate::lan_sync::protocol::{
     LanMessage, PairRejectReason, IPASTE_ALPN, LAN_MAX_PAYLOAD, LAN_PROTOCOL_VERSION,
@@ -150,10 +153,10 @@ struct LinkHandle {
 }
 
 /// 待用户确认的配对请求：decision_tx 由 respond_pair 消费。
+/// device_name/node_id 同时供 pending_pair_info（B1：设备管理窗重开时恢复
+/// 确认弹窗的只读快照）读取。
 struct PendingPair {
-    #[allow(dead_code)] // 调试用字段保留：定位是哪台设备的请求
     device_name: String,
-    #[allow(dead_code)]
     node_id: String,
     decision_tx: oneshot::Sender<bool>,
 }
@@ -331,16 +334,25 @@ impl DeviceLinkRegistry {
         }
     }
 
-    /// 入站会话门：已配对（信任且未撤销）且未被用户显式断开。
-    fn inbound_allowed(&self, node_hex: &str) -> bool {
-        let trusted = self.inner.store.is_trusted(node_hex).unwrap_or(false);
-        trusted
-            && !self
-                .inner
-                .disconnected
-                .lock()
-                .expect("disconnected 锁中毒")
-                .contains(node_hex)
+    /// 会话登记的准入复验（v0.9.2 A1，替代原入站门 `inbound_allowed`）：
+    /// None = 允许成为会话；Some(reason) = 拒绝登记，reason 为连接关闭的
+    /// 应用层原因。覆盖两类不得成为会话的对端：
+    /// - store 行不可信（已撤销/已删除）→ `b"revoked"`；
+    /// - 被用户显式断开（内存态标记，重新配对或重启恢复）→ `b"disconnected"`。
+    fn session_admission_denied(&self, node_hex: &str) -> Option<&'static [u8]> {
+        if !self.inner.store.is_trusted(node_hex).unwrap_or(false) {
+            return Some(b"revoked");
+        }
+        if self
+            .inner
+            .disconnected
+            .lock()
+            .expect("disconnected 锁中毒")
+            .contains(node_hex)
+        {
+            return Some(b"disconnected");
+        }
+        None
     }
 
     /// 陌生路径的撤销门：对端 node_id 在本地是「已撤销」的行 → 静默拒绝
@@ -365,51 +377,52 @@ impl DeviceLinkRegistry {
             .remove(node_id);
     }
 
-    /// 单条入站连接：已配对 → 直接进会话；陌生 → 票据配对流程。
+    /// 单条入站连接：按**首帧**分流（v0.9.2 A2），不再按本端信任态分流。
+    ///
+    /// - 首帧 `PairRequest` → 票据配对门（无论对端陌生、仍被信任或曾被显式
+    ///   断开）。修复两个不可达路径：(i) 仍信任的对端持 PairRequest 拨入曾被
+    ///   当作会话处理、首帧被会话循环吞掉 → 拨号方挂 30s 得「对方响应异常」；
+    ///   (ii) 被显式断开的对端曾被直接 close(b"disconnected")，无恢复路径
+    ///   （文档承诺的「重新配对恢复」形同虚设）——现在有效邀请 + 接受即清除
+    ///   断开标记并重建会话；无有效邀请则沿用配对门的静默/过期处理。
+    /// - 其余任何首帧（拨号方 link_task/join 的首发 Ping、未知帧）→ 会话路径：
+    ///   已读的首帧字节经 `PrefixedFrame` 无损回放给会话循环（Ping 照常回
+    ///   Pong），信任与断开门统一由 run_session 的登记前复验（A1）把关——
+    ///   未配对/已撤销/被显式断开的拨入在登记临界区内被拒，不产生幽灵会话。
     async fn handle_inbound(self: Arc<Self>, conn: Connection) {
         let remote = conn.remote_id();
         let node_hex = hex_encode_32(remote.as_bytes());
-        if self.inner.store.is_trusted(&node_hex).unwrap_or(false) {
-            // 用户显式断开过：静默拒绝（不进会话也不进配对流程；
-            // 恢复需重新配对或重启应用——重启清空内存态标记）
-            if !self.inbound_allowed(&node_hex) {
-                conn.close(VarInt::from_u32(0), b"disconnected");
-                return;
-            }
-            // 已配对：对端是拨号方 → 对端开首条（会话）流，本地 accept_bi
-            if let Ok((send, recv)) = conn.accept_bi().await {
-                let dead_rx = Self::watch_conn_death(conn.clone());
-                self.run_session(node_hex, recv, send, dead_rx).await;
-            }
-            conn.close(VarInt::from_u32(0), b"session-end");
-            return;
-        }
-        // 陌生连接：首条双向流必须是 PairRequest，其余一切情况静默丢弃
-        //（spec §4.2：无邀请的连接不产生任何提示，防提示轰炸/探测）。
-        // 撤销门在最前（读流/校验邀请之前）：已撤销设备持有效票据再次拨入
-        // 也按静默拒绝处理——不弹配对请求、不回任何帧（spec §3）。
-        if self.is_locally_revoked(&node_hex) {
-            return;
-        }
-        // 预认证读取限时（slow-loris 防护）：accept_bi 与首帧 PairRequest
-        // 合计 60s 内不完成为静默关闭，配对任务不无限堆积。
-        let preauth = tokio::time::timeout(STRANGER_PREAUTH_TIMEOUT, async {
+        // 预认证读取限时（slow-loris 防护）：accept_bi 与首帧读取合计 60s 内不
+        // 完成即静默关闭，任务不无限堆积。首帧的线格式字节一并保留（回放用）。
+        let first = tokio::time::timeout(STRANGER_PREAUTH_TIMEOUT, async {
             let (send, mut recv) = conn.accept_bi().await.ok()?;
-            let mut reader = FrameReader::new(&mut recv);
-            let (LanMessage::PairRequest { version, device_name: peer_name, invite_secret }, _) =
-                reader.read_message().await.ok()?
-            else {
-                return None;
-            };
-            Some((send, version, peer_name, invite_secret))
+            let (msg, raw) = read_message_with_raw(&mut recv).await.ok()?;
+            Some((send, recv, msg, raw))
         })
         .await
         .ok()
         .flatten();
-        let Some((mut send, version, peer_name, invite_secret)) = preauth else {
+        let Some((send, recv, msg, raw)) = first else {
             conn.close(VarInt::from_u32(0), b"pair-preauth-timeout");
-            return; // 静默拒绝
+            return; // 静默拒绝：超时/坏帧/连接死亡
         };
+        let LanMessage::PairRequest { version, device_name: peer_name, invite_secret } = msg
+        else {
+            // —— 会话路径（首帧非 PairRequest）——
+            let dead_rx = Self::watch_conn_death(conn.clone());
+            let reader = PrefixedFrame::new(raw, recv);
+            self.run_session(Some(conn.clone()), node_hex, reader, send, dead_rx).await;
+            conn.close(VarInt::from_u32(0), b"session-end");
+            return;
+        };
+        // —— 配对门（spec §4.2：无邀请的连接不产生任何提示，防提示轰炸/探测）——
+        // 撤销门在最前（邀请校验与用户确认之前）：已撤销设备持有效票据再次拨入
+        // 也按静默拒绝处理——不弹配对请求、不回任何帧（spec §3，重新配对需先
+        // 删除记录，撤销行不得经配对复活）。
+        if self.is_locally_revoked(&node_hex) {
+            return;
+        }
+        let mut send = send;
         if version != LAN_PROTOCOL_VERSION {
             reply_reject(&mut send, PairRejectReason::VersionMismatch).await;
             return;
@@ -486,7 +499,8 @@ impl DeviceLinkRegistry {
             reply_reject(&mut send, PairRejectReason::Unknown).await;
             return;
         }
-        // 重新配对成功：解除此前的「显式断开」标记
+        // 重新配对成功：解除此前的「显式断开」标记（A2：对端曾处于 disconnected
+        // 集合也能走到这里，清标记后 run_session 的准入复验放行，链路恢复）
         self.clear_disconnected(&node_hex);
         let me_name = device_name();
         let my_id = self.inner.endpoint.id();
@@ -500,10 +514,11 @@ impl DeviceLinkRegistry {
             return;
         }
         drop(send); // 关配对流（FIN），拨号方随即开第二条（会话）流
+        drop(recv); // 配对流的读半至此不再消费（首帧 PairRequest 已处理完毕）
         // 等拨号方开第二条（会话）流（拨号方开流即发首发帧，见 send_stream_opener）
         let Ok((session_send, session_recv)) = conn.accept_bi().await else { return };
         let dead_rx = Self::watch_conn_death(conn.clone());
-        self.run_session(node_hex, session_recv, session_send, dead_rx)
+        self.run_session(Some(conn.clone()), node_hex, session_recv, session_send, dead_rx)
             .await;
         conn.close(VarInt::from_u32(0), b"session-end");
     }
@@ -583,6 +598,24 @@ impl DeviceLinkRegistry {
             }
             None => Err("当前没有待确认的配对请求".to_string()),
         }
+    }
+
+    /// 当前待确认配对请求的只读快照（v0.9.2 B1）：pair-request 事件是
+    /// fire-and-forget，设备管理窗重开时前端凭本方法恢复确认弹窗。无 pending
+    ///（无请求/已被消费）返回 None。payload 口径与 handle_inbound emit
+    /// EVENT_PAIR_REQUEST 时一致（device_name + 对端 EndpointId 指纹短码）。
+    pub(crate) fn pending_pair_info(&self) -> Option<PairRequested> {
+        self.inner
+            .pending_pair
+            .lock()
+            .expect("pending 锁中毒")
+            .as_ref()
+            .map(|slot| PairRequested {
+                device_name: slot.device_name.clone(),
+                fingerprint: endpoint_id_from_hex(&slot.node_id)
+                    .map(|id| fingerprint_hex(id.as_bytes()))
+                    .unwrap_or_default(),
+            })
     }
 
     // —— 加入（guest 侧，spec §4.3）——
@@ -685,7 +718,7 @@ impl DeviceLinkRegistry {
                 }
                 let dead_rx = Self::watch_conn_death(conn.clone());
                 self.clone()
-                    .run_session(node_hex, session_recv, session_send, dead_rx)
+                    .run_session(Some(conn.clone()), node_hex, session_recv, session_send, dead_rx)
                     .await;
                 conn.close(VarInt::from_u32(0), b"session-end");
                 Ok(())
@@ -784,7 +817,7 @@ impl DeviceLinkRegistry {
                     // 返回本会话的 gen，供会话结束后的 Offline 写做所有权校验
                     let session_gen = self
                         .clone()
-                        .run_session(node_id.clone(), recv, send, dead_rx)
+                        .run_session(Some(conn.clone()), node_id.clone(), recv, send, dead_rx)
                         .await;
                     conn.close(VarInt::from_u32(0), b"session-end");
                     // 会话结束：只有登记仍是本会话的 gen（未被入站会话收编）才置
@@ -858,8 +891,12 @@ impl DeviceLinkRegistry {
     /// 注册并运行一个会话（入站/配对/重拨共用入口）。收编语义：同设备已有旧
     /// 登记时，旧 control_tx 随替换被 drop → 旧会话干净关闭；重拨任务句柄继承。
     /// 返回本会话的 gen（调用方 link_task 以此做会话后状态写的所有权校验）。
+    ///
+    /// `conn`（v0.9.2 A1）供登记被拒时以应用层原因关闭整条连接；测试的 duplex
+    /// 流没有真实连接，传 None——流随本函数返回被 drop，对端观察到 EOF。
     async fn run_session<R, W>(
         self: Arc<Self>,
+        conn: Option<Connection>,
         node_hex: String,
         read: R,
         write: W,
@@ -873,6 +910,26 @@ impl DeviceLinkRegistry {
         let my_gen = self.next_gen();
         {
             let mut links = self.inner.links.lock().expect("links 锁中毒");
+            // A1 登记前复验（TOCTOU）：入站分流（首帧路由）与这里的登记之间，
+            // revoke/disconnect 可能恰好落地——kill_link 找不到条目可杀，随后
+            // Vacant 插入会让已撤销/已断开的设备顶着 Connected 幽灵会话继续
+            // 收推送。在**持有 links 锁的同一临界区**内复验并登记，两种交错都
+            // 收敛干净：
+            // - revoke 先写 store 再 kill_link：此处读到撤销前（可信）→ 随后被
+            //   阻塞在锁上的 kill_link 移除登记；读到撤销后 → 此处直接拒绝；
+            // - disconnect 先 kill_link 再置标记：能读到标记 ⇒ kill_link 已完成
+            //   （当时无条目可删）→ 此处拒绝；读不到 → 随后的 kill_link 会移除
+            //   本条登记。
+            // 临界区内嵌套 disconnected 锁与 store 读是安全的：全仓只有本处以
+            // links → disconnected 顺序嵌套，无反向路径；store 不回调 registry
+            // 锁。会话建立低频，临界区内一次 store 读可接受。
+            if let Some(reason) = self.session_admission_denied(&node_hex) {
+                if let Some(conn) = &conn {
+                    conn.close(VarInt::from_u32(0), reason);
+                }
+                // control_tx / 流随返回 drop：不发 Connected、不留登记
+                return my_gen;
+            }
             use std::collections::hash_map::Entry;
             match links.entry(node_hex.clone()) {
                 // 已有登记：收编（旧 control_tx 在赋值时 drop → 旧会话收到 None 干净关闭；
@@ -1426,6 +1483,40 @@ async fn send_stream_opener(send: &mut SendStream) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// 会话读回放适配器（v0.9.2 A2）：先把 `prefix`（已被入站首帧路由消费的线格式
+/// 字节）排空，再透传内部流。会话循环由此无损地看到「首帧 + 流的剩余部分」——
+/// 首帧既不丢失（否则拨号方的首发 Ping 被吞、对端会话凭空少一帧），也不重复
+/// （prefix 未排空前绝不 poll 内部流，前缀与后续字节不会交错）。
+struct PrefixedFrame<R> {
+    prefix: Vec<u8>,
+    pos: usize,
+    inner: R,
+}
+
+impl<R> PrefixedFrame<R> {
+    fn new(prefix: Vec<u8>, inner: R) -> Self {
+        Self { prefix, pos: 0, inner }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for PrefixedFrame<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if this.pos < this.prefix.len() {
+            // 只回前缀字节，立即 Ready（read_exact 的 buf 必有剩余容量）
+            let n = (this.prefix.len() - this.pos).min(buf.remaining());
+            buf.put_slice(&this.prefix[this.pos..this.pos + n]);
+            this.pos += n;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
 /// 配对流上回一帧 PairReject（尽力而为，失败即对端已断开）。
 async fn reply_reject(send: &mut SendStream, reason: PairRejectReason) {
     let mut writer = FrameWriter::new(send);
@@ -1955,7 +2046,7 @@ mod tests {
         let session_node = node.clone();
         let session = tokio::spawn(async move {
             session_registry
-                .run_session(session_node, read_half, write_half, dead_rx)
+                .run_session(None, session_node, read_half, write_half, dead_rx)
                 .await
         });
         let mut polls = 0;
@@ -2026,9 +2117,9 @@ mod tests {
         task.abort();
     }
 
-    /// 持久断开（Fix 2）：disconnect() 后入站门关闭，重新配对/撤销/删除解除。
-    /// 真实入站连接的拒绝行为由 handle_inbound 的同一道门（inbound_allowed）
-    /// 保证，Task 9 的双端集成测试覆盖。
+    /// 持久断开（Fix 2）：disconnect() 后会话准入门关闭，重新配对/撤销/删除解除。
+    /// 真实入站连接的拒绝由 handle_inbound 的首帧路由 + run_session 登记前复验
+    ///（A1）的同一道门（session_admission_denied）保证，Task 9 的双端集成测试覆盖。
     #[tokio::test]
     async fn disconnect_blocks_inbound_until_repair() {
         let (registry, _sink) = test_registry().await;
@@ -2038,11 +2129,15 @@ mod tests {
             .store
             .upsert_paired_device(&node, "MBP", None, &[])
             .unwrap();
-        assert!(registry.inbound_allowed(&node), "已配对未断开：允许入站会话");
+        assert!(
+            registry.session_admission_denied(&node).is_none(),
+            "已配对未断开：允许入站会话"
+        );
 
         registry.disconnect(&node);
-        assert!(
-            !registry.inbound_allowed(&node),
+        assert_eq!(
+            registry.session_admission_denied(&node),
+            Some(&b"disconnected"[..]),
             "显式断开后：已配对也静默拒绝入站会话"
         );
         assert!(registry.inner.disconnected.lock().unwrap().contains(&node));
@@ -2051,12 +2146,151 @@ mod tests {
 
         // 重新配对成功（join/accept 路径的清除点）→ 恢复
         registry.clear_disconnected(&node);
-        assert!(registry.inbound_allowed(&node), "重新配对后恢复入站");
+        assert!(
+            registry.session_admission_denied(&node).is_none(),
+            "重新配对后恢复入站"
+        );
 
         // 撤销/删除也清标记（tidiness：撤销行本身即拒绝入站）
         registry.disconnect(&node);
         registry.revoke(&node);
         assert!(!registry.inner.disconnected.lock().unwrap().contains(&node));
+        assert_eq!(
+            registry.session_admission_denied(&node),
+            Some(&b"revoked"[..]),
+            "撤销后按 revoked 拒绝"
+        );
+    }
+
+    /// A1（TOCTOU）：撤销在「入站门检查之后、run_session 登记之前」落地的竞态
+    /// 窗口——登记临界区内复验必须拦下：无登记、无 Connected 状态/事件。
+    /// 复现方式：直接对 store 撤销（绕过 kill_link），再驱动 run_session。
+    #[tokio::test]
+    async fn run_session_aborts_registration_when_revoked_before_link() {
+        let (registry, sink) = test_registry().await;
+        let node = hex32(7);
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "MBP", None, &[])
+            .unwrap();
+        // 模拟 revoke 的 store 写入在连接放行后、登记前落地（kill_link 无条目可杀）
+        registry.inner.store.revoke_device(&node).unwrap();
+
+        let (client, server) = tokio::io::duplex(4096);
+        let (read_half, write_half) = tokio::io::split(server);
+        let (_dead_tx, dead_rx) = oneshot::channel();
+        let gen = registry
+            .clone()
+            .run_session(None, node.clone(), read_half, write_half, dead_rx)
+            .await;
+
+        // 无幽灵登记：撤销设备不得顶着 Connected 会话继续收推送
+        assert!(
+            registry.inner.links.lock().unwrap().get(&node).is_none(),
+            "撤销后 run_session 不得登记条目"
+        );
+        // 无 Connected 状态事件（也无所谓 Offline——从未在线）
+        assert!(
+            find_events(&sink, EVENT_DEVICE_STATUS_CHANGED).is_empty(),
+            "被拒会话不得发任何状态事件：{:?}",
+            find_events(&sink, EVENT_DEVICE_STATUS_CHANGED)
+        );
+        // store 行仍在（撤销 ≠ 删除），设备列表恒 Offline
+        let infos = registry.device_infos();
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].online, DeviceOnline::Offline);
+        assert!(infos[0].device.revoked_at.is_some());
+        // 返回的 gen 从未登记：后续按 gen 的状态写必然 no-op（防御性确认）
+        registry.set_status_if_owner(&node, gen, DeviceOnline::Offline);
+        assert!(
+            registry.inner.links.lock().unwrap().get(&node).is_none(),
+            "按未登记 gen 的状态写不得凭空创建条目"
+        );
+        drop(client);
+    }
+
+    /// A1（TOCTOU）的 disconnect 分支：显式断开标记落在登记之前 → 同样拒绝，
+    /// 关闭原因区分 revoked / disconnected（conn=None 时靠流 drop，行为一致）。
+    #[tokio::test]
+    async fn run_session_aborts_registration_when_disconnected_before_link() {
+        let (registry, sink) = test_registry().await;
+        let node = hex32(8);
+        registry
+            .inner
+            .store
+            .upsert_paired_device(&node, "MBP", None, &[])
+            .unwrap();
+        // 模拟 disconnect() 的标记写入在连接放行后、登记前落地（kill_link 已错过）
+        registry
+            .inner
+            .disconnected
+            .lock()
+            .unwrap()
+            .insert(node.clone());
+
+        let (client, server) = tokio::io::duplex(4096);
+        let (read_half, write_half) = tokio::io::split(server);
+        let (_dead_tx, dead_rx) = oneshot::channel();
+        registry
+            .clone()
+            .run_session(None, node.clone(), read_half, write_half, dead_rx)
+            .await;
+
+        assert!(
+            registry.inner.links.lock().unwrap().get(&node).is_none(),
+            "显式断开后 run_session 不得登记条目"
+        );
+        assert!(
+            find_events(&sink, EVENT_DEVICE_STATUS_CHANGED).is_empty(),
+            "被拒会话不得发任何状态事件"
+        );
+        // 行未撤销：设备列表仍可见但 Offline
+        assert_eq!(registry.device_infos().len(), 1);
+        assert_eq!(registry.device_infos()[0].online, DeviceOnline::Offline);
+        assert!(registry.device_infos()[0].device.revoked_at.is_none());
+        drop(client);
+    }
+
+    /// A2 回放适配器：路由层先从流中消费首帧，前缀（首帧线格式字节）+ 流的
+    /// 剩余字节拼接后，帧序列不丢不重（Ping 恰好一次 + ClipPush 完整一次）。
+    #[tokio::test]
+    async fn prefixed_frame_replays_first_frame_without_loss_or_duplication() {
+        use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt};
+
+        // 对端写两帧（Ping + 带 payload 的 ClipPush），路由层只消费第一帧
+        let (mut peer, mut inner) = duplex(8192);
+        let ping_wire = {
+            let header = br#"{"kind":"ping"}"#.to_vec();
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&header);
+            bytes
+        };
+        let mut expected = ping_wire.clone();
+        let clip_wire = {
+            let header = br#"{"kind":"clipPush","clip_type":"text","empty":false}"#.to_vec();
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(header.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&header);
+            bytes.extend_from_slice(&(5u32).to_le_bytes());
+            bytes.extend_from_slice(b"hello");
+            bytes
+        };
+        expected.extend_from_slice(&clip_wire);
+        peer.write_all(&ping_wire).await.unwrap();
+        peer.write_all(&clip_wire).await.unwrap();
+
+        // 路由层消费首帧（与 handle_inbound 的 read_message_with_raw 同路径）
+        let (msg, raw) = read_message_with_raw(&mut inner).await.expect("首帧可读");
+        assert!(matches!(msg, LanMessage::Ping), "首帧应为 Ping");
+        peer.shutdown().await.unwrap(); // 关对端写半：回放流最终读到 EOF
+
+        let mut replay = PrefixedFrame::new(raw, inner);
+        let mut got = Vec::new();
+        let n = replay.read_to_end(&mut got).await.unwrap();
+        assert_eq!(n, expected.len());
+        assert_eq!(got, expected, "前缀 + 流的剩余字节应原样拼接，不丢不重");
     }
 
     /// 撤销门 helper（F2）：只有「行存在且 revoked_at 非空」才拦；

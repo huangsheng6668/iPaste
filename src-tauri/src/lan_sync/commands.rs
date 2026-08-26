@@ -16,6 +16,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::clipboard::{clipboard_read_to_payload, read_current_clipboard};
 use crate::error::AppError;
+use crate::events::PairRequested;
 use crate::lan_sync::registry::{build_send_payload, DeviceLinkRegistry};
 use crate::lan_sync::ClipSource;
 use crate::models::{AppState, AutoPushSettings, AutoSyncMode, DeviceInfo};
@@ -110,6 +111,18 @@ pub(crate) fn pairing_respond(app: AppHandle, accept: bool) -> Result<(), AppErr
     app.device_registry()?
         .respond_pair(accept)
         .map_err(AppError::internal)
+}
+
+/// 当前待确认的配对请求（v0.9.2 B1）：pair-request 事件是 fire-and-forget，
+/// 设备管理窗重开时前端凭此恢复确认弹窗。无待确认请求返回 None；
+/// registry 未就绪（启动失败/尚未 manage）同样返回 None 而非报错——
+/// 「没有可恢复的弹窗」不是错误。
+#[tauri::command]
+pub(crate) fn pairing_pending(app: AppHandle) -> Result<Option<PairRequested>, AppError> {
+    match app.try_state::<Arc<DeviceLinkRegistry>>() {
+        Some(registry) => Ok(registry.inner().pending_pair_info()),
+        None => Ok(None),
+    }
 }
 
 // —— 定向发送 ——

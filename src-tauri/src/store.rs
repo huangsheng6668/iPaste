@@ -42,6 +42,11 @@ impl Store {
             .map_err(|error| error.to_string())?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|error| error.to_string())?;
+        // 多写方并发（v0.9.2 A3）：watcher 线程、N 个会话读任务与命令层各自
+        // 持有独立连接，WAL 下写锁竞争时默认立即报 SQLITE_BUSY——捕获/收包会
+        // 被整条丢弃。5s busy_timeout 让竞争方在 SQLite 内部排队重试。
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|error| error.to_string())?;
         Ok(conn)
     }
 

@@ -52,8 +52,8 @@ use crate::events::EVENT_SHORTCUT_OPENED;
 use crate::lan_sync::commands::{
     device_delete, device_disconnect, device_list, device_request_clip, device_revoke,
     device_send_category, device_send_clip, device_set_auto_sync, open_lan_sync,
-    pairing_cancel_invite, pairing_create_invite, pairing_join, pairing_respond,
-    sync_transport_settings_get, sync_transport_settings_set,
+    pairing_cancel_invite, pairing_create_invite, pairing_join, pairing_pending,
+    pairing_respond, sync_transport_settings_get, sync_transport_settings_set,
     sync_auto_push_settings_get, sync_auto_push_settings_set,
 };
 use crate::models::{AppendCopyState, AppState, MainWindowActivation};
@@ -250,6 +250,7 @@ pub fn run() {
             pairing_cancel_invite,
             pairing_join,
             pairing_respond,
+            pairing_pending,
             device_send_clip,
             device_send_category,
             device_request_clip,

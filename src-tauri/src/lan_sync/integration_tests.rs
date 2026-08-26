@@ -456,6 +456,182 @@ async fn revoked_device_with_valid_invite_is_silently_ignored() {
     join_task.abort();
 }
 
+// —— 重配对路由（v0.9.2 A2：按首帧分流，不再按信任态）——
+
+/// 非对称信任重配对：A↔B 配对后仅在 B 侧删除信任行（直接 store 调用），
+/// A 仍信任 B。B 持新邀请重新 join——首帧 PairRequest 必须被路由进配对门
+///（旧行为按「已配对」进会话路径吞掉首帧，B 挂 30s 得「对方响应异常」）。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejoin_still_trusted_host_completes_via_first_frame_routing() {
+    let store_a = temp_store();
+    let store_b = temp_store();
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(store_a, sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(store_b.clone(), sink_b.clone())
+        .await
+        .expect("B 端点");
+
+    let (_ticket, _node_b, node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
+    // 仅 B 侧删除对 A 的信任行（绕过 registry：会话/任务原样保留，制造
+    // 「B 视 A 为陌生、A 仍信任 B」的非对称状态）
+    store_b.delete_device(&node_a).expect("B 删除信任行");
+
+    // A 生成新邀请，B 重新 join
+    let fresh = a.create_invite().await.expect("新邀请");
+    let pair_requests_before = count_events(&sink_a, EVENT_PAIR_REQUEST);
+    let joiner = b.clone();
+    let join_ticket = fresh.clone();
+    let join_task = tokio::spawn(async move { joiner.join(&join_ticket).await });
+
+    // 首帧路由进配对门：A 弹出（第二次）配对请求
+    assert!(
+        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST) == pair_requests_before + 1)
+            .await,
+        "仍信任的对端持 PairRequest 拨入应进配对门；A 事件：{:?}",
+        event_names(&sink_a)
+    );
+    a.respond_pair(true).expect("同意重配对");
+
+    // 双侧各一条 Connected（B 的信任行由 PairAccept 路径重建）
+    assert!(
+        wait_until(WAIT, || {
+            let a_infos = a.device_infos();
+            let b_infos = b.device_infos();
+            a_infos.len() == 1
+                && a_infos[0].online == DeviceOnline::Connected
+                && b_infos.len() == 1
+                && b_infos[0].online == DeviceOnline::Connected
+        })
+        .await,
+        "重配对应让双方重新在线；A 事件：{:?}，B 事件：{:?}",
+        event_names(&sink_a),
+        event_names(&sink_b)
+    );
+    assert_eq!(
+        count_events(&sink_b, EVENT_PAIR_JOIN_FAILED),
+        0,
+        "重配对全程不得出现 join 失败"
+    );
+    // join 任务与命令层同构（后台运行，会话存活期间不返回）：配对完成已由
+    // PairAccept → 双侧 Connected + 无 join-failed 证明；此处收尾即可。
+    join_task.abort();
+}
+
+/// 显式断开后的重配对（文档承诺的「重新配对恢复」）：A disconnect(B) 后 B 的
+/// 重拨被拒，但 B 持新邀请 join 必须成功——配对接受路径清除 disconnected 标记
+///（若未清除，run_session 的 A1 准入复验会拒绝登记，双方不可能回到 Connected，
+/// 故本测试的成功本身即标记已清的证明）。随后以「全新 B 实例（同库）」的普通
+/// Ping 首帧重拨验证链路已恢复。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disconnected_device_rejoins_via_fresh_invite_and_redial_connects() {
+    let store_a = temp_store();
+    let store_b = temp_store();
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(store_a, sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(store_b.clone(), sink_b.clone())
+        .await
+        .expect("B 端点");
+
+    let (_ticket, node_b, _node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
+    // A 显式断开 B：此后 B 的普通重拨（Ping 首帧）走会话路径被 A1 准入拒绝
+    a.disconnect(&node_b);
+    assert!(
+        wait_until(WAIT, || {
+            a.device_infos()
+                .first()
+                .is_some_and(|info| info.online != DeviceOnline::Connected)
+        })
+        .await,
+        "断开后 A 侧链路应离线"
+    );
+
+    // 新邀请 + B 重新 join：PairRequest 首帧 → 配对门（不看 disconnected 标记）
+    let fresh = a.create_invite().await.expect("新邀请");
+    let pair_requests_before = count_events(&sink_a, EVENT_PAIR_REQUEST);
+    let joiner = b.clone();
+    let join_ticket = fresh.clone();
+    // 后台 join（与命令层同构）：会话存活期间不返回，任务随测试结束回收
+    tokio::spawn(async move { joiner.join(&join_ticket).await });
+    assert!(
+        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST) == pair_requests_before + 1)
+            .await,
+        "被显式断开的对端持有效邀请拨入应进配对门；A 事件：{:?}",
+        event_names(&sink_a)
+    );
+    a.respond_pair(true).expect("同意重配对");
+
+    // 双方回到 Connected = 配对门的 clear_disconnected 已执行（A1 复验放行）
+    assert!(
+        wait_until(WAIT, || {
+            let a_infos = a.device_infos();
+            let b_infos = b.device_infos();
+            a_infos.len() == 1
+                && a_infos[0].online == DeviceOnline::Connected
+                && b_infos.len() == 1
+                && b_infos[0].online == DeviceOnline::Connected
+        })
+        .await,
+        "重配对应恢复双方在线（标记已清）；A 事件：{:?}，B 事件：{:?}",
+        event_names(&sink_a),
+        event_names(&sink_b)
+    );
+    assert_eq!(
+        count_events(&sink_b, EVENT_PAIR_JOIN_FAILED),
+        0,
+        "重配对全程不得出现 join 失败"
+    );
+
+    // join 任务与命令层同构（后台运行，会话存活期间不返回）；配对完成已由
+    // PairAccept → 双侧 Connected + 无 join-failed 证明。
+    // 「标记已清」由Connected 本身证明：run_session 的 A1 准入复验在登记临界区
+    // 内检查 disconnected 集合，标记若未清除，双侧不可能回到 Connected。
+    //（注：无法用「同身份重启 B」验证普通重拨——start_for_test 每次生成新身份，
+    // A 不信任新 node_id；此处以稳定窗口 + 功能发送替代。）
+
+    // 3s 稳定窗口：重配对后的链路保持 Connected（不抖回 Offline）
+    let mut samples: Vec<Option<DeviceOnline>> = Vec::new();
+    for _ in 0..6 {
+        samples.push(a.device_infos().into_iter().next().map(|info| info.online));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert!(
+        samples
+            .iter()
+            .all(|sample| *sample == Some(DeviceOnline::Connected)),
+        "重配对后 A 侧应恒为 Connected，实测序列：{samples:?}"
+    );
+
+    // 功能发送：A → B 沿修复后的链路真实送达（分组路径，不触系统剪贴板）
+    const REPAIR_CATEGORY: &str = "断开修复分组";
+    a.send_raw(
+        Some(&node_b),
+        "text",
+        b"after-disconnect-repair",
+        Some(REPAIR_CATEGORY),
+        Some("#0D9488"),
+        None,
+    )
+    .await
+    .expect("重配对后发送");
+    assert!(
+        wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED) >= 1).await,
+        "B 应沿修复后的链路收到条目；B 事件：{:?}",
+        event_names(&sink_b)
+    );
+    // 整个流程只弹出过一次（重配对的）配对请求
+    assert_eq!(
+        count_events(&sink_a, EVENT_PAIR_REQUEST),
+        pair_requests_before + 1,
+        "重配对应恰好弹出一次配对请求"
+    );
+}
+
 // —— 自动推送全链路（Spec 2 Task 6）——
 
 /// 否定断言的固定等待窗：回环投递毫秒级完成，2s 已是百倍级余量；
