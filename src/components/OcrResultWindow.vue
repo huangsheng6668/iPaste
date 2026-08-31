@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import { isTauri } from "../lib/env";
 import {
   OCR_LANGUAGE_OPTIONS,
   loadOcrLanguage,
@@ -101,6 +102,15 @@ async function closeWindow() {
   }
 }
 
+// 无边框窗口无系统标题栏：按住标题区（图标/标题/空白）左键拖动移动窗口，
+// 交互控件（识别档位/语言/关闭）阻止冒泡以免触发原生拖动吞掉点击
+async function startWindowDrag(event: MouseEvent) {
+  if (!isTauri || event.button !== 0) return;
+
+  event.preventDefault();
+  await getCurrentWindow().startDragging();
+}
+
 async function copyText() {
   if (!canCopy.value) return;
   await ipasteApi.copyClip("text", text.value);
@@ -132,12 +142,18 @@ async function openImage() {
 
 <template>
   <div class="ocr-result">
-    <header class="ocr-result-header">
+    <header
+      class="ocr-result-header"
+      @mousedown="startWindowDrag"
+    >
       <ScanText class="size-4 text-[var(--accent)]" />
       <h1 class="ocr-result-title">
         {{ t("ocrScreenshot.title") }}
       </h1>
-      <div class="ocr-result-profiles">
+      <div
+        class="ocr-result-profiles"
+        @mousedown.stop
+      >
         <button
           type="button"
           class="ocr-profile-pill"
@@ -162,6 +178,7 @@ async function openImage() {
         :value="selectedOcrLanguage"
         :disabled="status === 'loading'"
         :aria-label="t('ocr.languageLabel')"
+        @mousedown.stop
         @change="selectLanguage"
       >
         <option
@@ -176,6 +193,7 @@ async function openImage() {
         type="button"
         class="ocr-result-close"
         :aria-label="t('topBar.closePanel')"
+        @mousedown.stop
         @click="closeWindow"
       >
         <X class="size-4" />
