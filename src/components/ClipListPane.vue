@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type CSSProperties } from "vue";
+import { type CSSProperties, type ComponentPublicInstance } from "vue";
 import { Inbox, Zap } from "lucide-vue-next";
 import ClipCard from "./ClipCard.vue";
 import AutomationCard from "./AutomationCard.vue";
@@ -8,7 +8,9 @@ import { contextItemKey } from "../lib/clipKeys";
 import { categoryDisplayName } from "../lib/format";
 import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "../types";
 
-defineProps<{
+const { listRef } = defineProps<{
+  // 根节点 .raycast-left-pane 是滚动容器；父组件经此拿到 DOM 以做触底加载与选中滚动
+  listRef: (el: HTMLElement | null) => void;
   items: ClipViewItem[];
   selectedIndex: number;
   selectedCategoryId: string;
@@ -31,6 +33,7 @@ const emit = defineEmits<{
   select: [index: number];
   apply: [item: ClipViewItem];
   expand: [item: ClipViewItem];
+  scroll: [event: Event];
   openContextMenu: [payload: { item: ClipViewItem; index: number; x: number; y: number }];
   updateEditingName: [value: string];
   commitRename: [item: ClipViewItem];
@@ -47,10 +50,18 @@ const emit = defineEmits<{
   openActionContextMenu: [payload: { action: AutomationAction; x: number; y: number }];
   createAction: [];
 }>();
+
+function forwardListRef(el: Element | ComponentPublicInstance | null) {
+  listRef(el instanceof HTMLElement ? el : null);
+}
 </script>
 
 <template>
-  <div class="raycast-left-pane">
+  <div
+    :ref="forwardListRef"
+    class="raycast-left-pane"
+    @scroll="emit('scroll', $event)"
+  >
     <!-- Automations list if automation category selected -->
     <template v-if="selectedCategoryId === 'automation'">
       <div

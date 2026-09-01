@@ -128,6 +128,23 @@ const mockClips: ClipItem[] = [
   },
 ];
 
+// 凑足两页以上，便于浏览器（无 Tauri）环境下开发调试触底分页加载。
+for (let index = 0; index < 26; index += 1) {
+  const text = `Mock clipboard entry #${index + 1}`;
+  mockClips.push({
+    id: `mock-generated-${index}`,
+    clipType: "text",
+    contentHash: `mock-generated-${index}`,
+    displayName: null,
+    previewText: text,
+    text,
+    sourceApp: "Mock",
+    lastCapturedAt: new Date(Date.now() - (1_200_000 + index * 60_000)).toISOString(),
+    favoriteCount: 0,
+    isPinned: false,
+  });
+}
+
 const mockCategoryItems: CategoryItem[] = [
   {
     id: "saved-text",
@@ -147,8 +164,8 @@ const mockCategoryItems: CategoryItem[] = [
 ];
 
 const mockSnapshot: AppSnapshot = {
-  clips: mockClips,
-  hasMoreClips: false,
+  clips: mockClips.slice(0, 20),
+  hasMoreClips: mockClips.length > 20,
   clipTotalCount: mockClips.length,
   categories: mockCategories,
   categoryItems: mockCategoryItems,

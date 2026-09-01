@@ -154,11 +154,17 @@ const { handleKeydown, handleKeyup } = panelKeyboard;
 
 const {
   clipListElement,
+  handleClipListScroll,
   showClipListScrollbar,
   resetClipListScroll,
   setupWatches,
   cleanup: cleanupClipListScroll,
 } = useClipListScroll({ store });
+
+// ClipListPane 的根节点才是滚动容器，函数 ref 经 prop 转发拿到它。
+function setClipListElement(el: unknown) {
+  clipListElement.value = el instanceof HTMLElement ? el : null;
+}
 
 const itemDrag = useDragSort<ClipViewItem>({
   canStart: ({ item, event }) =>
@@ -546,6 +552,7 @@ async function focusEditingClipName() {
     <div class="raycast-main-split">
       <!-- Left Pane: Mini Cards Stream -->
       <ClipListPane
+        :list-ref="setClipListElement"
         :items="store.visibleItems"
         :selected-index="store.selectedCategoryId === 'automation' ? store.selectedActionIndex : store.selectedIndex"
         :selected-category-id="store.selectedCategoryId"
@@ -562,6 +569,7 @@ async function focusEditingClipName() {
         :item-category-tags="itemCategoryTags"
         :item-drag-style="itemDragStyle"
         :to-category-clip-view-item="toCategoryClipViewItem"
+        @scroll="handleClipListScroll"
         @select="selectClipCard"
         @apply="store.applyItem"
         @expand="openClipViewer"
