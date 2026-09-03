@@ -1,5 +1,5 @@
 import type { ClipType } from "../types";
-import { currentLocale, t } from "../i18n";
+import { currentLocale, t, type I18nKey } from "../i18n";
 
 export function formatShortcut(shortcut: string) {
   return shortcut
@@ -59,6 +59,15 @@ export function imageStats(previewText: string) {
 
 export function clipMetricText(type: ClipType, text: string, previewText: string) {
   return type === "image" ? imageStats(previewText) : textStats(text);
+}
+
+export function pluralText(keyOne: I18nKey, keyOther: I18nKey, value: number) {
+  const category = new Intl.PluralRules(currentLocale.value).select(value);
+  return t(category === "one" ? keyOne : keyOther, { value });
+}
+
+export function lineCountText(lines: number) {
+  return pluralText("stats.lineOne", "stats.lineOther", lines);
 }
 
 function countCharacters(text: string) {

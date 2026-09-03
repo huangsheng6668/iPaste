@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { CheckCircle2, Cloud, HardDrive, Unplug } from "lucide-vue-next";
 import { t } from "../../i18n";
+import { pluralText } from "../../lib/format";
 import { useIpasteStore } from "../../stores/ipasteStore";
 import { useCloudSync } from "../../composables/useCloudSync";
 
@@ -47,7 +48,9 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
               {{ t("settings.storage.title") }}
             </h2>
             <p class="mt-1 text-sm text-[var(--text-2)] tabular-nums">
-              {{ totalItems }} items stored · {{ categoryCount }} categories
+              {{ pluralText("settings.storage.summaryItemsOne", "settings.storage.summaryItemsOther", totalItems) }}
+              ·
+              {{ pluralText("settings.storage.summaryCategoriesOne", "settings.storage.summaryCategoriesOther", categoryCount) }}
             </p>
           </div>
         </div>
@@ -57,17 +60,17 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
             <div
               class="storage-breakdown-segment"
               :style="{ width: `${textPercent}%`, backgroundColor: 'var(--accent)' }"
-              :title="`Text & Snippets: ${textCount}`"
+              :title="t('settings.storage.legendText', { value: textCount })"
             />
             <div
               class="storage-breakdown-segment"
               :style="{ width: `${imagePercent}%`, backgroundColor: 'var(--info)' }"
-              :title="`Images: ${imageCount}`"
+              :title="t('settings.storage.legendImages', { value: imageCount })"
             />
             <div
               class="storage-breakdown-segment"
               :style="{ width: `${categoryPercent}%`, backgroundColor: 'var(--warning)' }"
-              :title="`Categories: ${categoryCount}`"
+              :title="t('settings.storage.legendCategories', { value: categoryCount })"
             />
           </div>
 
@@ -77,21 +80,21 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
                 class="storage-legend-dot"
                 :style="{ backgroundColor: 'var(--accent)' }"
               />
-              <span>Text / Code ({{ textCount }})</span>
+              <span>{{ t("settings.storage.legendText", { value: textCount }) }}</span>
             </div>
             <div class="storage-legend-item">
               <span
                 class="storage-legend-dot"
                 :style="{ backgroundColor: 'var(--info)' }"
               />
-              <span>Images ({{ imageCount }})</span>
+              <span>{{ t("settings.storage.legendImages", { value: imageCount }) }}</span>
             </div>
             <div class="storage-legend-item">
               <span
                 class="storage-legend-dot"
                 :style="{ backgroundColor: 'var(--warning)' }"
               />
-              <span>Categories ({{ categoryCount }})</span>
+              <span>{{ t("settings.storage.legendCategories", { value: categoryCount }) }}</span>
             </div>
           </div>
         </div>

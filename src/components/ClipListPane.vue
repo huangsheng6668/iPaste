@@ -188,10 +188,10 @@ function forwardListRef(el: Element | ComponentPublicInstance | null) {
         <Inbox class="size-6 text-[var(--text-3)]" />
       </div>
       <h2 class="text-sm font-medium text-[var(--text-1)]">
-        {{ t("empty.title") }}
+        {{ selectedCategoryId === "history" ? t("empty.title") : t("empty.categoryTitle") }}
       </h2>
       <p class="text-xs text-[var(--text-3)]">
-        {{ t("empty.description") }}
+        {{ selectedCategoryId === "history" ? t("empty.description") : t("empty.categoryDescription") }}
       </p>
     </div>
   </div>

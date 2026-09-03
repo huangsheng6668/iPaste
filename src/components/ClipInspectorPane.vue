@@ -19,7 +19,7 @@ import {
 import AutomationDetailPane from "./AutomationDetailPane.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { t } from "../i18n";
-import { clipMetricText, formatTime, typeLabel } from "../lib/format";
+import { clipMetricText, formatTime, lineCountText, textStats, typeLabel } from "../lib/format";
 import type { AutomationAction, ClipViewItem } from "../types";
 
 const props = defineProps<{
@@ -50,7 +50,6 @@ const isCode = computed(() => {
 const imageSrc = computed(() => (props.item ? clipImageSrc(props.item) : ""));
 const colorValue = computed(() => (props.item ? props.item.text.trim() : ""));
 const lines = computed(() => props.item?.text.split(/\r?\n/).length ?? 0);
-const charCount = computed(() => props.item?.text.length ?? 0);
 
 const colorFormats = computed(() => {
   if (!isColor.value || !colorValue.value) return [];
@@ -241,7 +240,7 @@ const linkHostname = computed(() => {
           <div class="absolute bottom-2.5 right-2.5 flex items-center gap-1.5">
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
+              class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
               :aria-label="t('clip.recognizeText')"
               :data-tooltip="t('clip.recognizeText')"
               @click="emit('ocr', item)"
@@ -251,7 +250,7 @@ const linkHostname = computed(() => {
             </button>
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
+              class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
               @click="emit('expand', item)"
             >
               <Eye class="size-3.5" />
@@ -330,8 +329,8 @@ const linkHostname = computed(() => {
           class="clip-inspector-content-box"
         >
           <div class="clip-inspector-code-header tabular-nums">
-            <span>{{ isCode ? "Code Snippet" : "Plain Text" }}</span>
-            <span>{{ charCount }} chars / {{ lines }} lines</span>
+            <span>{{ isCode ? t("detail.codeSnippet") : t("detail.plainText") }}</span>
+            <span>{{ item ? textStats(item.text) : "" }} · {{ lineCountText(lines) }}</span>
           </div>
           <pre class="clip-inspector-code-content">{{ item.text }}</pre>
         </div>
@@ -348,11 +347,11 @@ const linkHostname = computed(() => {
             class="clip-inspector-meta-item"
           >
             <span class="clip-inspector-meta-label">{{ t("common.lines") }}</span>
-            <span class="clip-inspector-meta-val">{{ charCount }} chars / {{ lines }} lines</span>
+            <span class="clip-inspector-meta-val">{{ lineCountText(lines) }}</span>
           </div>
 
           <div class="clip-inspector-meta-item col-span-2">
-            <span class="clip-inspector-meta-label">{{ t("detail.title") }}</span>
+            <span class="clip-inspector-meta-label">{{ t("detail.copiedAt") }}</span>
             <span class="clip-inspector-meta-val">{{ formatTime(displayTime) }}</span>
           </div>
         </div>

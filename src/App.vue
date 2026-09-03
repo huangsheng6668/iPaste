@@ -444,6 +444,14 @@ function closeFloatingLayers() {
   quickPreview.resetQuickPreviewState();
 }
 
+// 输入框保留原生右键（剪切/复制/粘贴），空白区域屏蔽 WebView 默认菜单
+function suppressDefaultContextMenu(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("input, textarea, [contenteditable='true']")) return;
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+}
+
 function handleVisibilityChange() {
   if (document.hidden) {
     closeFloatingLayers();
@@ -497,6 +505,7 @@ async function focusEditingClipName() {
     class="raycast-container"
     :class="{ 'app-shell-preserve-current-app': isPreservingCurrentApp }"
     @click="closeFloatingLayers"
+    @contextmenu="suppressDefaultContextMenu"
   >
     <!-- Top Command Search & Category Pill Tabs -->
     <CommandSearchBar
