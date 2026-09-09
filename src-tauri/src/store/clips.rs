@@ -329,11 +329,25 @@ impl Store {
         Ok(dir)
     }
 
-    pub(crate) fn delete_clip(&self, id: String) -> Result<(), String> {
-        let conn = self.connect()?;
-        conn.execute("DELETE FROM clips WHERE id = ?1", params![id])
+    /// 删除记录并返回其 content_hash（None = 记录不存在）。
+    /// 命令层据此判断被删内容是否正是系统剪贴板当前内容，以联动清空。
+    pub(crate) fn delete_clip_returning_hash(&self, id: String) -> Result<Option<String>, String> {
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        let hash = tx
+            .query_row(
+                "SELECT content_hash FROM clips WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
             .map_err(|error| error.to_string())?;
-        Ok(())
+        if hash.is_some() {
+            tx.execute("DELETE FROM clips WHERE id = ?1", params![id])
+                .map_err(|error| error.to_string())?;
+        }
+        tx.commit().map_err(|error| error.to_string())?;
+        Ok(hash)
     }
 
     pub(crate) fn clear_clips(&self) -> Result<usize, String> {
@@ -538,6 +552,22 @@ mod tests {
     use crate::util::hash_text;
     use rusqlite::params;
     use std::time::Instant;
+
+    #[test]
+    fn delete_clip_returns_content_hash_of_deleted_row() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello", "hello world");
+        let id: String = conn
+            .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+
+        let hash = store.delete_clip_returning_hash(id.clone()).unwrap();
+        assert_eq!(hash.as_deref(), Some(hash_text("hello world").as_str()));
+
+        let gone = store.delete_clip_returning_hash(id).unwrap();
+        assert_eq!(gone, None, "记录不存在时应返回 None 而非报错");
+    }
 
     #[test]
     fn touch_clip_captured_updates_timestamp() {

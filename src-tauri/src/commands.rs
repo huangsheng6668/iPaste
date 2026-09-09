@@ -7,7 +7,9 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::error::AppError;
 use crate::{cloud::test_cloud_connection, CLIP_PAGE_SIZE};
-use crate::clipboard::{record_inserted_capture, write_clipboard_and_mark};
+use crate::clipboard::{
+    clear_system_clipboard_after_delete, record_inserted_capture, write_clipboard_and_mark,
+};
 use crate::events::{EVENT_LISTENING_CHANGED, ListeningChanged};
 use crate::models::{
     AppInfo, AppSettings, AppSnapshot, AppState, AutomationAction, AutomationInput,
@@ -162,13 +164,31 @@ pub(crate) fn remove_category_item(state: tauri::State<'_, AppState>, id: String
 }
 
 #[tauri::command]
-pub(crate) fn delete_clip(state: tauri::State<'_, AppState>, id: String) -> Result<(), AppError> {
-    state.store.delete_clip(id).map_err(AppError::from)
+pub(crate) fn delete_clip(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), AppError> {
+    let deleted_hash = state
+        .store
+        .delete_clip_returning_hash(id)
+        .map_err(AppError::from)?;
+    if let Some(hash) = deleted_hash {
+        clear_system_clipboard_after_delete(&app, &state, Some(&hash));
+    }
+    Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn clear_clips(state: tauri::State<'_, AppState>) -> Result<usize, AppError> {
-    state.store.clear_clips().map_err(AppError::from)
+pub(crate) fn clear_clips(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, AppError> {
+    let deleted = state.store.clear_clips().map_err(AppError::from)?;
+    if deleted > 0 {
+        clear_system_clipboard_after_delete(&app, &state, None);
+    }
+    Ok(deleted)
 }
 
 #[tauri::command]

@@ -345,6 +345,64 @@ pub(crate) fn remember_current_clipboard_marker(
     }
 }
 
+/// 清空系统剪贴板后遗忘捕获 marker：两个状态归位 None，watcher 轮询到
+/// 空剪贴板不会误当新捕获，后续新复制内容也不会被旧 marker 去重掉。
+fn forget_current_clipboard_marker(
+    last_clipboard_change_id: &Arc<Mutex<Option<u64>>>,
+    last_clipboard_hash: &Arc<Mutex<Option<String>>>,
+) {
+    if let Ok(mut last) = last_clipboard_change_id.lock() {
+        *last = None;
+    }
+    if let Ok(mut last) = last_clipboard_hash.lock() {
+        *last = None;
+    }
+}
+
+/// 删除记录后是否应联动清空系统剪贴板。
+///
+/// - `Some(hash)`（删除单条）：仅当被删 content_hash 与系统剪贴板当前内容
+///   （最近捕获/写入 marker）一致时清空，删除旧记录不影响当前剪贴板。
+/// - `None`（清空全部记录）：当前剪贴板内容必然在被删记录中，但应用必须
+///   确实追踪到当前内容（marker 有值）；从未捕获过（如暂停监听期间复制）
+///   的内容不属于任何被删记录，不清空。
+fn should_clear_system_clipboard(deleted_hash: Option<&str>, current_hash: Option<&str>) -> bool {
+    match deleted_hash {
+        Some(deleted) => current_hash == Some(deleted),
+        None => current_hash.is_some(),
+    }
+}
+
+/// 删除剪贴板记录后的系统剪贴板联动：判定成立则清空系统剪贴板并遗忘
+/// marker。清空失败不打断删除流程（记录已删），走捕获错误通道留排障信号。
+pub(crate) fn clear_system_clipboard_after_delete(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    deleted_hash: Option<&str>,
+) {
+    let current_hash = state
+        .last_clipboard_hash
+        .lock()
+        .map(|last| last.clone())
+        .unwrap_or(None);
+    if !should_clear_system_clipboard(deleted_hash, current_hash.as_deref()) {
+        return;
+    }
+
+    let clear_result = Clipboard::new()
+        .and_then(|mut clipboard| clipboard.clear())
+        .map_err(|error| error.to_string());
+    match clear_result {
+        Ok(()) => forget_current_clipboard_marker(
+            &state.last_clipboard_change_id,
+            &state.last_clipboard_hash,
+        ),
+        Err(error) => {
+            let _ = app.emit(EVENT_CAPTURE_ERROR, error);
+        }
+    }
+}
+
 /// 写剪贴板并记录捕获 marker，返回待入库的捕获条目。
 /// copy_clip 与 apply_clip 共用的前半段编排（原两处重复序列）。
 pub(crate) fn write_clipboard_and_mark(
@@ -578,6 +636,38 @@ mod tests {
         // macOS 上文本剪贴板调 get_image 会返回 ConversionFailure 而非 ContentNotAvailable；
         // 必须把它当 fallback 信号，否则 watcher 会向用户抛英文错误。
         assert!(format_not_available(&ClipboardError::ConversionFailure));
+    }
+
+    #[test]
+    fn should_clear_matches_deleted_hash_against_current_marker() {
+        let hash = hash_text("hello");
+        // 删除单条：仅当被删 content_hash 与系统剪贴板当前内容一致时清空
+        assert!(should_clear_system_clipboard(Some(&hash), Some(&hash)));
+        assert!(!should_clear_system_clipboard(Some("other"), Some(&hash)));
+        // 系统剪贴板状态未知（未捕获过）时不误清
+        assert!(!should_clear_system_clipboard(Some(&hash), None));
+    }
+
+    #[test]
+    fn should_clear_clear_all_semantics_require_known_current_marker() {
+        // 清空全部记录（None）：当前系统剪贴板内容必然在被删记录中，
+        // 但仅在应用确实追踪到当前内容（marker 有值）时才清空
+        assert!(should_clear_system_clipboard(
+            None,
+            Some(hash_text("any").as_str())
+        ));
+        assert!(!should_clear_system_clipboard(None, None));
+    }
+
+    #[test]
+    fn forget_marker_resets_both_tracking_states() {
+        let last_change_id = Arc::new(Mutex::new(Some(42u64)));
+        let last_hash = Arc::new(Mutex::new(Some(hash_text("hello"))));
+
+        forget_current_clipboard_marker(&last_change_id, &last_hash);
+
+        assert_eq!(*last_change_id.lock().unwrap(), None);
+        assert_eq!(*last_hash.lock().unwrap(), None);
     }
 
     fn encode_png(width: u32, height: u32) -> Vec<u8> {
