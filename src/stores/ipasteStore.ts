@@ -280,8 +280,29 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (hadClip) {
       clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
       visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
+      await backfillClips();
     }
     clampSelection();
+  }
+
+  /**
+   * 删除补位：已加载窗口少了条目且服务端还有下一页时，按缺口从下一页顶部取回，
+   * 保持窗口条数不减。否则连续删除后窗口可能缩到 0，而剩余历史只能靠触底滚动
+   * 加载——空列表无法触发滚动，后续记录就再也看不到了。
+   */
+  async function backfillClips() {
+    if (fallbackGroups.value.length > 0 || !hasMoreClips.value) return;
+
+    try {
+      const page = await ipasteApi.listClips(clips.value.length, 1, search.value);
+      const existingIds = new Set(clips.value.map((clip) => clip.id));
+      clips.value = [...clips.value, ...page.clips.filter((clip) => !existingIds.has(clip.id))];
+      hasMoreClips.value = page.hasMore;
+      visibleHistoryTotalCount.value = page.totalCount;
+      clipTotalCount.value = page.allCount;
+    } catch (unknownError) {
+      error.value = errorMessage(unknownError);
+    }
   }
 
   async function clearHistory() {

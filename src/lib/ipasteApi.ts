@@ -361,6 +361,10 @@ export const ipasteApi = {
     return call<void>("remove_category_item", { id });
   },
   deleteClip(id: string) {
+    if (!isTauri) {
+      const index = mockClips.findIndex((item) => item.id === id);
+      if (index >= 0) mockClips.splice(index, 1);
+    }
     return call<void>("delete_clip", { id });
   },
   clearClips() {
