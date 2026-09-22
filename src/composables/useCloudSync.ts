@@ -5,8 +5,8 @@ import { useIpasteStore } from "../stores/ipasteStore";
 
 export function useCloudSync() {
   const store = useIpasteStore();
-  const cloudApiAddress = ref("");
-  const cloudApiKey = ref("");
+  const cloudApiAddress = ref(store.cloud.apiAddress);
+  const cloudApiKey = ref(store.cloud.apiKey);
   const cloudMessage = ref<string | null>(null);
   const cloudError = ref<string | null>(null);
   const isTestingCloud = ref(false);
@@ -16,16 +16,20 @@ export function useCloudSync() {
     return store.cloud.enabled ? t("settings.cloud.enabled") : t("settings.cloud.disabled");
   });
 
-  function resetCloudForm() {
+  function syncFormFromStore() {
     cloudApiAddress.value = store.cloud.apiAddress;
     cloudApiKey.value = store.cloud.apiKey;
+  }
+
+  function resetCloudForm() {
+    syncFormFromStore();
     cloudMessage.value = null;
     cloudError.value = null;
   }
 
   // store.load() 在父组件 onMounted 完成；watch 让表单跟随已加载的 store.cloud，
-  // 替代原先在 onMounted 里手动调用的 resetCloudForm()，规避子父挂载时序。
-  watch(() => store.cloud, () => resetCloudForm(), { deep: true });
+  // 加上 immediate: true 确保在子组件（tab）挂载在 store.load() 之后时也能立即读入已保存配置。
+  watch(() => store.cloud, () => syncFormFromStore(), { deep: true, immediate: true });
 
   async function testCloud() {
     cloudMessage.value = null;

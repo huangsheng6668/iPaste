@@ -8,10 +8,14 @@ import type { CloudOcrPromptMessage } from "../types";
 /** OpenAI 兼容接口（通用云 OCR）配置表单：Base URL + 模型 + API Key + 自定义 Prompt 列表。 */
 export function useOpenaiOcr() {
   const store = useIpasteStore();
-  const openaiBaseUrl = ref("");
-  const openaiModel = ref("");
-  const openaiApiKey = ref("");
-  const openaiPrompts = ref<CloudOcrPromptMessage[]>([]);
+  const openaiBaseUrl = ref(store.cloudOcr.openaiBaseUrl);
+  const openaiModel = ref(store.cloudOcr.openaiModel);
+  const openaiApiKey = ref(store.cloudOcr.openaiApiKey);
+  const openaiPrompts = ref<CloudOcrPromptMessage[]>(
+    store.cloudOcr.openaiPrompts && store.cloudOcr.openaiPrompts.length > 0
+      ? store.cloudOcr.openaiPrompts.map((item) => ({ ...item }))
+      : DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
+  );
   const isPromptsExpanded = ref(false);
   const openaiMessage = ref<string | null>(null);
   const openaiError = ref<string | null>(null);
@@ -26,7 +30,7 @@ export function useOpenaiOcr() {
     openaiConfigured.value ? t("settings.openai.configured") : t("settings.openai.notConfigured"),
   );
 
-  function resetOpenaiForm() {
+  function syncFormFromStore() {
     openaiBaseUrl.value = store.cloudOcr.openaiBaseUrl;
     openaiModel.value = store.cloudOcr.openaiModel;
     openaiApiKey.value = store.cloudOcr.openaiApiKey;
@@ -34,13 +38,17 @@ export function useOpenaiOcr() {
       store.cloudOcr.openaiPrompts && store.cloudOcr.openaiPrompts.length > 0
         ? store.cloudOcr.openaiPrompts.map((item) => ({ ...item }))
         : DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }));
+  }
+
+  function resetOpenaiForm() {
+    syncFormFromStore();
     openaiMessage.value = null;
     openaiError.value = null;
   }
 
-  // store.load() 在父组件 onMounted 完成；watch 让表单跟随已加载的 store.cloudOcr
-  // （与 useCloudSync 同法，规避子父挂载时序）。
-  watch(() => store.cloudOcr, () => resetOpenaiForm(), { deep: true });
+  // store.load() 在父组件 onMounted 完成；watch 让表单跟随已加载的 store.cloudOcr，
+  // 加上 immediate: true 确保在子组件（tab）挂载在 store.load() 之后时也能立即读入已保存配置。
+  watch(() => store.cloudOcr, () => syncFormFromStore(), { deep: true, immediate: true });
 
   const formComplete = computed(() =>
     Boolean(openaiBaseUrl.value.trim() && openaiModel.value.trim() && openaiApiKey.value.trim()),
