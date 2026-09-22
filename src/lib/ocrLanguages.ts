@@ -36,17 +36,14 @@ export function saveOcrLanguage(language: OcrLanguageId) {
   localStorage.setItem(OCR_LANGUAGE_STORAGE_KEY, language);
 }
 
-/** 引擎返回的语言串 → 本地化显示名；组合串（Paddle 自动/manga）与 BigModel
- * language_type 代码一并映射，未知串原样返回。 */
+/** 引擎返回的语言串 → 本地化显示名；组合串（Paddle 自动/manga）一并映射，
+ * 未知串原样返回。 */
 export function ocrLanguageLabel(value: string): string {
   const option = OCR_LANGUAGE_OPTIONS.find((option) => option.id === value);
   if (option) return t(option.labelKey);
   const compositeLabels: Record<string, string> = {
     "zh-Hans+en": t("ocr.language.mixedZhEn"),
     "ja+zh+en": t("ocr.language.mixedJaZhEn"),
-    CHN_ENG: t("ocr.language.mixedZhEn"),
-    ENG: t("ocr.language.en"),
-    JAP: t("ocr.language.ja"),
   };
   return compositeLabels[value] ?? value;
 }

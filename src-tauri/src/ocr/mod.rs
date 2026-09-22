@@ -1,7 +1,7 @@
 //! 图片 OCR：状态检测与调度（mod）+ Windows 资源安装器（installer）+
 //! Windows Paddle 识别管线（paddle）+
 //! macOS Vision 管线（vision）+ 跨平台行内分词（tokens）+
-//! BigModel 云 OCR 客户端（bigmodel）。
+//! 通用 OpenAI 兼容云 OCR 客户端（openai）。
 
 use tauri::Emitter;
 
@@ -26,8 +26,6 @@ pub(crate) mod vision;
 /// 行内分词纯逻辑：macOS Vision 与 Windows Paddle（paddle.rs）共用。
 pub(crate) mod tokens;
 
-/// BigModel 云 OCR（外部 API 引擎，跨平台）。
-pub(crate) mod bigmodel;
 /// 通用 OpenAI 兼容云 OCR（视觉模型识图，跨平台）。
 pub(crate) mod openai;
 
@@ -229,18 +227,6 @@ pub(crate) fn vision_language_locale(language: &str) -> Option<&'static str> {
     }
 }
 
-/// OCR 语言 id → BigModel language_type；auto/未知 → None（不传参数，服务端
-/// 自动检测）。漫画档位在云引擎下映射为日语识别（mocr 不参与云引擎路径）。
-fn bigmodel_language_code(language: Option<&str>, is_manga: bool) -> Option<&'static str> {
-    match language {
-        Some("zh-Hans") | Some("zh-Hant") => Some("CHN_ENG"),
-        Some("en") => Some("ENG"),
-        Some("ja") => Some("JAP"),
-        None if is_manga => Some("JAP"),
-        _ => None,
-    }
-}
-
 pub(crate) async fn recognize_image(
     app: tauri::AppHandle,
     image_path: String,
@@ -253,25 +239,16 @@ pub(crate) async fn recognize_image(
         .map(|p| p.eq_ignore_ascii_case("manga") || p.eq_ignore_ascii_case("japanese"))
         .unwrap_or(false);
 
-    // 云引擎分支：显式选择的引擎优先（manga 档位在云下映射为日语，不走本地 mocr）。
+    // 云引擎分支：显式选择的引擎优先（manga 档位映射为日语提示，不走本地 mocr）。
     // 设置读取失败时不落入该分支——沿用本地管线保证识别仍可用。
     if let Some(settings) = app
         .try_state::<crate::models::AppState>()
         .and_then(|state| state.store.settings().ok())
-        .filter(|settings| matches!(settings.ocr_engine.as_str(), "bigmodel" | "openai"))
+        .filter(|settings| settings.ocr_engine == "openai")
     {
-        let img_path = image_path.clone();
-        if settings.ocr_engine == "bigmodel" {
-            let language_code = bigmodel_language_code(language.as_deref(), is_manga);
-            let api_key = settings.cloud_ocr.bigmodel_api_key;
-            return tokio::task::spawn_blocking(move || {
-                bigmodel::recognize_image_bigmodel(&img_path, language_code, &api_key)
-            })
-            .await
-            .map_err(|error| error.to_string())?;
-        }
         let cloud = settings.cloud_ocr;
-        // openai：manga 档位且语言为空时按日语提示，与 bigmodel 的 JAP 映射对齐
+        let img_path = image_path.clone();
+        // manga 档位且语言为空时按日语提示
         let effective_language = if is_manga && language.is_none() {
             Some("ja".to_string())
         } else {
@@ -338,7 +315,7 @@ pub(crate) async fn recognize_image(
 
 #[cfg(test)]
 mod language_tests {
-    use super::{bigmodel_language_code, vision_language_locale};
+    use super::vision_language_locale;
 
     #[test]
     fn vision_language_locale_maps_supported_ids() {
@@ -348,17 +325,5 @@ mod language_tests {
         assert_eq!(vision_language_locale("ja"), Some("ja-JP"));
         assert_eq!(vision_language_locale("auto"), None);
         assert_eq!(vision_language_locale("korean"), None);
-    }
-
-    #[test]
-    fn bigmodel_language_code_maps_supported_ids() {
-        assert_eq!(bigmodel_language_code(Some("zh-Hans"), false), Some("CHN_ENG"));
-        assert_eq!(bigmodel_language_code(Some("zh-Hant"), false), Some("CHN_ENG"));
-        assert_eq!(bigmodel_language_code(Some("en"), false), Some("ENG"));
-        assert_eq!(bigmodel_language_code(Some("ja"), false), Some("JAP"));
-        // auto/未知 → None（服务端自动检测）；manga 且语言为空 → JAP
-        assert_eq!(bigmodel_language_code(None, false), None);
-        assert_eq!(bigmodel_language_code(None, true), Some("JAP"));
-        assert_eq!(bigmodel_language_code(Some("ja"), true), Some("JAP"));
     }
 }

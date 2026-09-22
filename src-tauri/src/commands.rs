@@ -381,40 +381,6 @@ pub(crate) fn update_ocr_engine(
 }
 
 #[tauri::command]
-pub(crate) fn update_bigmodel_api_key(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    api_key: String,
-) -> Result<AppSettings, AppError> {
-    let settings = state.store.update_bigmodel_api_key(api_key)?;
-    emit_settings_changed(&app, &settings);
-    Ok(settings)
-}
-
-#[tauri::command]
-pub(crate) fn clear_bigmodel_api_key(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<AppSettings, AppError> {
-    let settings = state.store.clear_bigmodel_api_key()?;
-    emit_settings_changed(&app, &settings);
-    Ok(settings)
-}
-
-/// 设置页「测试」按钮：用内存生成的小图实测一次 BigModel OCR，
-/// 验证 Key 有效性与服务连通性（与 test_cloud_settings 同定位）。
-#[tauri::command]
-pub(crate) async fn test_bigmodel_ocr(api_key: String) -> Result<bool, AppError> {
-    let api_key = clean_api_key(api_key)
-        .map_err(|_| "请输入 BigModel API Key".to_string())?;
-    tokio::task::spawn_blocking(move || crate::ocr::bigmodel::test_connection(&api_key))
-        .await
-        .map_err(|error| AppError::internal(error.to_string()))?
-        .map(|_| true)
-        .map_err(AppError::internal)
-}
-
-#[tauri::command]
 pub(crate) fn update_openai_ocr_config(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,

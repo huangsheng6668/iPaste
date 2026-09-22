@@ -39,7 +39,7 @@ enigo = "0.6.1"
 getrandom = "0.2"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "ico"] }
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
-reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls", "multipart"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 rusqlite = { version = "=0.32.1", features = ["bundled"] }
 sha2 = "0.10"
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "macos-private-api"] }

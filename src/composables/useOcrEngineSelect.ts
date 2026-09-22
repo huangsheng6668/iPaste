@@ -25,11 +25,6 @@ export function useOcrEngineSelect() {
   const ocrEngineOptions = computed<OcrEngineOption[]>(() => [
     { value: "local", label: t("settings.bigmodel.engineLocal"), ready: true },
     {
-      value: "bigmodel",
-      label: t("settings.bigmodel.engineCloud"),
-      ready: Boolean(store.cloudOcr.bigmodelApiKey),
-    },
-    {
       value: "openai",
       label: t("settings.openai.engineOpenai"),
       ready: Boolean(

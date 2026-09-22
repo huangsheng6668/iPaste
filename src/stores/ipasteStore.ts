@@ -87,7 +87,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const cloudOcr = ref<CloudOcrSettings>({
     openaiBaseUrl: "",
     openaiModel: "",
-    bigmodelApiKey: "",
     openaiApiKey: "",
   });
   let backgroundSyncTimer: number | null = null;
@@ -505,20 +504,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     }
   }
 
-  async function saveBigmodelApiKey(apiKey: string) {
-    const settings = await ipasteApi.updateBigmodelApiKey(apiKey);
-    applySettings(settings);
-  }
-
-  async function clearBigmodelApiKey() {
-    const settings = await ipasteApi.clearBigmodelApiKey();
-    applySettings(settings);
-  }
-
-  async function testBigmodelOcr(apiKey: string) {
-    return ipasteApi.testBigmodelOcr(apiKey);
-  }
-
   async function saveOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string) {
     const settings = await ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey);
     applySettings(settings);
@@ -792,9 +777,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     updatePanelLayout,
     updateOcrMode,
     updateOcrEngine,
-    saveBigmodelApiKey,
-    clearBigmodelApiKey,
-    testBigmodelOcr,
     saveOpenaiOcrConfig,
     clearOpenaiOcrConfig,
     testOpenaiOcr,

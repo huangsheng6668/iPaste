@@ -176,16 +176,15 @@ pub(crate) struct CloudSettings {
     pub(crate) last_connected_at: Option<String>,
 }
 
-/// 云 OCR 配置：智谱 BigModel 专用端点（仅 Key）+ 通用 OpenAI 兼容接口
-/// （Base URL + 模型 + Key）。两个 Key 分别存系统凭据库独立账户（settings 列
-/// 空串占位），仅在读取设置时回填给前端展示；Base URL 与模型名为普通 KV。
+/// 云 OCR 配置：通用 OpenAI 兼容接口（Base URL + 模型 + Key），任意兼容
+/// 厂商可接。Key 存系统凭据库（settings 列空串占位），仅在读取设置时回填
+/// 给前端展示；Base URL 与模型名为普通 KV。
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub(crate) struct CloudOcrSettings {
     pub(crate) openai_base_url: String,
     pub(crate) openai_model: String,
-    pub(crate) bigmodel_api_key: String,
     pub(crate) openai_api_key: String,
 }
 

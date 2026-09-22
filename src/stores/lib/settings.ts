@@ -24,5 +24,5 @@ export function cleanOcrMode(mode: unknown): OcrMode {
 }
 
 export function cleanOcrEngine(engine: unknown): OcrEngine {
-  return engine === "bigmodel" || engine === "openai" ? engine : DEFAULT_OCR_ENGINE;
+  return engine === "openai" ? "openai" : DEFAULT_OCR_ENGINE;
 }

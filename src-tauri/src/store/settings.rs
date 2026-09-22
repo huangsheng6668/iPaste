@@ -204,14 +204,13 @@ impl Store {
         self.settings_with_conn(&conn)
     }
 
-    /// 云 OCR 引擎当前是否可用（引擎已选且对应配置完整）。preflight 与调度
+    /// 云 OCR 引擎当前是否可用（引擎已选且配置完整）。preflight 与调度
     /// 分支共用；凭据库读失败按未配置处理（可用性优先）。
     pub(crate) fn cloud_ocr_engine_ready(&self) -> bool {
         let Ok(settings) = self.settings() else {
             return false;
         };
         match settings.ocr_engine.as_str() {
-            "bigmodel" => !settings.cloud_ocr.bigmodel_api_key.is_empty(),
             "openai" => {
                 !settings.cloud_ocr.openai_api_key.is_empty()
                     && !settings.cloud_ocr.openai_base_url.is_empty()
@@ -275,20 +274,21 @@ impl Store {
         })
     }
 
-    /// 云 OCR 配置读取：两个 Key 与云同步同法——settings 列只留空串占位，
-    /// 实际值从系统凭据库独立账户回填；Base URL 与模型名是普通 KV。
+    /// 云 OCR 配置读取：Key 与云同步同法——settings 列只留空串占位，
+    /// 实际值从系统凭据库回填；Base URL 与模型名是普通 KV。
     /// 凭据库读失败按未配置处理（不阻断整个设置读取），原因落 stderr 供排查。
+    /// 另外顺手清理已移除的智谱专用引擎（≤0.9.9）遗留的凭据与占位行。
     pub(super) fn cloud_ocr_settings_with_conn(
         &self,
         conn: &Connection,
     ) -> Result<CloudOcrSettings, String> {
-        let read_key = |get: fn() -> Result<Option<String>, String>, label: &str| {
-            match get() {
-                Ok(v) => v.unwrap_or_default(),
-                Err(reason) => {
-                    eprintln!("[cloud-ocr] 读取系统凭据库失败（{label}）：{reason}");
-                    String::new()
-                }
+        super::secrets::remove_legacy_bigmodel_api_key();
+        let _ = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", []);
+        let openai_api_key = match super::secrets::get_openai_ocr_api_key() {
+            Ok(v) => v.unwrap_or_default(),
+            Err(reason) => {
+                eprintln!("[cloud-ocr] 读取系统凭据库失败（openai）：{reason}");
+                String::new()
             }
         };
         Ok(CloudOcrSettings {
@@ -298,37 +298,8 @@ impl Store {
             openai_model: self
                 .setting_value_with_conn(conn, "openai_ocr_model")?
                 .unwrap_or_default(),
-            bigmodel_api_key: read_key(super::secrets::get_bigmodel_api_key, "bigmodel"),
-            openai_api_key: read_key(super::secrets::get_openai_ocr_api_key, "openai"),
+            openai_api_key,
         })
-    }
-
-    /// 保存 BigModel API Key：先写系统凭据库（失败硬报错，不落明文），再在
-    /// settings 表写空串占位（与云同步 update_cloud_settings 同一约定）。
-    pub(crate) fn update_bigmodel_api_key(&self, api_key: String) -> Result<AppSettings, String> {
-        let api_key = crate::util::clean_api_key(api_key)
-            .map_err(|_| "请输入 BigModel API Key".to_string())?;
-        super::secrets::put_bigmodel_api_key(&api_key)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('bigmodel_api_key', '')
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
-    }
-
-    /// 清除 BigModel API Key（幂等删凭据库条目 + 清占位列）。
-    pub(crate) fn clear_bigmodel_api_key(&self) -> Result<AppSettings, String> {
-        super::secrets::delete_bigmodel_api_key()?;
-        let conn = self.connect()?;
-        conn.execute(
-            "DELETE FROM settings WHERE key = 'bigmodel_api_key'",
-            [],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
     }
 
     /// 保存 OpenAI 兼容接口配置：Key 走凭据库，Base URL / 模型名落普通 KV。
@@ -516,13 +487,13 @@ mod tests {
         // 缺省 local
         assert_eq!(store.settings().unwrap().ocr_engine, "local");
 
-        let s = store.update_ocr_engine("bigmodel".to_string()).unwrap();
-        assert_eq!(s.ocr_engine, "bigmodel");
-        assert_eq!(store.settings().unwrap().ocr_engine, "bigmodel");
+        let s = store.update_ocr_engine("openai".to_string()).unwrap();
+        assert_eq!(s.ocr_engine, "openai");
+        assert_eq!(store.settings().unwrap().ocr_engine, "openai");
 
         // 非法值被拒绝且不落库
-        assert!(store.update_ocr_engine("cloud".to_string()).is_err());
-        assert_eq!(store.settings().unwrap().ocr_engine, "bigmodel");
+        assert!(store.update_ocr_engine("bigmodel".to_string()).is_err());
+        assert_eq!(store.settings().unwrap().ocr_engine, "openai");
     }
 
     #[test]
@@ -630,41 +601,6 @@ mod cloud_ocr_keyring_tests {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
-    fn bigmodel_api_key_round_trip_and_clear() {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = secrets::delete_bigmodel_api_key();
-        let _ = secrets::delete_openai_ocr_api_key();
-        let store = temp_store();
-
-        // 未配置时为空串
-        assert_eq!(store.settings().unwrap().cloud_ocr.bigmodel_api_key, "");
-
-        let s = store.update_bigmodel_api_key("  bm-test-key  ".to_string()).unwrap();
-        assert_eq!(s.cloud_ocr.bigmodel_api_key, "bm-test-key", "保存会 trim");
-        assert_eq!(
-            store.settings().unwrap().cloud_ocr.bigmodel_api_key,
-            "bm-test-key",
-            "读取从凭据库回填"
-        );
-
-        // settings 列只留空串占位，不落明文
-        let conn = store.connect().unwrap();
-        let leftover: String = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'bigmodel_api_key'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(leftover, "");
-
-        // 清除后凭据库与设置同时为空
-        let s = store.clear_bigmodel_api_key().unwrap();
-        assert_eq!(s.cloud_ocr.bigmodel_api_key, "");
-        assert_eq!(secrets::get_bigmodel_api_key().unwrap(), None);
-    }
-
-    #[test]
     fn openai_ocr_config_round_trip_and_clear() {
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _ = secrets::delete_openai_ocr_api_key();
@@ -702,29 +638,45 @@ mod cloud_ocr_keyring_tests {
     }
 
     #[test]
-    fn cloud_ocr_engine_ready_per_engine_requirements() {
+    fn cloud_ocr_engine_ready_requires_openai_config() {
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = secrets::delete_bigmodel_api_key();
         let _ = secrets::delete_openai_ocr_api_key();
         let store = temp_store();
 
         assert!(!store.cloud_ocr_engine_ready(), "缺省 local 引擎不可用");
 
-        // bigmodel：引擎 + Key
-        store.update_ocr_engine("bigmodel".to_string()).unwrap();
-        assert!(!store.cloud_ocr_engine_ready(), "引擎已选但 Key 未配");
-        store.update_bigmodel_api_key("bm-key".to_string()).unwrap();
-        assert!(store.cloud_ocr_engine_ready());
-        let _ = store.clear_bigmodel_api_key();
-
-        // openai：引擎 + Base URL + 模型 + Key 缺一不可
         store.update_ocr_engine("openai".to_string()).unwrap();
-        assert!(!store.cloud_ocr_engine_ready());
+        assert!(!store.cloud_ocr_engine_ready(), "引擎已选但配置不全");
         store.update_openai_ocr_config("https://api.example.com/v1".into(), "m".into(), "k".into()).unwrap();
         assert!(store.cloud_ocr_engine_ready());
 
         let _ = store.clear_openai_ocr_config();
         store.update_ocr_engine("local".to_string()).unwrap();
+    }
+
+    /// 历史遗留：库里有已移除引擎的 bigmodel_api_key 占位行时，读取设置会顺带清掉。
+    #[test]
+    fn legacy_bigmodel_row_is_cleaned_on_read() {
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('bigmodel_api_key', '')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+        }
+        let _ = store.settings().unwrap();
+        let conn = store.connect().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'bigmodel_api_key'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "遗留占位行应被清除");
     }
 }
 

@@ -49,14 +49,12 @@ describe("cleanOcrMode", () => {
 });
 
 describe("cleanOcrEngine", () => {
-  it("passes every cloud engine through", () => {
-    expect(cleanOcrEngine("bigmodel")).toBe("bigmodel");
+  it("passes 'openai' through", () => {
     expect(cleanOcrEngine("openai")).toBe("openai");
   });
 
   it("falls back to the local engine for anything else", () => {
     expect(cleanOcrEngine("local")).toBe(DEFAULT_OCR_ENGINE);
-    expect(cleanOcrEngine("azure")).toBe(DEFAULT_OCR_ENGINE);
     expect(cleanOcrEngine(undefined)).toBe(DEFAULT_OCR_ENGINE);
   });
 });

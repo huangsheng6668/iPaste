@@ -157,7 +157,7 @@ pub(crate) fn clean_ocr_mode(mode: String) -> Result<String, String> {
 
 pub(crate) fn clean_ocr_engine(engine: String) -> Result<String, String> {
     let engine = engine.trim();
-    if matches!(engine, "local" | "bigmodel" | "openai") {
+    if matches!(engine, "local" | "openai") {
         Ok(engine.to_string())
     } else {
         Err("请选择有效的图片 OCR 引擎".to_string())

@@ -38,7 +38,7 @@ const tabs = computed(() => {
   const items: Array<{ id: SettingsTab; label: string; icon: typeof SlidersHorizontal }> = [
     { id: "general", label: t("settings.tabs.general"), icon: SlidersHorizontal },
     { id: "shortcuts", label: t("settings.tabs.shortcuts"), icon: Keyboard },
-    // 云 OCR（BigModel）跨平台可用，OCR 标签不再仅限非 macOS
+    // 云 OCR（OpenAI 兼容）跨平台可用，OCR 标签不再仅限非 macOS
     { id: "ocr", label: t("settings.tabs.ocr"), icon: ScanText },
     { id: "dataManagement", label: t("settings.tabs.dataManagement"), icon: Database },
     { id: "about", label: t("settings.tabs.about"), icon: Sparkles },

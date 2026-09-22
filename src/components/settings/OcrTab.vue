@@ -3,7 +3,6 @@ import { AlertCircle, BookOpenText, CheckCircle2, Cloud, Download, FolderOpen, L
 import { t } from "../../i18n";
 import { formatBytes } from "../../lib/format";
 import { useIpasteStore } from "../../stores/ipasteStore";
-import { useBigmodelOcr } from "../../composables/useBigmodelOcr";
 import { useOpenaiOcr } from "../../composables/useOpenaiOcr";
 import { useMocrInstaller } from "../../composables/useMocrInstaller";
 import { useOcrInstaller } from "../../composables/useOcrInstaller";
@@ -11,17 +10,6 @@ import type { OcrEngine } from "../../types";
 
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const store = useIpasteStore();
-const {
-  bigmodelApiKey,
-  bigmodelMessage,
-  bigmodelError,
-  isTestingBigmodel,
-  isSavingBigmodel,
-  bigmodelStatusText,
-  testBigmodel,
-  saveBigmodelKey,
-  clearBigmodelKey,
-} = useBigmodelOcr();
 const {
   openaiBaseUrl,
   openaiModel,
@@ -45,11 +33,6 @@ const ocrEngineOptions: Array<{ value: OcrEngine; label: string; description: st
     description: t("settings.bigmodel.engineLocalDescription"),
   },
   {
-    value: "bigmodel",
-    label: t("settings.bigmodel.engineCloud"),
-    description: t("settings.bigmodel.engineCloudDescription"),
-  },
-  {
     value: "openai",
     label: t("settings.openai.engineOpenai"),
     description: t("settings.openai.engineOpenaiDescription"),
@@ -61,13 +44,11 @@ function updateOcrEngine(value: OcrEngine) {
 }
 
 function engineBadgeLabel(): string {
-  if (store.ocrEngine === "bigmodel") return t("settings.bigmodel.engineCloud");
   if (store.ocrEngine === "openai") return t("settings.openai.engineOpenai");
   return t("settings.bigmodel.engineLocal");
 }
 
 function engineReady(): boolean {
-  if (store.ocrEngine === "bigmodel") return Boolean(store.cloudOcr.bigmodelApiKey);
   if (store.ocrEngine === "openai") return openaiConfigured.value;
   return true;
 }
@@ -158,100 +139,6 @@ const {
         </div>
         <div class="min-w-0 flex-1">
           <h2 class="text-sm font-semibold text-[var(--text-1)]">
-            {{ t("settings.bigmodel.title") }}
-          </h2>
-          <p class="mt-1 text-sm text-[var(--text-2)]">
-            {{ bigmodelStatusText }}
-          </p>
-        </div>
-        <span
-          class="ocr-status-badge"
-          :class="{ 'ocr-status-badge-ready': Boolean(store.cloudOcr.bigmodelApiKey) }"
-        >
-          {{ store.cloudOcr.bigmodelApiKey ? t("common.ready") : t("settings.bigmodel.notConfigured") }}
-        </span>
-      </div>
-
-      <p class="ocr-mode-hint">
-        {{ t("settings.bigmodel.description") }}
-      </p>
-
-      <label class="settings-field">
-        <span>API Key</span>
-        <input
-          v-model="bigmodelApiKey"
-          type="password"
-          autocomplete="current-password"
-          placeholder="xxxxxxxx.xxxxxxxx"
-          spellcheck="false"
-        >
-      </label>
-
-      <p class="ocr-mode-hint">
-        {{ t("settings.bigmodel.privacyHint") }}
-      </p>
-
-      <p
-        v-if="bigmodelError || bigmodelMessage"
-        class="settings-message"
-        :class="{ 'settings-message-error': bigmodelError }"
-      >
-        <CheckCircle2
-          v-if="bigmodelMessage && !bigmodelError"
-          class="size-4"
-        />
-        <AlertCircle
-          v-else
-          class="size-4"
-        />
-        <span>{{ bigmodelError || bigmodelMessage }}</span>
-      </p>
-
-      <div class="settings-action-row">
-        <button
-          type="button"
-          class="settings-action-button"
-          :disabled="isTestingBigmodel || isSavingBigmodel || !bigmodelApiKey.trim()"
-          @click="testBigmodel"
-        >
-          <LoaderCircle
-            v-if="isTestingBigmodel"
-            class="size-4 update-spin"
-          />
-          <CheckCircle2
-            v-else
-            class="size-4"
-          />
-          <span>{{ isTestingBigmodel ? t("settings.bigmodel.testing") : t("settings.bigmodel.test") }}</span>
-        </button>
-        <button
-          type="button"
-          class="settings-action-button settings-action-button-primary"
-          :disabled="isTestingBigmodel || isSavingBigmodel || !bigmodelApiKey.trim()"
-          @click="saveBigmodelKey"
-        >
-          <Cloud class="size-4" />
-          <span>{{ isSavingBigmodel ? t("common.saving") : t("settings.bigmodel.save") }}</span>
-        </button>
-        <button
-          type="button"
-          class="settings-action-button settings-action-button-danger"
-          :disabled="isTestingBigmodel || isSavingBigmodel || !store.cloudOcr.bigmodelApiKey"
-          @click="clearBigmodelKey"
-        >
-          <Unplug class="size-4" />
-          <span>{{ t("settings.bigmodel.clear") }}</span>
-        </button>
-      </div>
-    </section>
-
-    <section class="settings-panel settings-column-panel">
-      <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-teal">
-          <Cloud class="size-5" />
-        </div>
-        <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-[var(--text-1)]">
             {{ t("settings.openai.title") }}
           </h2>
           <p class="mt-1 text-sm text-[var(--text-2)]">
@@ -275,7 +162,7 @@ const {
         <input
           v-model="openaiBaseUrl"
           type="url"
-          placeholder="https://open.bigmodel.cn/api/paas/v4"
+          placeholder="https://api.openai.com/v1"
           spellcheck="false"
         >
       </label>

@@ -120,7 +120,7 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
         let engine_is_cloud = state
             .store
             .settings()
-            .map(|settings| matches!(settings.ocr_engine.as_str(), "bigmodel" | "openai"))
+            .map(|settings| settings.ocr_engine == "openai")
             .unwrap_or(false);
         if engine_is_cloud {
             return Err("ocrCloudKeyMissing");

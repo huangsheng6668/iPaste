@@ -7,7 +7,6 @@ use keyring::Entry;
 const SERVICE: &str = "iPaste";
 const ACCOUNT: &str = "cloud_api_key";
 const ACCOUNT_DEVICE: &str = "device_sync_secret";
-const ACCOUNT_BIGMODEL: &str = "bigmodel_api_key";
 const ACCOUNT_OPENAI_OCR: &str = "openai_ocr_api_key";
 
 fn entry() -> Result<Entry, String> {
@@ -61,32 +60,11 @@ pub(crate) fn delete_device_secret() -> Result<(), String> {
     }
 }
 
-fn bigmodel_entry() -> Result<Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT_BIGMODEL)
-        .map_err(|e| format!("无法访问系统凭据库：{e}"))
-}
-
-/// BigModel 云 OCR 的 API Key（与云同步 Key 分账户互不影响）。
-pub(crate) fn put_bigmodel_api_key(value: &str) -> Result<(), String> {
-    bigmodel_entry()?
-        .set_password(value)
-        .map_err(|e| format!("写入系统凭据库失败：{e}"))
-}
-
-pub(crate) fn get_bigmodel_api_key() -> Result<Option<String>, String> {
-    match bigmodel_entry()?.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
-    }
-}
-
-/// 幂等删除（从未配置过视为成功）。
-pub(crate) fn delete_bigmodel_api_key() -> Result<(), String> {
-    match bigmodel_entry()?.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
+/// 清理已移除的智谱专用 OCR 引擎（≤0.9.9）遗留的凭据库条目。
+/// 幂等、尽力而为：条目不存在或凭据库不可用都直接忽略。
+pub(crate) fn remove_legacy_bigmodel_api_key() {
+    if let Ok(entry) = keyring::Entry::new(SERVICE, "bigmodel_api_key") {
+        let _ = entry.delete_credential();
     }
 }
 
