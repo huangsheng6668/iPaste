@@ -7,7 +7,8 @@ use tauri::Emitter;
 
 use crate::events::EVENT_OCR_INSTALL_PROGRESS;
 use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus};
-#[cfg(not(target_os = "macos"))]
+// try_state 等方法来自 Manager trait；云引擎调度分支在 macOS 上也调用，
+// 导入不能按平台裁剪
 use tauri::Manager;
 
 use crate::DEFAULT_OCR_MODE;
