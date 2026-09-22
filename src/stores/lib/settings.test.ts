@@ -3,9 +3,11 @@ import {
   DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
   DEFAULT_PANEL_LAYOUT,
   DEFAULT_OCR_MODE,
+  DEFAULT_OCR_ENGINE,
   cleanAppendCopyTimeoutMinutes,
   cleanPanelLayout,
   cleanOcrMode,
+  cleanOcrEngine,
 } from "./settings";
 
 describe("cleanAppendCopyTimeoutMinutes", () => {
@@ -43,5 +45,18 @@ describe("cleanOcrMode", () => {
     expect(cleanOcrMode("fast")).toBe(DEFAULT_OCR_MODE);
     expect(cleanOcrMode("ultra")).toBe(DEFAULT_OCR_MODE);
     expect(cleanOcrMode(undefined)).toBe(DEFAULT_OCR_MODE);
+  });
+});
+
+describe("cleanOcrEngine", () => {
+  it("passes every cloud engine through", () => {
+    expect(cleanOcrEngine("bigmodel")).toBe("bigmodel");
+    expect(cleanOcrEngine("openai")).toBe("openai");
+  });
+
+  it("falls back to the local engine for anything else", () => {
+    expect(cleanOcrEngine("local")).toBe(DEFAULT_OCR_ENGINE);
+    expect(cleanOcrEngine("azure")).toBe(DEFAULT_OCR_ENGINE);
+    expect(cleanOcrEngine(undefined)).toBe(DEFAULT_OCR_ENGINE);
   });
 });
