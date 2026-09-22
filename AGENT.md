@@ -7,11 +7,12 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 ## 当前能力
 
 - 将 macOS 和 Windows 作为一等桌面目标平台支持。
-- 以托盘应用形式运行，并提供可自定义的全局快捷键。
+- 以托盘应用形式运行，提供主面板（默认 `Command/Ctrl + Shift + V`）与截图 OCR（默认 `Command/Ctrl + Shift + O`）的可自定义全局快捷键。
 - 自动捕获文本与图片剪贴板历史（SQLite 本地存储，按内容哈希去重）。
 - 分类：创建、重命名、改色、排序，手动把历史片段存为快照。
 - 搜索历史与分类片段；键盘为主的选择与回贴流程。
-- 图片查看器：预览、缩放、复制回剪贴板、OCR 提取文本（设置中可选「本地引擎」或「OpenAI 兼容接口」；本地侧 macOS 走系统 Vision、Windows 走 PaddleOCR 模型）。
+- 图片查看器与截图 OCR：支持图片预览、缩放、旋转、复制回剪贴板，以及 OCR 文本提取；提供全局快捷键（默认 `Command/Ctrl + Shift + O`）全屏遮罩选区截图，冻结多屏帧裁剪后自动识别并复制文本到剪贴板，弹出独立 OCR 结果窗口；OCR 结果窗与图片查看器均支持在本地引擎与 OpenAI 兼容云端端点间实时切换重跑。
+- 多 OCR 引擎支持：本地引擎（macOS 走系统 Vision、Windows 走 PaddleOCR 模型快速/精确模式）；日语·漫画专用 Manga-OCR（通过 `mocr_engine` 独立 ONNX 推理 sidecar 进程本地运行，Windows x64 / macOS Apple Silicon 原生无 Python 依赖，设置中提供模型下载，异常时安全回退至系统 OCR 或 Python 服务）；通用 OpenAI 兼容接口（支持各类视觉大模型，API Key 安全存于系统凭据管理器）。
 - 追加复制：临时合并多段文本复制。
 - 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。心跳死亡检测委托给 QUIC（conn.closed 监视任务），不做应用层漏 Pong 计数——对 spec §5 的既定偏差。剪贴板捕获即自动推送（文本/链接/颜色/HTML 自动，图片/文件手动，按设备三态偏好，含全局开关与回环抑制；追加复制合并期间不自动推送）。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
@@ -63,12 +64,14 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `events.rs`：前后端事件契约唯一来源（事件名常量 + payload 结构体 + events.ts 生成测试）；Rust 侧其他文件不得出现 `ipaste://` 字面量。
 - `util.rs`：跨模块共享的纯函数辅助（哈希/剪贴板类型检测/预览、`clean_*` 入参校验清理、`now`、本地化文案）。
 - `store.rs` + `store/`：SQLite 持久化。子模块按域拆分（clips/categories/settings/automations/sync/migrations/secrets/rows/test_support），统一 `xxx_with_conn` 事务模式。
+- `capture/`：截图与选区 OCR——`mod.rs` 会话编排与冻结帧管理（24 位无压缩 BMP 聚合缓冲写入）、`screen.rs` 多显示器整屏抓取、`overlay.rs` 全屏遮罩窗口生命周期、`selection.rs` 选区几何计算与多屏坐标转换。
 - `clipboard.rs`：剪贴板捕获、规范化和写回。
 - `cloud.rs`：自托管同步 API 客户端（store 侧调用 cloud，cloud 不依赖 store）。
-- `ocr/`：图片 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows 资源安装器、`paddle.rs` Windows Paddle 识别管线、`openai.rs` OpenAI 兼容端点（base64 inline + chat/completions）、`tokens.rs` macOS/Windows 共享行内分词、`vision.rs` macOS Vision 管线。
-- `window.rs`：面板/设置/放大窗口、原生面板行为和窗口定位（辅助窗口统一走 `show_auxiliary_window`）。
+- `ocr/`：图片与截图 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows Paddle 资源安装器、`paddle.rs` Windows Paddle 识别管线、`openai.rs` OpenAI 兼容端点（base64 inline + chat/completions）、`tokens.rs` macOS/Windows 共享行内分词、`vision.rs` macOS Vision 管线、`mocr.rs` Manga-OCR 调度与 Python 服务桥接、`mocr_onnx.rs` 本地 ONNX 推理桥接、`mocr_installer.rs` Manga-OCR 模型下载器。
+- `bin/mocr_engine.rs`：Manga-OCR 独立 ONNX 推理 sidecar 进程（进程隔离解耦 onnxruntime / mnn CRT 冲突，Windows x64 与 macOS Apple Silicon aarch64，通过行式 JSON 与主进程通信）。
+- `window.rs`：主面板/设置/放大预览/设备管理/OCR 结果/OCR 遮罩窗口、原生面板行为和窗口定位（辅助窗口统一走 `show_auxiliary_window`，OCR 遮罩走专用无边框全屏展示）。
 - `tray.rs`：系统托盘、菜单文案与菜单事件处理。
-- `shortcut.rs`：全局快捷键注册与更新。
+- `shortcut.rs`：全局快捷键注册与更新（面板唤出与截图 OCR）。
 - `paste.rs`：目标应用激活与触发粘贴（含粘贴编排与快捷键投递）。
 - `automation.rs`：自动化动作的进程执行与事件流。
 - `commands.rs`：向 UI 暴露模块函数的薄 Tauri 命令层（业务编排在域模块中）。
@@ -97,7 +100,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 ## 前端结构
 
 - `stores/ipasteStore.ts`：数据快照缓存与 CRUD 包装；`stores/lib/` 为纯函数库（ordering/selection/settings 清洗/automationFilter/automationTransfer，均带单测）；`stores/uiStore.ts` 为 toast 等瞬态 UI 状态。
-- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useDeviceSync、useUpdater 等。
+- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useDeviceSync、useUpdater、useShortcutRecorder（主面板与 OCR 快捷键录制）、useOcrEngineSelect（OCR 结果与查看器引擎动态切换）、useOpenaiOcr（OpenAI 端点配置与测试）、useOcrInstaller / useMocrInstaller（Paddle / Manga 模型下载状态管理）、useRegionSelection（截图框选计算）等。
 - App.vue 保留多窗口路由、面板布局骨架、composable 接线，以及少量面板级残留（条目内联重命名、分类 CRUD 包装、更新检查节流）；新增交互逻辑先进 composable，展示组件保持无业务状态。
 - 错误双通道：加载失败走 store.error 持久横幅；动作失败走 uiStore.pushToast（ErrorToast.vue 渲染）。
 - `lib/env.ts` 是 isTauri 唯一来源；事件名一律用 `types/generated/events` 的 IPASTE_EVENTS。
@@ -118,10 +121,10 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 发布新版本时按以下顺序操作：
 
 - 先确认当前分支和工作区状态：`git status --short --branch`。
-- 运行 `npm run release`，根据提示输入新版本号。例如当前版本是 `0.1.11` 时，发布补丁版输入 `0.1.12`。
+- 运行 `npm run release`，根据提示输入新版本号。例如当前版本是 `0.9.9` 时，发布输入 `0.10.0`。
 - 脚本会同步更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 和 `src-tauri/Cargo.toml`；如果 `src-tauri/Cargo.lock` 因版本号变化产生改动，也一并纳入提交。
-- 发版前至少运行 `npm run build`。涉及 Rust 或 Tauri 原生逻辑时，再运行 `cargo check --manifest-path src-tauri/Cargo.toml`。
-- 暂存并提交本次发布相关改动：`git add -A`，然后 `git commit -m "chore: release v版本号"`，例如 `git commit -m "chore: release v0.1.12"`。
-- 创建发布标签：`git tag v版本号`，例如 `git tag v0.1.12`。
+- 发版前至少运行 `npm run build`（包含 sidecar 时可运行 `npm run build:all`）。涉及 Rust 或 Tauri 原生逻辑时，再运行 `cargo check --manifest-path src-tauri/Cargo.toml`。
+- 暂存并提交本次发布相关改动：`git add -A`，然后 `git commit -m "chore: release v版本号"`，例如 `git commit -m "chore: release v0.10.0"`。
+- 创建发布标签：`git tag v版本号`，例如 `git tag v0.10.0`。
 - 推送主分支和标签：`git push origin main`，然后 `git push origin v版本号`。
 - 远端发布工作流由 `v*` 标签触发。推送标签后，需要检查 GitHub Actions 运行结果和发布产物。

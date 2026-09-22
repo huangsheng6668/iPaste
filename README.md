@@ -13,15 +13,17 @@ It is built for people who move between chat, browsers, terminals, design tools,
 ## Features
 
 - Local first: clipboard history is stored in a local SQLite database on the current device.
-- Fast access: open the panel with <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd>, or customize the shortcut in settings.
+- Fast access: open the panel with <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd>, or trigger screenshot OCR with <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> (both customizable in settings).
 - Multiple content types: text, links, colors, HTML snippets, images, and file clipboard entries.
 - Search and keyboard flow: optimized for quick lookup, selection, and Enter-to-paste.
 - Saved categories: keep reusable snippets for code, commands, addresses, reply templates, prompts, and more.
+- Screenshot OCR: capture any region across multiple monitors with a global shortcut, instantly extract text with auto-copy to clipboard, and inspect results or word tokens in a dedicated window.
 - Image viewer: preview, zoom, rotate, copy back to the clipboard, and extract text with OCR.
+- Multiple OCR engines: choose between local engines (macOS Vision, Windows PaddleOCR Fast/Accurate, Manga-OCR for Japanese comics via native ONNX sidecar) or OpenAI-compatible cloud vision APIs (GPT-4o, GLM-4V, Qwen-VL, local vLLM/Ollama), switchable directly within OCR result and viewer windows.
 - Append copy: temporarily merge several text copies into one snippet while gathering material.
 - Cross-device sync: pair two devices across the internet by exchanging a one-time invite ticket — clipboard content travels directly between them with end-to-end encryption (QUIC + NAT hole punching, relayed as ciphertext when punching fails); no cloud account needed, with multi-device management, revocation, and automatic reconnection.
 - Quick actions: save shell commands as one-keystroke panel actions, with optional confirmation, streamed output, and JSON import/export.
-- Configurable preferences: retention period, panel layout, default open behavior, global shortcut, language, and OCR mode.
+- Configurable preferences: retention period, panel layout, default open behavior, global shortcuts (panel & OCR), language, and OCR engines.
 - Optional self-hosted sync: sync only saved categories and saved text-like content; raw clipboard history stays local.
 - Signed updates: built-in Tauri updater support for releases distributed through GitHub Releases or Cloudflare R2.
 
@@ -72,9 +74,10 @@ After toggling a permission, fully quit and restart iPaste for it to take effect
 2. Copy text, links, colors, or images as usual.
 3. Press <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> to open the panel.
 4. Search, select an item, and press Enter to paste it back into the active app.
-5. Save long-term reusable content into categories and organize it around your workflow.
+5. Press <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> anytime to capture an on-screen area for instant OCR — recognized text is automatically copied to your clipboard.
+6. Save long-term reusable content into categories and organize it around your workflow.
 
-Auto paste on macOS requires Accessibility permission. Image OCR on Windows requires downloading PaddleOCR models from Settings.
+Auto paste on macOS requires Accessibility permission; screenshot OCR requires Screen Recording permission. Image OCR on Windows requires downloading PaddleOCR models from Settings (Manga-OCR models can also be downloaded for Japanese comic text).
 
 ## Privacy And Data
 
@@ -94,8 +97,8 @@ If your clipboard often contains passwords, keys, client data, or internal compa
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| macOS | Supported | OCR uses the system Vision framework; auto paste requires Accessibility permission. |
-| Windows | Supported | OCR uses downloadable PaddleOCR models. |
+| macOS | Supported | OCR uses the system Vision framework; Manga-OCR supported on Apple Silicon via native ONNX sidecar; auto paste requires Accessibility permission; screenshot OCR requires Screen Recording permission. |
+| Windows | Supported | OCR uses downloadable PaddleOCR models (Fast / Accurate); Manga-OCR supported via native ONNX sidecar. |
 | Linux | Not supported yet | No official release or full validation at the moment. |
 
 ## Tech Stack
@@ -184,13 +187,15 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `events.rs` | Single source of frontend/backend event names and payloads; generates `src/types/generated/events.ts` |
 | `util.rs` | Shared pure helpers: hashing, clip-type detection, `clean_*` validation, localized labels |
 | `store.rs` + `store/` | SQLite persistence split by domain (clips/categories/settings/automations/sync/migrations/secrets) |
+| `capture/` | Screenshot OCR: session orchestration, multi-monitor freeze frame, overlay window, and selection geometry |
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
-| `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
+| `ocr/` | Image and screenshot OCR: dispatch and status, PaddleOCR runner and installer (Windows), Vision pipeline (macOS), Manga-OCR (native ONNX sidecar / Python fallback), OpenAI-compatible cloud client (cross-platform) |
+| `bin/mocr_engine.rs` | Manga-OCR native ONNX inference sidecar (Windows x64 and macOS Apple Silicon) |
+| `window.rs` | Main panel, settings, viewer, sync, and OCR result/overlay windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
-| `shortcut.rs` | Global shortcut registration and updates |
+| `shortcut.rs` | Global shortcut registration and updates (panel toggle and screenshot OCR) |
 | `paste.rs` | Target app activation and paste triggering |
 | `automation.rs` | Quick-action process execution and event streaming |
 | `commands.rs` | Thin Tauri command layer exposing domain modules to the UI |
@@ -221,14 +226,28 @@ Two iPaste instances pair by exchanging a one-time invite ticket: one device cre
 
 Quick actions are saved shell commands shown in their own panel category. Run them with one keystroke, optionally confirm first, watch streamed output in the detail pane, and share sets between machines via JSON import/export.
 
-### Image OCR
+### Screenshot OCR
 
-Choose between local or cloud engines in Settings → Image OCR:
+Trigger the global OCR shortcut (<kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd>) to enter screenshot recognition mode. iPaste freezes all displays under an overlay and lets you drag to select a region. Upon release:
+- The cropped image is processed through the active OCR engine.
+- Recognized text is automatically copied to your clipboard.
+- A floating OCR result window opens with extracted text lines and clickable word tokens (with quick copy buttons).
+- The captured image and text are recorded into your clipboard history.
 
-- **Local**: macOS uses the system Vision framework; Windows uses PaddleOCR models you can install from app preferences. Works offline.
-- **OpenAI-compatible**: send images to any vision-capable endpoint (GLM-4V, GPT-4o, Qwen-VL, local vLLM/Ollama, etc.). Requires configuring Base URL, model name, and API Key.
+### Image OCR & Recognition Engines
 
-Both engines run on screenshot capture and image viewer OCR, and results are auto-copied to the clipboard after recognition.
+Choose between local or cloud engines in Settings → Image OCR, or switch engines on the fly from the toolbar in either the OCR result window or the image viewer:
+
+- **Local Engines**:
+  - **macOS**: Powered by the system Apple Vision framework (fast, accurate, offline).
+  - **Windows**: Downloadable PaddleOCR models (supports Fast and Accurate modes).
+  - **Japanese Manga-OCR**: Specialized high-precision OCR for Japanese manga and comic text. Runs locally via an isolated native ONNX Runtime sidecar (`mocr_engine`) on Windows x64 and macOS Apple Silicon (arm64), requiring zero Python dependencies. Models can be downloaded from Settings; automatically falls back to a Python service or system OCR if unavailable.
+- **OpenAI-compatible**:
+  - Send images to any vision-capable model endpoint (e.g., GPT-4o, GLM-4V, Qwen-VL, local vLLM/Ollama).
+  - Configure Base URL, model name, and API Key (securely stored in the OS credential store / keyring).
+- **Direct Engine Switcher & Auto-Copy**:
+  - The OCR result window and image viewer toolbar both include an engine dropdown selector next to language choices. Switching engines instantly re-runs recognition without needing to open Settings.
+  - Recognized text is automatically copied to the clipboard after screenshot and image viewer OCR.
 
 ## Contributing
 

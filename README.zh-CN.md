@@ -13,15 +13,17 @@ iPaste 常驻系统托盘，在本机记录剪贴板历史。你可以用全局�
 ## 特性
 
 - 本地优先：剪贴板历史存储在当前设备的本地 SQLite 数据库中。
-- 快速唤出：默认使用 <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> 打开面板，也可以在设置里修改。
+- 快速唤出：默认使用 <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> 打开面板，按 <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> 唤起截图 OCR（均可在设置中自定义）。
 - 多类型记录：支持文本、链接、颜色、HTML 片段、图片和文件类剪贴板内容。
 - 搜索与键盘操作：面板为快速查找和回车粘贴优化，适合高频使用。
 - 保存分类：把常用片段保存为分类条目，用于代码片段、命令、地址、回复模板和提示词。
+- 截图 OCR：使用全局快捷键跨多显示器快速框选屏幕任意区域，自动提取文字并复制到剪贴板，弹出独立结果窗口查看分词与切换引擎。
 - 图片查看：支持图片预览、缩放、旋转、复制回剪贴板，以及 OCR 文本提取。
+- 多 OCR 引擎：支持本地引擎（macOS Vision、Windows PaddleOCR 快速/精确模式，以及日漫专用的 Manga-OCR 本地 ONNX sidecar）与 OpenAI 兼容云端端点（GPT-4o、GLM-4V、Qwen-VL、本地 Ollama/vLLM），可在结果窗与查看器中无缝直切。
 - 追加复制：可把多次文本复制临时合并为一个片段，适合收集多段资料。
 - 跨设备同步：两台设备交换一次性邀请票据即可跨互联网互信，剪贴板内容端到端加密直传（QUIC + NAT 打洞，打洞失败经中继转发密文），无需云账号；支持多设备管理、撤销与自动重连。
 - 快捷动作：把 shell 命令保存为一键执行的面板动作，支持可选确认、输出流式展示和 JSON 导入导出。
-- 可配置偏好：支持历史保留时长、面板布局、打开行为、全局快捷键、语言和 OCR 模式设置。
+- 可配置偏好：支持历史保留时长、面板布局、打开行为、全局快捷键（面板与 OCR）、语言和 OCR 引擎配置。
 - 可选自托管同步：只同步保存分类和已保存的类文本内容，原始剪贴板历史始终留在本机。
 - 签名更新：内置 Tauri 更新器支持，发布产物可通过 GitHub Releases 或 Cloudflare R2 分发。
 
@@ -72,9 +74,10 @@ iPaste 在 macOS 上需要两个不同的权限，请在「系统设置 → 隐�
 2. 像平时一样复制文本、链接、颜色或图片。
 3. 按 <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> 或 <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> 唤出面板。
 4. 搜索、选择条目，然后按回车粘贴回当前应用。
-5. 对长期复用的内容，保存到分类并按自己的工作流整理。
+5. 随时按 <kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> 或 <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> 框选屏幕进行截图 OCR，识别文字将自动复制到剪贴板。
+6. 对长期复用的内容，保存到分类并按自己的工作流整理。
 
-macOS 上的自动粘贴需要辅助功能权限。Windows 上的图片 OCR 需要在设置中下载 PaddleOCR 模型。
+macOS 上的自动粘贴需要辅助功能权限，截图 OCR 需要屏幕录制权限。Windows 上的图片 OCR 需要在设置中下载 PaddleOCR 模型（日漫识别亦可下载专用的 Manga-OCR 模型）。
 
 ## 隐私与数据
 
@@ -94,8 +97,8 @@ iPaste 的默认模型是本地优先。
 
 | 平台 | 状态 | 备注 |
 | --- | --- | --- |
-| macOS | 已支持 | OCR 使用系统 Vision 框架；自动粘贴需要辅助功能权限。 |
-| Windows | 已支持 | OCR 使用可下载的 PaddleOCR 模型。 |
+| macOS | 已支持 | OCR 使用系统 Vision 框架；Apple Silicon 支持 Manga-OCR 本地 ONNX sidecar；自动粘贴需要辅助功能权限；截图 OCR 需要屏幕录制权限。 |
+| Windows | 已支持 | OCR 使用可下载的 PaddleOCR 模型（支持快速与精确模式）；支持 Manga-OCR 本地 ONNX sidecar。 |
 | Linux | 暂未支持 | 当前没有正式发布和完整验证。 |
 
 ## 技术栈
@@ -184,13 +187,15 @@ npm run gen:types
 | `events.rs` | 前后端事件名与 payload 的唯一来源；生成 `src/types/generated/events.ts` |
 | `util.rs` | 共享纯函数：哈希、剪贴板类型检测、`clean_*` 校验清理、本地化文案 |
 | `store.rs` + `store/` | SQLite 持久化，按域拆分子模块（clips/categories/settings/automations/sync/migrations/secrets） |
+| `capture/` | 截图 OCR：截图会话编排、多显示器全屏冻结、遮罩窗口与选区几何计算 |
 | `clipboard.rs` | 剪贴板捕获、规范化和写回 |
 | `cloud.rs` | 自托管同步 API 客户端 |
 | `lan_sync/` | 跨设备同步（v5）：iroh QUIC 传输、一次性邀请票据、设备身份与信任表、多设备会话注册、配对防护 |
-| `ocr/` | 图片 OCR：资源安装器与状态检测（Windows）、PaddleOCR 执行（Windows）、Vision 管线（macOS） |
-| `window.rs` | 面板/设置/放大窗口、原生面板行为和窗口定位 |
+| `ocr/` | 图片与截图 OCR：调度与状态、PaddleOCR 执行与资源下载（Windows）、Vision 管线（macOS）、Manga-OCR（原生 ONNX sidecar / Python 回退）、OpenAI 兼容端点（跨平台） |
+| `bin/mocr_engine.rs` | Manga-OCR 独立 ONNX 推理 sidecar 进程（Windows x64 与 macOS Apple Silicon） |
+| `window.rs` | 主面板/设置/放大/同步/OCR 结果/OCR 遮罩窗口、原生面板行为和窗口定位 |
 | `tray.rs` | 系统托盘、菜单文案与菜单事件处理 |
-| `shortcut.rs` | 全局快捷键注册与更新 |
+| `shortcut.rs` | 全局快捷键注册与更新（面板唤出与截图 OCR） |
 | `paste.rs` | 目标应用激活与触发粘贴 |
 | `automation.rs` | 快捷动作的进程执行与事件流 |
 | `commands.rs` | 向 UI 暴露域模块的薄 Tauri 命令层 |
@@ -221,14 +226,28 @@ Rust 后端在后台监听系统剪贴板，对受支持的内容进行规范化
 
 快捷动作是保存的 shell 命令，显示在独立的面板分类里。一键执行、可选先确认、在详情窗格查看流式输出，并可通过 JSON 导入导出在机器间分享。
 
-### 图片 OCR
+### 截图 OCR
 
-在「设置 → 图片 OCR」中可选择本地或云端引擎：
+按全局 OCR 快捷键（<kbd>Command</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd>）进入选区截图模式。iPaste 会在多显示器上展开半透明遮罩并冻结当前画面，拖拽鼠标选定矩形区域后：
+- 裁剪后的图片立即传入当前配置的 OCR 引擎进行识别。
+- 识别出的文本会自动写回系统剪贴板。
+- 弹出独立的浮动 OCR 结果窗口，展示分行文本与可交互分词（支持点击分词与快速复制）。
+- 截取的图片与识别文本会自动存入剪贴板历史记录中。
 
-- **本地**：macOS 使用系统 Vision 框架；Windows 使用 PaddleOCR 模型（可在应用偏好设置中下载）。离线可用。
-- **OpenAI 兼容接口**：将图片发送到任意视觉模型端点（GLM-4V、GPT-4o、Qwen-VL、本地 vLLM/Ollama 等）。需在设置中填写 Base URL、模型名和 API Key。
+### 图片 OCR 与识别引擎
 
-两种引擎均支持截图识别与图片查看器 OCR，识别完成后自动复制结果到剪贴板。
+在「设置 → 图片 OCR」中可选择本地或云端引擎，也可在 OCR 结果窗口或图片查看器顶部工具栏中直接无缝切换：
+
+- **本地引擎**：
+  - **macOS**：使用系统原生 Apple Vision 框架（快速、精准、离线）。
+  - **Windows**：使用可下载的 PaddleOCR 模型（支持快速与精确两种模式）。
+  - **日语·漫画 OCR (Manga-OCR)**：专用于日文漫画文字的高精度识别模型。在 Windows x64 和 macOS Apple Silicon (arm64) 上通过独立的原生 ONNX Runtime sidecar 进程（`mocr_engine`）运行，完全无需 Python 环境；可在设置中一键下载模型，并在环境缺失时自动回退至 Python 服务或系统 OCR。
+- **OpenAI 兼容接口**：
+  - 支持将图片发送至任意支持视觉的大模型端点（如 GPT-4o、GLM-4V、Qwen-VL、本地 Ollama / vLLM 等）。
+  - 支持在设置中配置 Base URL、模型名称，API Key 安全保存在操作系统凭据管理器中。
+- **界面内快速切换与自动复制**：
+  - OCR 结果窗口和图片查看器工具栏均内置引擎下拉切换器，切换引擎后无需重开设置即可直接重新识别。
+  - 截图识别与图片查看器 OCR 均在识别完成后自动将文本复制到剪贴板。
 
 ## 贡献
 
