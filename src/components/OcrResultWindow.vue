@@ -5,6 +5,8 @@ import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { isTauri } from "../lib/env";
+import { useIpasteStore } from "../stores/ipasteStore";
+import { useOcrEngineSelect } from "../composables/useOcrEngineSelect";
 import {
   OCR_LANGUAGE_OPTIONS,
   loadOcrLanguage,
@@ -23,6 +25,11 @@ const text = ref("");
 const copied = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 let copiedTimer: number | null = null;
+
+// 独立窗口不走 App.vue 的 store.load（见 App.vue 早退分支），这里自行加载，
+// 供顶栏引擎切换读取当前引擎与云 OCR 配置状态
+const store = useIpasteStore();
+const { ocrEngineOptions, switchOcrEngine } = useOcrEngineSelect();
 
 const charCount = computed(() => text.value.length);
 const canCopy = computed(() => status.value === "ready" && text.value.trim().length > 0);
@@ -66,8 +73,17 @@ function selectLanguage(event: Event) {
   void runRecognition(selectedProfile.value);
 }
 
+async function changeEngine(event: Event) {
+  if (status.value === "loading") return;
+  const engine = await switchOcrEngine((event.target as HTMLSelectElement).value);
+  if (engine) {
+    void runRecognition(selectedProfile.value);
+  }
+}
+
 onMounted(async () => {
   document.addEventListener("keydown", handleKeydown, true);
+  void store.load().catch(() => undefined);
   if (!token) {
     status.value = "expired";
     return;
@@ -178,6 +194,24 @@ async function openImage() {
           {{ t("ocrScreenshot.profileManga") }}
         </button>
       </div>
+      <select
+        class="ocr-language-select"
+        :value="store.ocrEngine"
+        :disabled="status === 'loading'"
+        :aria-label="t('ocr.engineLabel')"
+        :title="t('ocr.engineLabel')"
+        @mousedown.stop
+        @change="changeEngine"
+      >
+        <option
+          v-for="option in ocrEngineOptions"
+          :key="option.value"
+          :value="option.value"
+          :disabled="!option.ready"
+        >
+          {{ option.ready ? option.label : `${option.label} · ${t('ocr.engineUnconfigured')}` }}
+        </option>
+      </select>
       <select
         class="ocr-language-select"
         :value="selectedOcrLanguage"

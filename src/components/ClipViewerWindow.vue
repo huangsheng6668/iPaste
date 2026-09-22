@@ -23,10 +23,12 @@ import { useImageViewer } from "../composables/useImageViewer";
 import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
+import { useOcrEngineSelect } from "../composables/useOcrEngineSelect";
 import { clipImageSrc } from "../lib/clipMedia";
 import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
 import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
+import { useIpasteStore } from "../stores/ipasteStore";
 import { formatTime, typeLabel } from "../lib/format";
 import type { ClipViewerPayload } from "../types";
 
@@ -63,6 +65,17 @@ const {
   endImageOcrSelection,
   clearImageTextSelection, resetOcrState,
 } = ocr;
+// 独立窗口不走 App.vue 的 store.load（见 App.vue 早退分支），OCR 面板的
+// 引擎切换需读取当前引擎与云 OCR 配置状态
+const appStore = useIpasteStore();
+const { ocrEngineOptions, switchOcrEngine } = useOcrEngineSelect();
+async function changeEngine(event: Event) {
+  if (isRecognizingImage.value) return;
+  const engine = await switchOcrEngine((event.target as HTMLSelectElement).value);
+  if (engine) {
+    void recognizeImageText();
+  }
+}
 const editorOptions = { payload, isPinned: ref(false), isImage, ocr, error };
 const editor = useClipEditor(item, editorOptions);
 const {
@@ -87,6 +100,7 @@ const displayTime = computed(() => {
 
 onMounted(async () => {
   loadPayload();
+  void appStore.load().catch(() => undefined);
   document.addEventListener("keydown", handleViewerKeydown, true);
   window.addEventListener("resize", handleViewerResize);
   void nextTick(focusEditorAtStart);
@@ -524,6 +538,23 @@ function handleViewerResize() {
                     {{ t("viewer.ocrFailed") }}
                   </p>
                 </div>
+                <select
+                  class="ocr-language-select"
+                  :value="appStore.ocrEngine"
+                  :disabled="isRecognizingImage"
+                  :aria-label="t('ocr.engineLabel')"
+                  :title="t('ocr.engineLabel')"
+                  @change="changeEngine"
+                >
+                  <option
+                    v-for="option in ocrEngineOptions"
+                    :key="option.value"
+                    :value="option.value"
+                    :disabled="!option.ready"
+                  >
+                    {{ option.ready ? option.label : `${option.label} · ${t('ocr.engineUnconfigured')}` }}
+                  </option>
+                </select>
                 <select
                   class="ocr-language-select"
                   :value="selectedOcrLanguage"
