@@ -28,7 +28,7 @@ Es ist für Menschen gebaut, die den ganzen Tag zwischen Chat, Browsern, Termina
 
 ## Download
 
-Lade den neuesten Build über [Releases](https://github.com/iPaste-app/iPaste/releases/latest) herunter.
+Lade den neuesten Build über [Releases](https://github.com/huangsheng6668/iPaste/releases/latest) herunter.
 
 Aktuelle Release-Ziele:
 

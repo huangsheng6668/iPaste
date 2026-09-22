@@ -29,7 +29,7 @@ iPaste 常驻系统托盘，在本机记录剪贴板历史。你可以用全局�
 
 ## 下载
 
-前往 [Releases](https://github.com/iPaste-app/iPaste/releases/latest) 下载最新版本。
+前往 [Releases](https://github.com/huangsheng6668/iPaste/releases/latest) 下载最新版本。
 
 当前发布流程面向：
 

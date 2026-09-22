@@ -29,7 +29,7 @@ iPaste はシステムトレイに常駐し、クリップボード履歴をロ�
 
 ## Download
 
-最新ビルドは [Releases](https://github.com/iPaste-app/iPaste/releases/latest) からダウンロードできます。
+最新ビルドは [Releases](https://github.com/huangsheng6668/iPaste/releases/latest) からダウンロードできます。
 
 現在のリリース対象:
 

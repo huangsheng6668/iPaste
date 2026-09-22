@@ -28,7 +28,7 @@ Il est conçu pour les personnes qui passent toute la journée entre messageries
 
 ## Download
 
-Téléchargez la dernière version depuis [Releases](https://github.com/iPaste-app/iPaste/releases/latest).
+Téléchargez la dernière version depuis [Releases](https://github.com/huangsheng6668/iPaste/releases/latest).
 
 Cibles de la version actuelle:
 

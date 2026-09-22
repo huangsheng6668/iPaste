@@ -29,7 +29,7 @@ It is built for people who move between chat, browsers, terminals, design tools,
 
 ## Download
 
-Download the latest build from [Releases](https://github.com/iPaste-app/iPaste/releases/latest).
+Download the latest build from [Releases](https://github.com/huangsheng6668/iPaste/releases/latest).
 
 Current release targets:
 
@@ -245,6 +245,7 @@ Choose between local or cloud engines in Settings → Image OCR, or switch engin
 - **OpenAI-compatible**:
   - Send images to any vision-capable model endpoint (e.g., GPT-4o, GLM-4V, Qwen-VL, local vLLM/Ollama).
   - Configure Base URL, model name, and API Key (securely stored in the OS credential store / keyring).
+  - Customize the prompt messages sent with each request: a list of System / User messages that can be added, removed, or reset, with a `{recognition_language}` placeholder that is substituted with the selected recognition language; the image is attached to the last user message automatically.
 - **Direct Engine Switcher & Auto-Copy**:
   - The OCR result window and image viewer toolbar both include an engine dropdown selector next to language choices. Switching engines instantly re-runs recognition without needing to open Settings.
   - Recognized text is automatically copied to the clipboard after screenshot and image viewer OCR.

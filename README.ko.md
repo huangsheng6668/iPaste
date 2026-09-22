@@ -28,7 +28,7 @@ iPaste는 시스템 트레이에 상주하며 클립보드 기록을 로컬에 �
 
 ## Download
 
-최신 빌드는 [Releases](https://github.com/iPaste-app/iPaste/releases/latest)에서 다운로드하세요.
+최신 빌드는 [Releases](https://github.com/huangsheng6668/iPaste/releases/latest)에서 다운로드하세요.
 
 현재 릴리스 대상:
 

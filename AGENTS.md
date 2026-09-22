@@ -12,7 +12,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 分类：创建、重命名、改色、排序，手动把历史片段存为快照。
 - 搜索历史与分类片段；键盘为主的选择与回贴流程。
 - 图片查看器与截图 OCR：支持图片预览、缩放、旋转、复制回剪贴板，以及 OCR 文本提取；提供全局快捷键（默认 `Command/Ctrl + Shift + O`）全屏遮罩选区截图，冻结多屏帧裁剪后自动识别并复制文本到剪贴板，弹出独立 OCR 结果窗口；OCR 结果窗与图片查看器均支持在本地引擎与 OpenAI 兼容云端端点间实时切换重跑。
-- 多 OCR 引擎支持：本地引擎（macOS 走系统 Vision、Windows 走 PaddleOCR 模型快速/精确模式）；日语·漫画专用 Manga-OCR（通过 `mocr_engine` 独立 ONNX 推理 sidecar 进程本地运行，Windows x64 / macOS Apple Silicon 原生无 Python 依赖，设置中提供模型下载，异常时安全回退至系统 OCR 或 Python 服务）；通用 OpenAI 兼容接口（支持各类视觉大模型，API Key 安全存于系统凭据管理器）。
+- 多 OCR 引擎支持：本地引擎（macOS 走系统 Vision、Windows 走 PaddleOCR 模型快速/精确模式）；日语·漫画专用 Manga-OCR（通过 `mocr_engine` 独立 ONNX 推理 sidecar 进程本地运行，Windows x64 / macOS Apple Silicon 原生无 Python 依赖，设置中提供模型下载，异常时安全回退至系统 OCR 或 Python 服务）；通用 OpenAI 兼容接口（支持各类视觉大模型，可自定义 System/User Prompt 消息列表与 `{recognition_language}` 语言占位符，API Key 安全存于系统凭据管理器）。
 - 追加复制：临时合并多段文本复制。
 - 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。心跳死亡检测委托给 QUIC（conn.closed 监视任务），不做应用层漏 Pong 计数——对 spec §5 的既定偏差。剪贴板捕获即自动推送（文本/链接/颜色/HTML 自动，图片/文件手动，按设备三态偏好，含全局开关与回环抑制；追加复制合并期间不自动推送）。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
@@ -63,7 +63,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `error.rs`：`AppError` 统一错误契约（code/message/params），全部 Tauri 命令返回 `Result<T, AppError>`；新增错误先加变体与 code。
 - `events.rs`：前后端事件契约唯一来源（事件名常量 + payload 结构体 + events.ts 生成测试）；Rust 侧其他文件不得出现 `ipaste://` 字面量。
 - `util.rs`：跨模块共享的纯函数辅助（哈希/剪贴板类型检测/预览、`clean_*` 入参校验清理、`now`、本地化文案）。
-- `store.rs` + `store/`：SQLite 持久化。子模块按域拆分（clips/categories/settings/automations/sync/migrations/secrets/rows/test_support），统一 `xxx_with_conn` 事务模式。
+- `store.rs` + `store/`：SQLite 持久化。子模块按域拆分（clips/categories/settings/automations/sync/devices/migrations/secrets/rows/test_support，devices 为 lan_sync paired_devices 信任表），统一 `xxx_with_conn` 事务模式。
 - `capture/`：截图与选区 OCR——`mod.rs` 会话编排与冻结帧管理（24 位无压缩 BMP 聚合缓冲写入）、`screen.rs` 多显示器整屏抓取、`overlay.rs` 全屏遮罩窗口生命周期、`selection.rs` 选区几何计算与多屏坐标转换。
 - `clipboard.rs`：剪贴板捕获、规范化和写回。
 - `cloud.rs`：自托管同步 API 客户端（store 侧调用 cloud，cloud 不依赖 store）。

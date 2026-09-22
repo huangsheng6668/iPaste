@@ -29,7 +29,7 @@ Está pensado para personas que se mueven todo el día entre chats, navegadores,
 
 ## Download
 
-Descarga la compilación más reciente desde [Releases](https://github.com/iPaste-app/iPaste/releases/latest).
+Descarga la compilación más reciente desde [Releases](https://github.com/huangsheng6668/iPaste/releases/latest).
 
 Destinos de la versión actual:
 
