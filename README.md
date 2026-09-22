@@ -19,7 +19,7 @@ It is built for people who move between chat, browsers, terminals, design tools,
 - Saved categories: keep reusable snippets for code, commands, addresses, reply templates, prompts, and more.
 - Screenshot OCR: capture any region across multiple monitors with a global shortcut, instantly extract text with auto-copy to clipboard, and inspect results or word tokens in a dedicated window.
 - Image viewer: preview, zoom, rotate, copy back to the clipboard, and extract text with OCR.
-- Multiple OCR engines: choose between local engines (macOS Vision, Windows PaddleOCR Fast/Accurate, Manga-OCR for Japanese comics via native ONNX sidecar) or OpenAI-compatible cloud vision APIs (GPT-4o, GLM-4V, Qwen-VL, local vLLM/Ollama), switchable directly within OCR result and viewer windows.
+- Multiple OCR engines: choose between local engines (macOS Vision, Windows PaddleOCR Fast/Accurate, Manga-OCR for Japanese comics via native ONNX sidecar) or OpenAI-compatible cloud vision APIs (GPT-4o, GLM-4V, Qwen-VL, local vLLM/Ollama with customizable System / User prompt messages and language placeholder substitution), switchable directly within OCR result and viewer windows.
 - Append copy: temporarily merge several text copies into one snippet while gathering material.
 - Cross-device sync: pair two devices across the internet by exchanging a one-time invite ticket — clipboard content travels directly between them with end-to-end encryption (QUIC + NAT hole punching, relayed as ciphertext when punching fails); no cloud account needed, with multi-device management, revocation, and automatic reconnection.
 - Quick actions: save shell commands as one-keystroke panel actions, with optional confirmation, streamed output, and JSON import/export.

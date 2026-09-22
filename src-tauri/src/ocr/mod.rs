@@ -261,6 +261,7 @@ pub(crate) async fn recognize_image(
                 &cloud.openai_base_url,
                 &cloud.openai_model,
                 &cloud.openai_api_key,
+                &cloud.openai_prompts,
             )
         })
         .await

@@ -176,9 +176,31 @@ pub(crate) struct CloudSettings {
     pub(crate) last_connected_at: Option<String>,
 }
 
-/// 云 OCR 配置：通用 OpenAI 兼容接口（Base URL + 模型 + Key），任意兼容
-/// 厂商可接。Key 存系统凭据库（settings 列空串占位），仅在读取设置时回填
-/// 给前端展示；Base URL 与模型名为普通 KV。
+/// 单条云 OCR 提示词消息（OpenAI 兼容 /chat/completions 消息体）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct CloudOcrPromptMessage {
+    pub(crate) role: String,
+    pub(crate) content: String,
+}
+
+pub(crate) fn default_openai_ocr_prompts() -> Vec<CloudOcrPromptMessage> {
+    vec![
+        CloudOcrPromptMessage {
+            role: "system".to_string(),
+            content: "You are an OCR engine.\nRecognition language: {recognition_language}\nExtract all readable visible text from the user's image. Return the recognized text only. Preserve line breaks and reading order. If no text is present, return an empty response. Do not describe the image or add explanations.".to_string(),
+        },
+        CloudOcrPromptMessage {
+            role: "user".to_string(),
+            content: "Recognize all text in this image. Recognition language: {recognition_language}.".to_string(),
+        },
+    ]
+}
+
+/// 云 OCR 配置：通用 OpenAI 兼容接口（Base URL + 模型 + Key + 自定义 Prompt 列表），
+/// 任意兼容厂商可接。Key 存系统凭据库（settings 列空串占位），仅在读取设置时回填
+/// 给前端展示；Base URL、模型名与 Prompt 列表为普通 KV。
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -186,6 +208,8 @@ pub(crate) struct CloudOcrSettings {
     pub(crate) openai_base_url: String,
     pub(crate) openai_model: String,
     pub(crate) openai_api_key: String,
+    #[serde(default = "default_openai_ocr_prompts")]
+    pub(crate) openai_prompts: Vec<CloudOcrPromptMessage>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

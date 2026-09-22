@@ -17,6 +17,7 @@ import type {
   ClipPage,
   ClipViewerPayload,
   ClipViewItem,
+  CloudOcrPromptMessage,
   ImageOcrResult,
   Language,
   OcrMode,
@@ -25,6 +26,7 @@ import type {
   ScreenshotSelection,
   SearchResult,
 } from "../types";
+import { DEFAULT_OPENAI_OCR_PROMPTS } from "../stores/lib/settings";
 import type { AutoPushSettings } from "../types/generated/AutoPushSettings";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { ClipSource } from "../types/generated/ClipSource";
@@ -192,6 +194,7 @@ const mockSnapshot: AppSnapshot = {
       openaiBaseUrl: "",
       openaiModel: "",
       openaiApiKey: "",
+      openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
     },
   },
 };
@@ -440,18 +443,24 @@ export const ipasteApi = {
   updateOcrEngine(engine: AppSettings["ocrEngine"]) {
     return call<AppSettings>("update_ocr_engine", { engine }, mockSettings({ ocrEngine: engine }));
   },
-  updateOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string) {
-    return call<AppSettings>("update_openai_ocr_config", { baseUrl, model, apiKey }, mockSettings({
-      cloudOcr: { openaiBaseUrl: baseUrl, openaiModel: model, openaiApiKey: apiKey },
+  updateOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string, prompts?: CloudOcrPromptMessage[]) {
+    const effectivePrompts = prompts ?? DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }));
+    return call<AppSettings>("update_openai_ocr_config", { baseUrl, model, apiKey, prompts: effectivePrompts }, mockSettings({
+      cloudOcr: { openaiBaseUrl: baseUrl, openaiModel: model, openaiApiKey: apiKey, openaiPrompts: effectivePrompts },
     }));
   },
   clearOpenaiOcrConfig() {
     return call<AppSettings>("clear_openai_ocr_config", undefined, mockSettings({
-      cloudOcr: { openaiBaseUrl: "", openaiModel: "", openaiApiKey: "" },
+      cloudOcr: {
+        openaiBaseUrl: "",
+        openaiModel: "",
+        openaiApiKey: "",
+        openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
+      },
     }));
   },
-  testOpenaiOcr(baseUrl: string, model: string, apiKey: string) {
-    return call<boolean>("test_openai_ocr", { baseUrl, model, apiKey }, true);
+  testOpenaiOcr(baseUrl: string, model: string, apiKey: string, prompts?: CloudOcrPromptMessage[]) {
+    return call<boolean>("test_openai_ocr", { baseUrl, model, apiKey, prompts }, true);
   },
   updateLanguage(language: Language) {
     return call<AppSettings>("update_language", { language }, mockSettings({ language }));

@@ -67,7 +67,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `capture/`：截图与选区 OCR——`mod.rs` 会话编排与冻结帧管理（24 位无压缩 BMP 聚合缓冲写入）、`screen.rs` 多显示器整屏抓取、`overlay.rs` 全屏遮罩窗口生命周期、`selection.rs` 选区几何计算与多屏坐标转换。
 - `clipboard.rs`：剪贴板捕获、规范化和写回。
 - `cloud.rs`：自托管同步 API 客户端（store 侧调用 cloud，cloud 不依赖 store）。
-- `ocr/`：图片与截图 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows Paddle 资源安装器、`paddle.rs` Windows Paddle 识别管线、`openai.rs` OpenAI 兼容端点（base64 inline + chat/completions）、`tokens.rs` macOS/Windows 共享行内分词、`vision.rs` macOS Vision 管线、`mocr.rs` Manga-OCR 调度与 Python 服务桥接、`mocr_onnx.rs` 本地 ONNX 推理桥接、`mocr_installer.rs` Manga-OCR 模型下载器。
+- `ocr/`：图片与截图 OCR——`mod.rs` 状态检测与调度、`installer.rs` Windows Paddle 资源安装器、`paddle.rs` Windows Paddle 识别管线、`openai.rs` OpenAI 兼容端点（base64 inline + chat/completions，支持自定义多角色 Prompt 列表与 `{recognition_language}` 语言占位符动态插值）、`tokens.rs` macOS/Windows 共享行内分词、`vision.rs` macOS Vision 管线、`mocr.rs` Manga-OCR 调度与 Python 服务桥接、`mocr_onnx.rs` 本地 ONNX 推理桥接、`mocr_installer.rs` Manga-OCR 模型下载器。
 - `bin/mocr_engine.rs`：Manga-OCR 独立 ONNX 推理 sidecar 进程（进程隔离解耦 onnxruntime / mnn CRT 冲突，Windows x64 与 macOS Apple Silicon aarch64，通过行式 JSON 与主进程通信）。
 - `window.rs`：主面板/设置/放大预览/设备管理/OCR 结果/OCR 遮罩窗口、原生面板行为和窗口定位（辅助窗口统一走 `show_auxiliary_window`，OCR 遮罩走专用无边框全屏展示）。
 - `tray.rs`：系统托盘、菜单文案与菜单事件处理。
@@ -100,7 +100,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 ## 前端结构
 
 - `stores/ipasteStore.ts`：数据快照缓存与 CRUD 包装；`stores/lib/` 为纯函数库（ordering/selection/settings 清洗/automationFilter/automationTransfer，均带单测）；`stores/uiStore.ts` 为 toast 等瞬态 UI 状态。
-- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useDeviceSync、useUpdater、useShortcutRecorder（主面板与 OCR 快捷键录制）、useOcrEngineSelect（OCR 结果与查看器引擎动态切换）、useOpenaiOcr（OpenAI 端点配置与测试）、useOcrInstaller / useMocrInstaller（Paddle / Manga 模型下载状态管理）、useRegionSelection（截图框选计算）等。
+- `composables/`：按功能簇拆分——useAppEvents（全局事件接线）、useQuickPreview、useAutomationFlow、useClipContextMenu、usePanelKeyboard、useClipListScroll、useDragSort（两处排序共用的指针拖拽引擎）、useDeviceSync、useUpdater、useShortcutRecorder（主面板与 OCR 快捷键录制）、useOcrEngineSelect（OCR 结果与查看器引擎动态切换）、useOpenaiOcr（OpenAI 端点配置、自定义 Prompt 消息增删/重置与测试）、useOcrInstaller / useMocrInstaller（Paddle / Manga 模型下载状态管理）、useRegionSelection（截图框选计算）等。
 - App.vue 保留多窗口路由、面板布局骨架、composable 接线，以及少量面板级残留（条目内联重命名、分类 CRUD 包装、更新检查节流）；新增交互逻辑先进 composable，展示组件保持无业务状态。
 - 错误双通道：加载失败走 store.error 持久横幅；动作失败走 uiStore.pushToast（ErrorToast.vue 渲染）。
 - `lib/env.ts` 是 isTauri 唯一来源；事件名一律用 `types/generated/events` 的 IPASTE_EVENTS。

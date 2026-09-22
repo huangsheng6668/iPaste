@@ -8,6 +8,9 @@ import {
   cleanPanelLayout,
   cleanOcrMode,
   cleanOcrEngine,
+  cleanOpenaiPrompts,
+  cleanCloudOcrSettings,
+  DEFAULT_OPENAI_OCR_PROMPTS,
 } from "./settings";
 
 describe("cleanAppendCopyTimeoutMinutes", () => {
@@ -56,5 +59,53 @@ describe("cleanOcrEngine", () => {
   it("falls back to the local engine for anything else", () => {
     expect(cleanOcrEngine("local")).toBe(DEFAULT_OCR_ENGINE);
     expect(cleanOcrEngine(undefined)).toBe(DEFAULT_OCR_ENGINE);
+  });
+});
+
+describe("cleanOpenaiPrompts", () => {
+  it("falls back to default prompts when input is not an array or empty", () => {
+    expect(cleanOpenaiPrompts(null)).toEqual(DEFAULT_OPENAI_OCR_PROMPTS);
+    expect(cleanOpenaiPrompts(undefined)).toEqual(DEFAULT_OPENAI_OCR_PROMPTS);
+    expect(cleanOpenaiPrompts([])).toEqual(DEFAULT_OPENAI_OCR_PROMPTS);
+    expect(cleanOpenaiPrompts("not-an-array")).toEqual(DEFAULT_OPENAI_OCR_PROMPTS);
+  });
+
+  it("preserves valid prompt messages and normalizes roles and contents", () => {
+    const custom = [
+      { role: "system", content: "System prompt" },
+      { role: "user", content: "User prompt" },
+      { role: "unknown", content: "Unknown role prompt" },
+    ];
+    expect(cleanOpenaiPrompts(custom)).toEqual([
+      { role: "system", content: "System prompt" },
+      { role: "user", content: "User prompt" },
+      { role: "user", content: "Unknown role prompt" },
+    ]);
+  });
+});
+
+describe("cleanCloudOcrSettings", () => {
+  it("normalizes incomplete or invalid object input", () => {
+    expect(cleanCloudOcrSettings(null)).toEqual({
+      openaiBaseUrl: "",
+      openaiModel: "",
+      openaiApiKey: "",
+      openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS,
+    });
+  });
+
+  it("preserves valid fields and cleans prompts", () => {
+    const raw = {
+      openaiBaseUrl: "https://api.example.com",
+      openaiModel: "custom-model",
+      openaiApiKey: "sk-test",
+      openaiPrompts: [{ role: "user", content: "Extract text" }],
+    };
+    expect(cleanCloudOcrSettings(raw)).toEqual({
+      openaiBaseUrl: "https://api.example.com",
+      openaiModel: "custom-model",
+      openaiApiKey: "sk-test",
+      openaiPrompts: [{ role: "user", content: "Extract text" }],
+    });
   });
 });

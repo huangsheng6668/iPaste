@@ -22,9 +22,11 @@ import {
   DEFAULT_PANEL_LAYOUT,
   DEFAULT_RETENTION_DAYS,
   cleanAppendCopyTimeoutMinutes,
+  cleanCloudOcrSettings,
   cleanOcrEngine,
   cleanOcrMode,
   cleanPanelLayout,
+  DEFAULT_OPENAI_OCR_PROMPTS,
 } from "./lib/settings";
 import type {
   AppSettings,
@@ -36,6 +38,7 @@ import type {
   CategoryItem,
   ClipItem,
   ClipViewItem,
+  CloudOcrPromptMessage,
   CloudOcrSettings,
   CloudSettings,
   Language,
@@ -88,6 +91,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     openaiBaseUrl: "",
     openaiModel: "",
     openaiApiKey: "",
+    openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
   });
   let backgroundSyncTimer: number | null = null;
   let clipRequestId = 0;
@@ -132,7 +136,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     language.value = cleanLanguage(snapshot.settings.language);
     setLanguage(language.value);
     cloud.value = snapshot.settings.cloud;
-    cloudOcr.value = snapshot.settings.cloudOcr;
+    cloudOcr.value = cleanCloudOcrSettings(snapshot.settings.cloudOcr);
   }
 
   async function load() {
@@ -504,8 +508,13 @@ export const useIpasteStore = defineStore("ipaste", () => {
     }
   }
 
-  async function saveOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string) {
-    const settings = await ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey);
+  async function saveOpenaiOcrConfig(
+    baseUrl: string,
+    model: string,
+    apiKey: string,
+    prompts?: CloudOcrPromptMessage[],
+  ) {
+    const settings = await ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey, prompts);
     applySettings(settings);
   }
 
@@ -514,8 +523,13 @@ export const useIpasteStore = defineStore("ipaste", () => {
     applySettings(settings);
   }
 
-  async function testOpenaiOcr(baseUrl: string, model: string, apiKey: string) {
-    return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey);
+  async function testOpenaiOcr(
+    baseUrl: string,
+    model: string,
+    apiKey: string,
+    prompts?: CloudOcrPromptMessage[],
+  ) {
+    return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey, prompts);
   }
 
   async function updateLanguage(value: Language) {
@@ -595,7 +609,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     language.value = settings.language;
     setLanguage(language.value);
     cloud.value = settings.cloud;
-    cloudOcr.value = settings.cloudOcr;
+    cloudOcr.value = cleanCloudOcrSettings(settings.cloudOcr);
   }
 
   function selectCategory(id: string) {

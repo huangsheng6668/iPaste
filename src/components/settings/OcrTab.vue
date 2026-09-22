@@ -1,5 +1,20 @@
 <script setup lang="ts">
-import { AlertCircle, BookOpenText, CheckCircle2, Cloud, Download, FolderOpen, LoaderCircle, ScanText, Unplug } from "lucide-vue-next";
+import {
+  AlertCircle,
+  BookOpenText,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Cloud,
+  Download,
+  FolderOpen,
+  LoaderCircle,
+  Plus,
+  RotateCcw,
+  ScanText,
+  Trash2,
+  Unplug,
+} from "lucide-vue-next";
 import { t } from "../../i18n";
 import { formatBytes } from "../../lib/format";
 import { useIpasteStore } from "../../stores/ipasteStore";
@@ -14,6 +29,8 @@ const {
   openaiBaseUrl,
   openaiModel,
   openaiApiKey,
+  openaiPrompts,
+  isPromptsExpanded,
   openaiMessage,
   openaiError,
   isTestingOpenai,
@@ -21,6 +38,9 @@ const {
   openaiConfigured,
   openaiStatusText,
   formComplete,
+  addPrompt,
+  removePrompt,
+  restoreDefaultPrompts,
   testOpenai,
   saveOpenaiConfig,
   clearOpenaiConfig,
@@ -186,6 +206,101 @@ const {
           spellcheck="false"
         >
       </label>
+
+      <!-- 自定义提示词（折叠区域） -->
+      <div class="ocr-prompts-section mt-1 border-t border-[var(--border)] pt-3">
+        <button
+          type="button"
+          class="flex w-full cursor-pointer items-center justify-between py-1 text-left text-xs font-semibold text-[var(--text-2)] transition-colors hover:text-[var(--text-1)]"
+          :aria-expanded="isPromptsExpanded"
+          @click="isPromptsExpanded = !isPromptsExpanded"
+        >
+          <span class="flex items-center gap-1.5">
+            <ChevronDown
+              v-if="isPromptsExpanded"
+              class="size-4 text-[var(--text-3)]"
+            />
+            <ChevronRight
+              v-else
+              class="size-4 text-[var(--text-3)]"
+            />
+            <span>{{ t("settings.openai.promptsTitle") }}</span>
+          </span>
+          <span class="text-[11px] font-medium text-[var(--text-3)]">
+            {{ openaiPrompts.length }}
+          </span>
+        </button>
+
+        <div
+          v-if="isPromptsExpanded"
+          class="mt-3 flex flex-col gap-3"
+        >
+          <div class="rounded-[var(--r-md)] border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {{ t("settings.openai.promptsVariableHint") }}
+          </div>
+
+          <div
+            v-for="(prompt, index) in openaiPrompts"
+            :key="index"
+            class="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--surface-inset)] p-2.5"
+          >
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] font-semibold text-[var(--text-3)]">{{ t("settings.openai.promptsRole") }}</span>
+                <select
+                  v-model="prompt.role"
+                  class="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--text-1)] outline-none focus:border-[var(--accent)]"
+                >
+                  <option value="system">
+                    {{ t("settings.openai.promptsRoleSystem") }}
+                  </option>
+                  <option value="user">
+                    {{ t("settings.openai.promptsRoleUser") }}
+                  </option>
+                </select>
+              </div>
+              <button
+                type="button"
+                class="cursor-pointer rounded p-1 text-[var(--text-3)] transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--text-3)]"
+                :disabled="openaiPrompts.length <= 1"
+                :title="t('settings.openai.removePrompt')"
+                :aria-label="t('settings.openai.removePrompt')"
+                @click="removePrompt(index)"
+              >
+                <Trash2 class="size-3.5" />
+              </button>
+            </div>
+
+            <textarea
+              v-model="prompt.content"
+              rows="3"
+              class="w-full resize-y rounded border border-[var(--border)] bg-[var(--surface)] p-2 font-mono text-xs leading-normal text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-[var(--accent)]"
+              :placeholder="t('settings.openai.promptsContent')"
+              spellcheck="false"
+            />
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-semibold text-[var(--text-1)] transition-colors hover:bg-[var(--surface-hover)]"
+              @click="addPrompt('user')"
+            >
+              <Plus class="size-3.5" />
+              <span>{{ t("settings.openai.addPrompt") }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1 text-xs text-[var(--text-3)] transition-colors hover:text-[var(--text-1)]"
+              @click="restoreDefaultPrompts"
+            >
+              <RotateCcw class="size-3" />
+              <span>{{ t("settings.openai.restoreDefaultPrompts") }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <p class="ocr-mode-hint">
         {{ t("settings.openai.privacyHint") }}

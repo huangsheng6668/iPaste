@@ -14,8 +14,8 @@ use crate::events::{EVENT_LISTENING_CHANGED, ListeningChanged};
 use crate::models::{
     AppInfo, AppSettings, AppSnapshot, AppState, AutomationAction, AutomationInput,
     AutomationRunDetail, AutomationRunSummary, Category, CategoryItem, CategoryWithItem,
-    ClipPage, ClipUpdate, ImageOcrResult, MainWindowActivation, OcrInstallStatus,
-    OcrResultPayload, ScreenshotSelection, SearchResult,
+    ClipPage, ClipUpdate, CloudOcrPromptMessage, ImageOcrResult, MainWindowActivation,
+    OcrInstallStatus, OcrResultPayload, ScreenshotSelection, SearchResult,
 };
 use crate::paste::paste_to_previous_app;
 use crate::shortcut::{
@@ -387,10 +387,11 @@ pub(crate) fn update_openai_ocr_config(
     base_url: String,
     model: String,
     api_key: String,
+    prompts: Option<Vec<CloudOcrPromptMessage>>,
 ) -> Result<AppSettings, AppError> {
     let settings = state
         .store
-        .update_openai_ocr_config(base_url, model, api_key)?;
+        .update_openai_ocr_config(base_url, model, api_key, prompts)?;
     emit_settings_changed(&app, &settings);
     Ok(settings)
 }
@@ -412,12 +413,13 @@ pub(crate) async fn test_openai_ocr(
     base_url: String,
     model: String,
     api_key: String,
+    prompts: Option<Vec<CloudOcrPromptMessage>>,
 ) -> Result<bool, AppError> {
     let base_url = clean_openai_base_url(base_url)?;
     let model = clean_openai_model(model)?;
     let api_key = clean_api_key(api_key).map_err(|_| "请输入 API Key".to_string())?;
     tokio::task::spawn_blocking(move || {
-        crate::ocr::openai::test_connection(&base_url, &model, &api_key)
+        crate::ocr::openai::test_connection(&base_url, &model, &api_key, prompts.as_deref())
     })
     .await
     .map_err(|error| AppError::internal(error.to_string()))?

@@ -89,6 +89,7 @@ export type AutomationAction = Omit<AutomationActionGen, "lastRun"> & { lastRun:
 export type { AppInfo, AutomationInput, CloudSettings, ClipUpdate, OcrInstallProgress, ImageOcrResult, ImageOcrWord };
 export type { ScreenshotSelection, OcrResultPayload };
 export type { CloudOcrSettings } from "./types/generated/CloudOcrSettings";
+export type { CloudOcrPromptMessage } from "./types/generated/CloudOcrPromptMessage";
 export type { Category };
 
 // —— 事件 payload（沿用旧名）——

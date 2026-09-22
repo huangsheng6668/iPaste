@@ -291,6 +291,13 @@ impl Store {
                 String::new()
             }
         };
+        let openai_prompts = match self.setting_value_with_conn(conn, "openai_ocr_prompts")? {
+            Some(json_str) if !json_str.trim().is_empty() => {
+                serde_json::from_str::<Vec<crate::models::CloudOcrPromptMessage>>(&json_str)
+                    .unwrap_or_else(|_| crate::models::default_openai_ocr_prompts())
+            }
+            _ => crate::models::default_openai_ocr_prompts(),
+        };
         Ok(CloudOcrSettings {
             openai_base_url: self
                 .setting_value_with_conn(conn, "openai_ocr_base_url")?
@@ -299,15 +306,17 @@ impl Store {
                 .setting_value_with_conn(conn, "openai_ocr_model")?
                 .unwrap_or_default(),
             openai_api_key,
+            openai_prompts,
         })
     }
 
-    /// 保存 OpenAI 兼容接口配置：Key 走凭据库，Base URL / 模型名落普通 KV。
+    /// 保存 OpenAI 兼容接口配置：Key 走凭据库，Base URL / 模型名 / Prompt 列表落普通 KV。
     pub(crate) fn update_openai_ocr_config(
         &self,
         base_url: String,
         model: String,
         api_key: String,
+        prompts: Option<Vec<crate::models::CloudOcrPromptMessage>>,
     ) -> Result<AppSettings, String> {
         let base_url = crate::util::clean_openai_base_url(base_url)?;
         let model = crate::util::clean_openai_model(model)?;
@@ -326,6 +335,24 @@ impl Store {
             )
             .map_err(|error| error.to_string())?;
         }
+        if let Some(prompts_list) = prompts {
+            let filtered: Vec<crate::models::CloudOcrPromptMessage> = prompts_list
+                .into_iter()
+                .filter(|m| !m.content.trim().is_empty())
+                .collect();
+            let effective = if filtered.is_empty() {
+                crate::models::default_openai_ocr_prompts()
+            } else {
+                filtered
+            };
+            let prompts_json = serde_json::to_string(&effective).map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('openai_ocr_prompts', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![prompts_json],
+            )
+            .map_err(|error| error.to_string())?;
+        }
         conn.execute(
             "INSERT INTO settings (key, value) VALUES ('openai_api_key', '')
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -340,7 +367,7 @@ impl Store {
         super::secrets::delete_openai_ocr_api_key()?;
         let conn = self.connect()?;
         conn.execute(
-            "DELETE FROM settings WHERE key IN ('openai_ocr_base_url', 'openai_ocr_model', 'openai_api_key')",
+            "DELETE FROM settings WHERE key IN ('openai_ocr_base_url', 'openai_ocr_model', 'openai_api_key', 'openai_ocr_prompts')",
             [],
         )
         .map_err(|error| error.to_string())?;
@@ -606,27 +633,35 @@ mod cloud_ocr_keyring_tests {
         let _ = secrets::delete_openai_ocr_api_key();
         let store = temp_store();
 
+        let custom_prompts = vec![crate::models::CloudOcrPromptMessage {
+            role: "user".to_string(),
+            content: "Custom OCR for {recognition_language}.".to_string(),
+        }];
+
         let s = store
             .update_openai_ocr_config(
                 "  https://open.bigmodel.cn/api/paas/v4/  ".to_string(),
                 "glm-4v-flash".to_string(),
                 "  sk-test  ".to_string(),
+                Some(custom_prompts.clone()),
             )
             .unwrap();
         assert_eq!(s.cloud_ocr.openai_base_url, "https://open.bigmodel.cn/api/paas/v4", "保存会 trim 斜杠");
         assert_eq!(s.cloud_ocr.openai_model, "glm-4v-flash");
         assert_eq!(s.cloud_ocr.openai_api_key, "sk-test");
+        assert_eq!(s.cloud_ocr.openai_prompts, custom_prompts);
 
         let reloaded = store.settings().unwrap();
         assert_eq!(reloaded.cloud_ocr.openai_base_url, "https://open.bigmodel.cn/api/paas/v4");
         assert_eq!(reloaded.cloud_ocr.openai_api_key, "sk-test", "Key 从凭据库回填");
+        assert_eq!(reloaded.cloud_ocr.openai_prompts, custom_prompts);
 
         // 非法 Base URL / 空模型被拒绝且不落库
         assert!(store
-            .update_openai_ocr_config("ftp://x".to_string(), "m".to_string(), "k".to_string())
+            .update_openai_ocr_config("ftp://x".to_string(), "m".to_string(), "k".to_string(), None)
             .is_err());
         assert!(store
-            .update_openai_ocr_config("https://x".to_string(), "  ".to_string(), "k".to_string())
+            .update_openai_ocr_config("https://x".to_string(), "  ".to_string(), "k".to_string(), None)
             .is_err());
         assert_eq!(store.settings().unwrap().cloud_ocr.openai_model, "glm-4v-flash");
 
@@ -634,6 +669,7 @@ mod cloud_ocr_keyring_tests {
         assert_eq!(s.cloud_ocr.openai_base_url, "");
         assert_eq!(s.cloud_ocr.openai_model, "");
         assert_eq!(s.cloud_ocr.openai_api_key, "");
+        assert_eq!(s.cloud_ocr.openai_prompts, crate::models::default_openai_ocr_prompts(), "清空后回退默认 prompt");
         assert_eq!(secrets::get_openai_ocr_api_key().unwrap(), None);
     }
 
@@ -647,7 +683,7 @@ mod cloud_ocr_keyring_tests {
 
         store.update_ocr_engine("openai".to_string()).unwrap();
         assert!(!store.cloud_ocr_engine_ready(), "引擎已选但配置不全");
-        store.update_openai_ocr_config("https://api.example.com/v1".into(), "m".into(), "k".into()).unwrap();
+        store.update_openai_ocr_config("https://api.example.com/v1".into(), "m".into(), "k".into(), None).unwrap();
         assert!(store.cloud_ocr_engine_ready());
 
         let _ = store.clear_openai_ocr_config();
