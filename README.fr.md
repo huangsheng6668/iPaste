@@ -170,7 +170,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS), OpenAI-compatible cloud client (cross-platform) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -206,7 +206,12 @@ Les actions rapides sont des commandes shell enregistrées, affichées dans leur
 
 ### Image OCR
 
-macOS utilise le framework Vision du système. Windows utilise des modèles PaddleOCR qui peuvent être installés depuis les préférences de l'application.
+Vous pouvez choisir entre le moteur local ou le moteur cloud dans Paramètres → OCR d'image :
+
+- **Local** : macOS utilise le framework Vision du système ; Windows utilise des modèles PaddleOCR que vous pouvez installer depuis les préférences de l'application. Fonctionne hors ligne.
+- **OpenAI compatible** : envoie les images à n'importe quel endpoint doté d'un modèle de vision (GLM-4V, GPT-4o, Qwen-VL, vLLM/Ollama local, etc.). Nécessite de renseigner l'URL de base, le nom du modèle et la clé API dans les paramètres.
+
+Les deux moteurs fonctionnent sur l'OCR de capture d'écran et sur l'OCR de la visionneuse d'images ; le résultat est automatiquement copié dans le presse-papiers après la reconnaissance.
 
 ## Contributing
 

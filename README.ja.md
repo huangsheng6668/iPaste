@@ -171,7 +171,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS), OpenAI-compatible cloud client (cross-platform) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -207,7 +207,12 @@ iPaste から貼り付けると、アプリは選択したスニペットをシ�
 
 ### Image OCR
 
-macOS はシステムの Vision framework を使用します。Windows はアプリの環境設定からインストールできる PaddleOCR モデルを使用します。
+「設定 → 画像 OCR」でローカルまたはクラウドエンジンを選択できます：
+
+- **ローカル**：macOS はシステムの Vision framework を使用します。Windows はアプリの環境設定からインストールできる PaddleOCR モデルを使用します。オフラインで利用可能です。
+- **OpenAI 互換 API**：任意のビジョンモデルエンドポイント（GLM-4V、GPT-4o、Qwen-VL、ローカル vLLM/Ollama など）に画像を送信します。設定画面で Base URL、モデル名、API Key を入力する必要があります。
+
+両エンジンともスクリーンショット OCR と画像ビューア OCR をサポートし、認識完了後に結果を自動的にクリップボードにコピーします。
 
 ## Contributing
 

@@ -223,7 +223,12 @@ Rust 后端在后台监听系统剪贴板，对受支持的内容进行规范化
 
 ### 图片 OCR
 
-macOS 使用系统 Vision 框架。Windows 使用可在应用偏好设置中安装的 PaddleOCR 模型。
+在「设置 → 图片 OCR」中可选择本地或云端引擎：
+
+- **本地**：macOS 使用系统 Vision 框架；Windows 使用 PaddleOCR 模型（可在应用偏好设置中下载）。离线可用。
+- **OpenAI 兼容接口**：将图片发送到任意视觉模型端点（GLM-4V、GPT-4o、Qwen-VL、本地 vLLM/Ollama 等）。需在设置中填写 Base URL、模型名和 API Key。
+
+两种引擎均支持截图识别与图片查看器 OCR，识别完成后自动复制结果到剪贴板。
 
 ## 贡献
 

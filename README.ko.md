@@ -170,7 +170,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS), OpenAI-compatible cloud client (cross-platform) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -206,7 +206,12 @@ iPaste에서 붙여넣을 때 앱은 선택한 스니펫을 시스템 클립보�
 
 ### Image OCR
 
-macOS는 시스템 Vision framework를 사용합니다. Windows는 앱 환경설정에서 설치할 수 있는 PaddleOCR 모델을 사용합니다.
+「설정 → 이미지 OCR」에서 로컬 또는 클라우드 엔진을 선택할 수 있습니다:
+
+- **로컬**: macOS는 시스템 Vision framework를 사용합니다. Windows는 앱 환경설정에서 설치할 수 있는 PaddleOCR 모델을 사용합니다. 오프라인에서 사용할 수 있습니다.
+- **OpenAI 호환 API**: GLM-4V, GPT-4o, Qwen-VL, 로컬 vLLM/Ollama 등 모든 비전 모델 엔드포인트에 이미지를 전송합니다. 설정에서 Base URL, 모델 이름, API Key를 입력해야 합니다.
+
+두 엔진 모두 스크린샷 OCR과 이미지 뷰어 OCR을 지원하며, 인식 완료 후 결과를 자동으로 클립보드에 복사합니다. 
 
 ## Contributing
 

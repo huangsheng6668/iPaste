@@ -223,7 +223,12 @@ Quick actions are saved shell commands shown in their own panel category. Run th
 
 ### Image OCR
 
-macOS uses the system Vision framework. Windows uses PaddleOCR models that can be installed from app preferences.
+Choose between local or cloud engines in Settings → Image OCR:
+
+- **Local**: macOS uses the system Vision framework; Windows uses PaddleOCR models you can install from app preferences. Works offline.
+- **OpenAI-compatible**: send images to any vision-capable endpoint (GLM-4V, GPT-4o, Qwen-VL, local vLLM/Ollama, etc.). Requires configuring Base URL, model name, and API Key.
+
+Both engines run on screenshot capture and image viewer OCR, and results are auto-copied to the clipboard after recognition.
 
 ## Contributing
 

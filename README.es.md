@@ -171,7 +171,7 @@ The Rust backend in `src-tauri/src/` is split into small domain modules:
 | `clipboard.rs` | Clipboard capture, normalization, and write-back |
 | `cloud.rs` | Self-hosted sync API client |
 | `lan_sync/` | Cross-device sync (v5): iroh QUIC transport, one-time invite tickets, device identity and trust store, multi-device link registry, pairing guard |
-| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS) |
+| `ocr/` | Image OCR: asset installer and status (Windows), PaddleOCR runner (Windows), Vision pipeline (macOS), OpenAI-compatible cloud client (cross-platform) |
 | `window.rs` | Panel/settings/viewer windows, native panel behavior, window positioning |
 | `tray.rs` | System tray, menu labels, menu event handling |
 | `shortcut.rs` | Global shortcut registration and updates |
@@ -207,7 +207,12 @@ Las acciones rápidas son comandos de shell guardados que se muestran en su prop
 
 ### Image OCR
 
-macOS usa el framework Vision del sistema. Windows usa modelos de PaddleOCR que pueden instalarse desde las preferencias de la app.
+Puedes elegir entre el motor local o el de la nube en Ajustes → OCR de imagen:
+
+- **Local**: macOS usa el framework Vision del sistema; Windows usa modelos de PaddleOCR que puedes instalar desde las preferencias de la app. Funciona sin conexión.
+- **OpenAI compatible**: envía imágenes a cualquier endpoint con modelo de visión (GLM-4V, GPT-4o, Qwen-VL, vLLM/Ollama local, etc.). Requiere configurar Base URL, nombre del modelo y API Key en los ajustes.
+
+Ambos motores funcionan en el OCR de capturas y en el visor de imágenes; el resultado se copia automáticamente al portapapeles tras el reconocimiento.
 
 ## Contributing
 
