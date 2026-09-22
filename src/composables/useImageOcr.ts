@@ -510,6 +510,8 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     } finally {
       isRecognizingImage.value = false;
     }
+    // 识别成功后默认把全文复制到剪贴板；复制失败不影响已展示的识别结果
+    await pasteImageOcrText().catch(() => undefined);
   }
 
   async function changeOcrLanguage(language: string) {

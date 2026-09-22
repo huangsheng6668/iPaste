@@ -38,6 +38,11 @@ async function runRecognition(profile: "default" | "manga") {
     );
     text.value = result.text;
     status.value = result.text.trim() ? "ready" : "empty";
+    // 识别成功后默认把结果复制到剪贴板（copyText 会给出“已复制”反馈）；
+    // 复制失败不回退成“识别失败”
+    if (status.value === "ready") {
+      await copyText().catch(() => undefined);
+    }
     await nextTick();
     textareaRef.value?.focus();
     textareaRef.value?.select();
