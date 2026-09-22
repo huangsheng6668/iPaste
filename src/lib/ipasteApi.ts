@@ -180,12 +180,19 @@ const mockSnapshot: AppSnapshot = {
     panelOpenBehavior: "history",
     panelLayout: "top",
     ocrMode: "fast",
+    ocrEngine: "local",
     language: "en",
     cloud: {
       apiAddress: "",
       apiKey: "",
       enabled: false,
       lastConnectedAt: null,
+    },
+    cloudOcr: {
+      openaiBaseUrl: "",
+      openaiModel: "",
+      bigmodelApiKey: "",
+      openaiApiKey: "",
     },
   },
 };
@@ -430,6 +437,35 @@ export const ipasteApi = {
   },
   updateOcrMode(mode: OcrMode) {
     return call<AppSettings>("update_ocr_mode", { mode }, mockSettings({ ocrMode: mode }));
+  },
+  updateOcrEngine(engine: AppSettings["ocrEngine"]) {
+    return call<AppSettings>("update_ocr_engine", { engine }, mockSettings({ ocrEngine: engine }));
+  },
+  updateBigmodelApiKey(apiKey: string) {
+    return call<AppSettings>("update_bigmodel_api_key", { apiKey }, mockSettings({
+      cloudOcr: { ...mockSettings().cloudOcr, bigmodelApiKey: apiKey },
+    }));
+  },
+  clearBigmodelApiKey() {
+    return call<AppSettings>("clear_bigmodel_api_key", undefined, mockSettings({
+      cloudOcr: { ...mockSettings().cloudOcr, bigmodelApiKey: "" },
+    }));
+  },
+  testBigmodelOcr(apiKey: string) {
+    return call<boolean>("test_bigmodel_ocr", { apiKey }, true);
+  },
+  updateOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string) {
+    return call<AppSettings>("update_openai_ocr_config", { baseUrl, model, apiKey }, mockSettings({
+      cloudOcr: { openaiBaseUrl: baseUrl, openaiModel: model, openaiApiKey: apiKey, bigmodelApiKey: "" },
+    }));
+  },
+  clearOpenaiOcrConfig() {
+    return call<AppSettings>("clear_openai_ocr_config", undefined, mockSettings({
+      cloudOcr: { openaiBaseUrl: "", openaiModel: "", openaiApiKey: "", bigmodelApiKey: "" },
+    }));
+  },
+  testOpenaiOcr(baseUrl: string, model: string, apiKey: string) {
+    return call<boolean>("test_openai_ocr", { baseUrl, model, apiKey }, true);
   },
   updateLanguage(language: Language) {
     return call<AppSettings>("update_language", { language }, mockSettings({ language }));

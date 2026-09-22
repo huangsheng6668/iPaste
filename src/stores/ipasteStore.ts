@@ -17,10 +17,12 @@ import { showError } from "./uiStore";
 import {
   DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
   DEFAULT_LANGUAGE,
+  DEFAULT_OCR_ENGINE,
   DEFAULT_OCR_MODE,
   DEFAULT_PANEL_LAYOUT,
   DEFAULT_RETENTION_DAYS,
   cleanAppendCopyTimeoutMinutes,
+  cleanOcrEngine,
   cleanOcrMode,
   cleanPanelLayout,
 } from "./lib/settings";
@@ -34,8 +36,10 @@ import type {
   CategoryItem,
   ClipItem,
   ClipViewItem,
+  CloudOcrSettings,
   CloudSettings,
   Language,
+  OcrEngine,
   OcrMode,
   PanelLayout,
   PanelOpenBehavior,
@@ -72,12 +76,19 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const panelOpenBehavior = ref<PanelOpenBehavior>("history");
   const panelLayout = ref<PanelLayout>(DEFAULT_PANEL_LAYOUT);
   const ocrMode = ref<OcrMode>(DEFAULT_OCR_MODE);
+  const ocrEngine = ref<OcrEngine>(DEFAULT_OCR_ENGINE);
   const language = ref<Language>(DEFAULT_LANGUAGE);
   const cloud = ref<CloudSettings>({
     apiAddress: "",
     apiKey: "",
     enabled: false,
     lastConnectedAt: null,
+  });
+  const cloudOcr = ref<CloudOcrSettings>({
+    openaiBaseUrl: "",
+    openaiModel: "",
+    bigmodelApiKey: "",
+    openaiApiKey: "",
   });
   let backgroundSyncTimer: number | null = null;
   let clipRequestId = 0;
@@ -118,9 +129,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
     panelOpenBehavior.value = snapshot.settings.panelOpenBehavior;
     panelLayout.value = cleanPanelLayout(snapshot.settings.panelLayout);
     ocrMode.value = cleanOcrMode(snapshot.settings.ocrMode);
+    ocrEngine.value = cleanOcrEngine(snapshot.settings.ocrEngine);
     language.value = cleanLanguage(snapshot.settings.language);
     setLanguage(language.value);
     cloud.value = snapshot.settings.cloud;
+    cloudOcr.value = snapshot.settings.cloudOcr;
   }
 
   async function load() {
@@ -478,6 +491,48 @@ export const useIpasteStore = defineStore("ipaste", () => {
     }
   }
 
+  async function updateOcrEngine(engine: OcrEngine) {
+    const nextEngine = cleanOcrEngine(engine);
+    ocrEngine.value = nextEngine;
+
+    try {
+      const settings = await ipasteApi.updateOcrEngine(nextEngine);
+      applySettings(settings);
+    } catch (unknownError) {
+      if (isCommandMissing(unknownError, "update_ocr_engine")) return;
+      showError(unknownError);
+      throw unknownError;
+    }
+  }
+
+  async function saveBigmodelApiKey(apiKey: string) {
+    const settings = await ipasteApi.updateBigmodelApiKey(apiKey);
+    applySettings(settings);
+  }
+
+  async function clearBigmodelApiKey() {
+    const settings = await ipasteApi.clearBigmodelApiKey();
+    applySettings(settings);
+  }
+
+  async function testBigmodelOcr(apiKey: string) {
+    return ipasteApi.testBigmodelOcr(apiKey);
+  }
+
+  async function saveOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string) {
+    const settings = await ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey);
+    applySettings(settings);
+  }
+
+  async function clearOpenaiOcrConfig() {
+    const settings = await ipasteApi.clearOpenaiOcrConfig();
+    applySettings(settings);
+  }
+
+  async function testOpenaiOcr(baseUrl: string, model: string, apiKey: string) {
+    return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey);
+  }
+
   async function updateLanguage(value: Language) {
     const nextLanguage = cleanLanguage(value);
     language.value = nextLanguage;
@@ -551,9 +606,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
     panelOpenBehavior.value = settings.panelOpenBehavior;
     panelLayout.value = settings.panelLayout;
     ocrMode.value = settings.ocrMode;
+    ocrEngine.value = cleanOcrEngine(settings.ocrEngine);
     language.value = settings.language;
     setLanguage(language.value);
     cloud.value = settings.cloud;
+    cloudOcr.value = settings.cloudOcr;
   }
 
   function selectCategory(id: string) {
@@ -697,6 +754,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
     panelOpenBehavior,
     panelLayout,
     ocrMode,
+    ocrEngine,
+    cloudOcr,
     language,
     cloud,
     activeCategory,
@@ -732,6 +791,13 @@ export const useIpasteStore = defineStore("ipaste", () => {
     updatePanelOpenBehavior,
     updatePanelLayout,
     updateOcrMode,
+    updateOcrEngine,
+    saveBigmodelApiKey,
+    clearBigmodelApiKey,
+    testBigmodelOcr,
+    saveOpenaiOcrConfig,
+    clearOpenaiOcrConfig,
+    testOpenaiOcr,
     updateLanguage,
     saveCloudSettings,
     disableCloudSync,

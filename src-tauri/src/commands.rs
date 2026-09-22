@@ -24,7 +24,10 @@ use crate::shortcut::{
 use crate::tray::{
     apply_tray_language, set_append_copy_enabled_inner, update_pause_capture_menu_label,
 };
-use crate::util::{clean_api_address, clean_api_key, clean_shortcut, localized_text};
+use crate::util::{
+    clean_api_address, clean_api_key, clean_openai_base_url, clean_openai_model, clean_shortcut,
+    localized_text,
+};
 use crate::window::{
     CLIP_VIEWER_WINDOW_PREFIX, SETTINGS_WINDOW, apply_main_window_layout_geometry,
     hide_main_window, show_clip_viewer_window, show_main_window, show_settings_window,
@@ -364,6 +367,96 @@ pub(crate) fn update_ocr_mode(
     let settings = state.store.update_ocr_mode(mode)?;
     emit_settings_changed(&app, &settings);
     Ok(settings)
+}
+
+#[tauri::command]
+pub(crate) fn update_ocr_engine(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    engine: String,
+) -> Result<AppSettings, AppError> {
+    let settings = state.store.update_ocr_engine(engine)?;
+    emit_settings_changed(&app, &settings);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub(crate) fn update_bigmodel_api_key(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    api_key: String,
+) -> Result<AppSettings, AppError> {
+    let settings = state.store.update_bigmodel_api_key(api_key)?;
+    emit_settings_changed(&app, &settings);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub(crate) fn clear_bigmodel_api_key(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<AppSettings, AppError> {
+    let settings = state.store.clear_bigmodel_api_key()?;
+    emit_settings_changed(&app, &settings);
+    Ok(settings)
+}
+
+/// 设置页「测试」按钮：用内存生成的小图实测一次 BigModel OCR，
+/// 验证 Key 有效性与服务连通性（与 test_cloud_settings 同定位）。
+#[tauri::command]
+pub(crate) async fn test_bigmodel_ocr(api_key: String) -> Result<bool, AppError> {
+    let api_key = clean_api_key(api_key)
+        .map_err(|_| "请输入 BigModel API Key".to_string())?;
+    tokio::task::spawn_blocking(move || crate::ocr::bigmodel::test_connection(&api_key))
+        .await
+        .map_err(|error| AppError::internal(error.to_string()))?
+        .map(|_| true)
+        .map_err(AppError::internal)
+}
+
+#[tauri::command]
+pub(crate) fn update_openai_ocr_config(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    base_url: String,
+    model: String,
+    api_key: String,
+) -> Result<AppSettings, AppError> {
+    let settings = state
+        .store
+        .update_openai_ocr_config(base_url, model, api_key)?;
+    emit_settings_changed(&app, &settings);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub(crate) fn clear_openai_ocr_config(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<AppSettings, AppError> {
+    let settings = state.store.clear_openai_ocr_config()?;
+    emit_settings_changed(&app, &settings);
+    Ok(settings)
+}
+
+/// 设置页「测试」按钮：上传空白小图跑一次视觉模型转写，验证 Base URL /
+/// 模型 / Key 的组合可用（不校验转写内容）。
+#[tauri::command]
+pub(crate) async fn test_openai_ocr(
+    base_url: String,
+    model: String,
+    api_key: String,
+) -> Result<bool, AppError> {
+    let base_url = clean_openai_base_url(base_url)?;
+    let model = clean_openai_model(model)?;
+    let api_key = clean_api_key(api_key).map_err(|_| "请输入 API Key".to_string())?;
+    tokio::task::spawn_blocking(move || {
+        crate::ocr::openai::test_connection(&base_url, &model, &api_key)
+    })
+    .await
+    .map_err(|error| AppError::internal(error.to_string()))?
+    .map(|_| true)
+    .map_err(AppError::internal)
 }
 
 #[tauri::command]

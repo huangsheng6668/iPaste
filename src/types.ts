@@ -9,6 +9,7 @@ export type ClipType = "text" | "link" | "color" | "image" | "file" | "html";
 export type PanelOpenBehavior = "history" | "last_selected";
 export type PanelLayout = "top" | "side";
 export type OcrMode = "fast" | "best";
+export type OcrEngine = "local" | "bigmodel" | "openai";
 export type Language = "en" | "zh-CN" | "ja" | "ko" | "es" | "fr" | "de";
 export type AutomationStatus = "idle" | "running" | "success" | "failed" | "timed_out";
 export type SyncState = "local" | "syncing" | "synced" | "conflict";
@@ -67,10 +68,11 @@ export type SearchResult =
   | (Omit<Extract<SearchResultGen, { kind: "history" }>, "page"> & { page: ClipPage })
   | (Omit<Extract<SearchResultGen, { kind: "categoryHits" }>, "groups"> & { groups: CategoryHitGroup[] });
 
-export type AppSettings = Omit<AppSettingsGen, "panelOpenBehavior" | "panelLayout" | "ocrMode" | "language"> & {
+export type AppSettings = Omit<AppSettingsGen, "panelOpenBehavior" | "panelLayout" | "ocrMode" | "ocrEngine" | "language"> & {
   panelOpenBehavior: PanelOpenBehavior;
   panelLayout: PanelLayout;
   ocrMode: OcrMode;
+  ocrEngine: OcrEngine;
   language: Language;
 };
 
@@ -86,6 +88,7 @@ export type AutomationAction = Omit<AutomationActionGen, "lastRun"> & { lastRun:
 
 export type { AppInfo, AutomationInput, CloudSettings, ClipUpdate, OcrInstallProgress, ImageOcrResult, ImageOcrWord };
 export type { ScreenshotSelection, OcrResultPayload };
+export type { CloudOcrSettings } from "./types/generated/CloudOcrSettings";
 export type { Category };
 
 // —— 事件 payload（沿用旧名）——

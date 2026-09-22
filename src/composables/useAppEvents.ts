@@ -86,6 +86,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
       ocrModelMissing: "ocrScreenshot.errorOcrModelMissing",
       ocrUnsupported: "ocrScreenshot.errorOcrUnsupported",
       screenCaptureFailed: "ocrScreenshot.errorScreenCaptureFailed",
+      ocrCloudKeyMissing: "ocrScreenshot.errorOcrCloudKeyMissing",
     };
     ui.pushToast(t(keyByCode[event.payload.code] ?? "ocrScreenshot.recognizeFailed"));
   });

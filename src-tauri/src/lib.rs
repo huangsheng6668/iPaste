@@ -35,6 +35,8 @@ use crate::commands::{
     set_append_copy_enabled, update_settings, update_append_copy_timeout, update_shortcut,
     update_ocr_shortcut,
     set_app_shortcut_enabled, update_panel_open_behavior, update_panel_layout, update_ocr_mode,
+    update_ocr_engine, update_bigmodel_api_key, clear_bigmodel_api_key, test_bigmodel_ocr,
+    update_openai_ocr_config, clear_openai_ocr_config, test_openai_ocr,
     update_language, update_cloud_settings, disable_cloud_sync, test_cloud_settings, get_app_info,
     get_ocr_install_status, install_ocr_assets, remove_ocr_assets, recognize_image_text,
     get_mocr_install_status, install_mocr_assets, remove_mocr_assets,
@@ -74,6 +76,7 @@ pub(crate) const RESUME_CAPTURE_LABEL: &str = "恢复捕捉";
 pub(crate) const ENABLE_APPEND_COPY_LABEL: &str = "开启追加复制";
 pub(crate) const DISABLE_APPEND_COPY_LABEL: &str = "关闭追加复制";
 pub(crate) const DEFAULT_OCR_MODE: &str = "fast";
+pub(crate) const DEFAULT_OCR_ENGINE: &str = "local";
 pub(crate) const DEFAULT_RETENTION_DAYS: i64 = 30;
 pub(crate) const RETENTION_OPTIONS: [i64; 4] = [7, 14, 30, 90];
 pub(crate) const DEFAULT_APPEND_COPY_TIMEOUT_MINUTES: i64 = 1;
@@ -200,6 +203,13 @@ pub fn run() {
             update_panel_open_behavior,
             update_panel_layout,
             update_ocr_mode,
+            update_ocr_engine,
+            update_bigmodel_api_key,
+            clear_bigmodel_api_key,
+            test_bigmodel_ocr,
+            update_openai_ocr_config,
+            clear_openai_ocr_config,
+            test_openai_ocr,
             update_language,
             update_cloud_settings,
             disable_cloud_sync,

@@ -155,6 +155,38 @@ pub(crate) fn clean_ocr_mode(mode: String) -> Result<String, String> {
     }
 }
 
+pub(crate) fn clean_ocr_engine(engine: String) -> Result<String, String> {
+    let engine = engine.trim();
+    if matches!(engine, "local" | "bigmodel" | "openai") {
+        Ok(engine.to_string())
+    } else {
+        Err("请选择有效的图片 OCR 引擎".to_string())
+    }
+}
+
+/// OpenAI 兼容接口基地址：去空白与结尾斜杠；http 允许（本地 vLLM/Ollama 场景）。
+pub(crate) fn clean_openai_base_url(url: String) -> Result<String, String> {
+    let url = url.trim().trim_end_matches('/').to_string();
+    if url.is_empty() {
+        Err("请输入 OpenAI 兼容接口地址".to_string())
+    } else if !(url.starts_with("http://") || url.starts_with("https://")) {
+        Err("接口地址需要以 http:// 或 https:// 开头".to_string())
+    } else {
+        Ok(url)
+    }
+}
+
+pub(crate) fn clean_openai_model(model: String) -> Result<String, String> {
+    let model = model.trim();
+    if model.is_empty() {
+        Err("请输入视觉模型名称".to_string())
+    } else if model.chars().count() > 100 {
+        Err("模型名称不能超过 100 个字符".to_string())
+    } else {
+        Ok(model.to_string())
+    }
+}
+
 const OCR_LANGUAGES: [&str; 5] = ["auto", "zh-Hans", "zh-Hant", "en", "ja"];
 
 /// OCR 语言参数清洗：合法 id 原样返回，"auto" 与非法值归一为 None（等价自动检测）。

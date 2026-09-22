@@ -112,6 +112,19 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
 
     #[cfg(not(target_os = "macos"))]
     {
+        // 云引擎配置完整：无需本地模型，直接放行（识别阶段的错误由结果窗明确提示）
+        if state.store.cloud_ocr_engine_ready() {
+            return Ok(());
+        }
+        // 引擎选了云但配置不全：专用错误码引导去设置页，避免误导为本地模型缺失
+        let engine_is_cloud = state
+            .store
+            .settings()
+            .map(|settings| matches!(settings.ocr_engine.as_str(), "bigmodel" | "openai"))
+            .unwrap_or(false);
+        if engine_is_cloud {
+            return Err("ocrCloudKeyMissing");
+        }
         match crate::ocr::install_status(app, &state.store) {
             Ok(status) if status.platform == "unsupported" => return Err("ocrUnsupported"),
             Ok(status) if !status.installed => return Err("ocrModelMissing"),
@@ -130,7 +143,7 @@ fn preflight_failed(app: &tauri::AppHandle, code: &str) {
     );
     let tab = match code {
         "screenRecordingPermission" => Some("permissions"),
-        "ocrModelMissing" => Some("ocr"),
+        "ocrModelMissing" | "ocrCloudKeyMissing" => Some("ocr"),
         _ => None,
     };
     if let Some(tab) = tab {

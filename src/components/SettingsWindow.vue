@@ -38,16 +38,14 @@ const tabs = computed(() => {
   const items: Array<{ id: SettingsTab; label: string; icon: typeof SlidersHorizontal }> = [
     { id: "general", label: t("settings.tabs.general"), icon: SlidersHorizontal },
     { id: "shortcuts", label: t("settings.tabs.shortcuts"), icon: Keyboard },
+    // 云 OCR（BigModel）跨平台可用，OCR 标签不再仅限非 macOS
+    { id: "ocr", label: t("settings.tabs.ocr"), icon: ScanText },
     { id: "dataManagement", label: t("settings.tabs.dataManagement"), icon: Database },
     { id: "about", label: t("settings.tabs.about"), icon: Sparkles },
   ];
 
-  if (!isMacOs) {
-    items.splice(2, 0, { id: "ocr", label: t("settings.tabs.ocr"), icon: ScanText });
-  }
-
   if (isMacOs) {
-    items.splice(3, 0, { id: "permissions", label: t("settings.tabs.permissions"), icon: ShieldCheck });
+    items.splice(4, 0, { id: "permissions", label: t("settings.tabs.permissions"), icon: ShieldCheck });
   }
 
   return items;

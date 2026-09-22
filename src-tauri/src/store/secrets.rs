@@ -7,6 +7,8 @@ use keyring::Entry;
 const SERVICE: &str = "iPaste";
 const ACCOUNT: &str = "cloud_api_key";
 const ACCOUNT_DEVICE: &str = "device_sync_secret";
+const ACCOUNT_BIGMODEL: &str = "bigmodel_api_key";
+const ACCOUNT_OPENAI_OCR: &str = "openai_ocr_api_key";
 
 fn entry() -> Result<Entry, String> {
     keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| format!("无法访问系统凭据库：{e}"))
@@ -53,6 +55,64 @@ pub(crate) fn get_device_secret() -> Result<Option<String>, String> {
 #[cfg(test)]
 pub(crate) fn delete_device_secret() -> Result<(), String> {
     match device_entry()?.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
+    }
+}
+
+fn bigmodel_entry() -> Result<Entry, String> {
+    keyring::Entry::new(SERVICE, ACCOUNT_BIGMODEL)
+        .map_err(|e| format!("无法访问系统凭据库：{e}"))
+}
+
+/// BigModel 云 OCR 的 API Key（与云同步 Key 分账户互不影响）。
+pub(crate) fn put_bigmodel_api_key(value: &str) -> Result<(), String> {
+    bigmodel_entry()?
+        .set_password(value)
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))
+}
+
+pub(crate) fn get_bigmodel_api_key() -> Result<Option<String>, String> {
+    match bigmodel_entry()?.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
+    }
+}
+
+/// 幂等删除（从未配置过视为成功）。
+pub(crate) fn delete_bigmodel_api_key() -> Result<(), String> {
+    match bigmodel_entry()?.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
+    }
+}
+
+fn openai_ocr_entry() -> Result<Entry, String> {
+    keyring::Entry::new(SERVICE, ACCOUNT_OPENAI_OCR)
+        .map_err(|e| format!("无法访问系统凭据库：{e}"))
+}
+
+/// 通用 OpenAI 兼容接口的 API Key（与智谱 Key 分账户，切换引擎互不影响）。
+pub(crate) fn put_openai_ocr_api_key(value: &str) -> Result<(), String> {
+    openai_ocr_entry()?
+        .set_password(value)
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))
+}
+
+pub(crate) fn get_openai_ocr_api_key() -> Result<Option<String>, String> {
+    match openai_ocr_entry()?.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
+    }
+}
+
+/// 幂等删除（从未配置过视为成功）。
+pub(crate) fn delete_openai_ocr_api_key() -> Result<(), String> {
+    match openai_ocr_entry()?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
