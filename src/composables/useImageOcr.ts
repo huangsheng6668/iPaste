@@ -12,6 +12,7 @@ import { errorMessage } from "../lib/appError";
 import { isMacOs } from "../lib/env";
 import type { ClipViewItem, ImageOcrResult, ImageOcrWord } from "../types";
 import type { useImageViewer } from "./useImageViewer";
+import type { ClipEditorHandle } from "./useClipEditor";
 
 type OcrSourceWord = ImageOcrWord & {
   sourceIndex: number;
@@ -47,22 +48,11 @@ type OcrSelectionHighlight = {
   height: number;
 };
 
-type SelectionAction = {
-  left: number;
-  top: number;
-  text: string;
-  mode: "paste" | "copy";
-};
-
-type EditorHandle = {
-  hideSelectionAction: () => void;
-  selectionAction: Ref<SelectionAction | null>;
-};
-
 type ImageOcrOptions = {
   item: ComputedRef<ClipViewItem | undefined>;
   isImage: ComputedRef<boolean>;
-  editor: EditorHandle;
+  /** 编辑器句柄由调用方在 useClipEditor 创建后一次赋值，仅在交互期读取 */
+  editor: Ref<ClipEditorHandle | null>;
 };
 
 export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: ImageOcrOptions) {
@@ -396,7 +386,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
   function updateImageOcrSelectionAction() {
     const selectedText = imageOcrSelectionText.value;
     if (!selectedText.trim()) {
-      options.editor.hideSelectionAction();
+      options.editor.value?.hideSelectionAction();
       return;
     }
 
@@ -408,11 +398,14 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
       .filter((rect) => rect.width || rect.height);
     const rect = unionDomRects(rects);
     if (!rect) {
-      options.editor.hideSelectionAction();
+      options.editor.value?.hideSelectionAction();
       return;
     }
 
-    options.editor.selectionAction.value = {
+    const editor = options.editor.value;
+    if (!editor) return;
+
+    editor.selectionAction.value = {
       left: Math.min(window.innerWidth - 132, Math.max(16, rect.right - 112)),
       top: Math.min(window.innerHeight - 56, rect.bottom + 8),
       text: selectedText,
@@ -481,7 +474,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     if (!options.isImage.value) return;
     imageOcrSelection.value = null;
     endImageOcrSelection();
-    options.editor.hideSelectionAction();
+    options.editor.value?.hideSelectionAction();
   }
 
   function resetOcrState() {

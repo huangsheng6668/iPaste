@@ -18,10 +18,10 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-vue-next";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useImageViewer } from "../composables/useImageViewer";
 import { useImageOcr } from "../composables/useImageOcr";
-import { useClipEditor } from "../composables/useClipEditor";
+import { useClipEditor, type ClipEditorHandle } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
 import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
 import { clipImageSrc } from "../lib/clipMedia";
@@ -54,7 +54,9 @@ const {
   showImageActualSize, zoomImageIn, zoomImageOut, rotateImageClockwise,
   handleImageWheel, startImagePan, moveImagePan, finishImagePan, endImageDrag, clampImagePan,
 } = viewer;
-const editorHandle = { hideSelectionAction: () => {}, selectionAction: ref<{ left: number; top: number; text: string; mode: "paste" | "copy" } | null>(null) };
+// 图片 OCR 的选区浮层要写回编辑器状态，而编辑器要等 useClipEditor 运行后才存在：
+// 以可空 ref 声明依赖方向，编辑器创建后一次赋值，读取只发生在交互期
+const editorHandle = shallowRef<ClipEditorHandle | null>(null);
 const ocr = useImageOcr(viewer, { item, isImage, editor: editorHandle });
 const {
   isRecognizingImage, imageOcrResult, imageOcrError, isImageOcrPanelCollapsed,
@@ -69,15 +71,21 @@ const {
 // 独立窗口不走 App.vue 的 store.load（见 App.vue 早退分支），OCR 面板的
 // 引擎切换需读取当前引擎与云 OCR 配置状态
 const appStore = useIpasteStore();
-const editorOptions = { payload, isPinned: ref(false), isImage, ocr, error };
-const editor = useClipEditor(item, editorOptions);
+// isPinned 的 ref 由下方 useViewerWindow 持有（其 hasChanged 依赖编辑器，只能后建），
+// 经 computed 延迟取值，编辑器选项构造时即为最终形态
+const editor = useClipEditor(item, {
+  payload,
+  isPinned: computed(() => viewerWindow.isPinned.value),
+  isImage,
+  ocr,
+  error,
+});
 const {
   draftText, editorElement, selectionAction, hasChanged, stats, metricText, lines,
   resetDraft, applyChanges, pasteDraft, pasteSelection, scheduleSelectionAction,
   hideSelectionAction, focusEditorAtStart,
 } = editor;
-editorHandle.hideSelectionAction = hideSelectionAction;
-editorHandle.selectionAction = selectionAction;
+editorHandle.value = { hideSelectionAction, selectionAction };
 const viewerWindow = useViewerWindow(editor, {
   error,
   payload,
@@ -89,7 +97,6 @@ const {
   startWindowDrag, togglePinned, closeWindow, cancelClose,
   loadPayload, saveAndClose, discardAndClose,
 } = viewerWindow;
-editorOptions.isPinned = isPinned;
 const displayTime = computed(() => {
   const current = item.value;
   if (!current) return "";

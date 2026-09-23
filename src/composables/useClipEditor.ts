@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, toValue, watch, type ComputedRef, type MaybeRefOrGetter, type Ref } from "vue";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
@@ -16,9 +16,17 @@ type SelectionAction = {
   mode: "paste" | "copy";
 };
 
+/** 图片 OCR 选区动作写回编辑器所需的句柄（useImageOcr 消费）。
+ * 编辑器本体要先于 OCR 状态创建，句柄由调用方以可空 ref 延迟注入。 */
+export type ClipEditorHandle = {
+  hideSelectionAction: () => void;
+  selectionAction: Ref<SelectionAction | null>;
+};
+
 type EditorOptions = {
   payload: Ref<ClipViewerPayload | null>;
-  isPinned: Ref<boolean>;
+  /** 查看器窗口置顶状态在编辑器之后创建，经 getter/computed 延迟取值 */
+  isPinned: MaybeRefOrGetter<boolean>;
   isImage: ComputedRef<boolean>;
   ocr: ReturnType<typeof useImageOcr>;
   error: Ref<string | null>;
@@ -97,7 +105,7 @@ export function useClipEditor(item: ComputedRef<ClipViewItem | undefined>, optio
     } finally {
       if (viewerWindow) {
         await viewerWindow.show();
-        await viewerWindow.setAlwaysOnTop(options.isPinned.value);
+        await viewerWindow.setAlwaysOnTop(toValue(options.isPinned));
         await viewerWindow.setFocus();
       }
     }
