@@ -4,9 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
-import { isTauri } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { useOcrEngineSelect } from "../composables/useOcrEngineSelect";
+import { useWindowDrag } from "../composables/useWindowDrag";
 import {
   OCR_LANGUAGE_OPTIONS,
   loadOcrLanguage,
@@ -123,14 +123,9 @@ async function closeWindow() {
   }
 }
 
-// 无边框窗口无系统标题栏：按住标题区（图标/标题/空白）左键拖动移动窗口，
+// 无边框窗口无系统标题栏：标题区（图标/标题/空白）左键拖动移动窗口，
 // 交互控件（识别档位/语言/关闭）阻止冒泡以免触发原生拖动吞掉点击
-async function startWindowDrag(event: MouseEvent) {
-  if (!isTauri || event.button !== 0) return;
-
-  event.preventDefault();
-  await getCurrentWindow().startDragging();
-}
+const { startWindowDrag } = useWindowDrag();
 
 async function copyText() {
   if (!canCopy.value) return;

@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ClipboardPlus,
   Clock,
@@ -17,7 +15,7 @@ import {
 import { t } from "../i18n";
 import { categoryDisplayName } from "../lib/format";
 import { ipasteApi } from "../lib/ipasteApi";
-import { isTauri } from "../lib/env";
+import { useWindowDrag } from "../composables/useWindowDrag";
 import type { Category } from "../types";
 
 const logoUrl = new URL("../../src-tauri/icons/32x32.png", import.meta.url).href;
@@ -57,7 +55,8 @@ const isSearchFocused = ref(false);
 const hasScrollLeft = ref(false);
 const hasScrollRight = ref(false);
 const editingName = ref("");
-let dragReleaseTimer: number | null = null;
+
+const { startWindowDrag } = useWindowDrag({ mainWindow: true });
 
 const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const searchShortcutHint = computed(() => (isMacOs ? "⌘F" : "Ctrl+F"));
@@ -95,35 +94,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("resize", updateScrollState);
 });
-
-async function startWindowDrag(event: MouseEvent) {
-  if (!isTauri || event.button !== 0) return;
-  event.preventDefault();
-  if (dragReleaseTimer !== null) {
-    window.clearTimeout(dragReleaseTimer);
-    dragReleaseTimer = null;
-  }
-  void setMainWindowDragging(true);
-  try {
-    const nativeDragStarted = await startMainWindowDrag();
-    if (!nativeDragStarted) {
-      await getCurrentWindow().startDragging();
-    }
-  } finally {
-    dragReleaseTimer = window.setTimeout(() => {
-      void setMainWindowDragging(false);
-      dragReleaseTimer = null;
-    }, 900);
-  }
-}
-
-function setMainWindowDragging(dragging: boolean) {
-  return invoke("set_main_window_dragging", { dragging }).catch(() => {});
-}
-
-function startMainWindowDrag() {
-  return invoke<boolean>("start_main_window_drag").catch(() => false);
-}
 
 function onLanSync() {
   void ipasteApi.openLanSync();

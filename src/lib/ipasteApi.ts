@@ -563,6 +563,12 @@ export const ipasteApi = {
   hideSettings() {
     return call<void>("hide_settings");
   },
+  setMainWindowDragging(dragging: boolean) {
+    return call<void>("set_main_window_dragging", { dragging });
+  },
+  startMainWindowDrag() {
+    return call<boolean>("start_main_window_drag", undefined, false);
+  },
   openAccessibilitySettings() {
     return call<void>("open_accessibility_settings");
   },
