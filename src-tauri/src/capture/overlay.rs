@@ -2,7 +2,8 @@
 
 use tauri::{utils::config::Color, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::window::{point_in_monitor, OCR_OVERLAY_WINDOW_PREFIX};
+use crate::window::OCR_OVERLAY_WINDOW_PREFIX;
+use crate::window::positioning::point_in_monitor;
 
 /// 构造单个显示器的遮罩覆盖窗口（无边框、置顶、透明、初始化隐藏）。
 fn build_overlay_window(

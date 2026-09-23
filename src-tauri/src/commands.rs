@@ -28,10 +28,10 @@ use crate::util::{
     clean_api_address, clean_api_key, clean_openai_base_url, clean_openai_model, clean_shortcut,
     localized_text,
 };
+use crate::window::macos_panel::start_native_main_panel_drag;
 use crate::window::{
     CLIP_VIEWER_WINDOW_PREFIX, SETTINGS_WINDOW, apply_main_window_layout_geometry,
     hide_main_window, show_clip_viewer_window, show_main_window, show_settings_window,
-    start_native_main_panel_drag,
 };
 /// get_snapshot 与 sync_cloud_now 共用的 AppSnapshot 组装
 /// （原两处逐行重复约 22 行）。prune_expired 统一在读取前执行。
