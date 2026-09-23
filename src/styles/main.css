@@ -6,6 +6,7 @@
 @import "./overlays.css";
 @import "./settings.css";
 @import "./viewer.css";
+@import "./lanSync.css";
 @import "./motion.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
