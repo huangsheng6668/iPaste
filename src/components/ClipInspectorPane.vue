@@ -18,8 +18,9 @@ import {
 } from "lucide-vue-next";
 import AutomationDetailPane from "./AutomationDetailPane.vue";
 import { clipImageSrc } from "../lib/clipMedia";
+import { parseColorFormats } from "../lib/colorFormat";
 import { t } from "../i18n";
-import { clipMetricText, formatTime, lineCountText, textStats, typeLabel } from "../lib/format";
+import { clipMetricText, formatTime, isCodeText, lineCountText, textStats, typeLabel } from "../lib/format";
 import type { AutomationAction, ClipViewItem } from "../types";
 
 const props = defineProps<{
@@ -41,11 +42,7 @@ const copiedFormat = ref<string | null>(null);
 const isImage = computed(() => props.item?.clipType === "image");
 const isColor = computed(() => props.item?.clipType === "color");
 const isLink = computed(() => props.item?.clipType === "link");
-const isCode = computed(() => {
-  if (props.item?.clipType === "html") return true;
-  const text = props.item?.text || "";
-  return /^(const|let|var|function|import|export|class|def|public|private|fn|impl|struct|enum|\{|<|SELECT|INSERT|UPDATE|DELETE)/m.test(text);
-});
+const isCode = computed(() => isCodeText(props.item?.clipType ?? "", props.item?.text || ""));
 
 const imageSrc = computed(() => (props.item ? clipImageSrc(props.item) : ""));
 const colorValue = computed(() => (props.item ? props.item.text.trim() : ""));
@@ -53,77 +50,7 @@ const lines = computed(() => props.item?.text.split(/\r?\n/).length ?? 0);
 
 const colorFormats = computed(() => {
   if (!isColor.value || !colorValue.value) return [];
-  const str = colorValue.value;
-  const hexMatch = str.match(/^#?([0-9a-f]{3,8})$/i);
-  let r = 0, g = 0, b = 0, a = 1;
-  let parsed = false;
-
-  if (hexMatch) {
-    const hex = hexMatch[1];
-    if (hex.length === 3) {
-      r = parseInt(hex[0] + hex[0], 16);
-      g = parseInt(hex[1] + hex[1], 16);
-      b = parseInt(hex[2] + hex[2], 16);
-      parsed = true;
-    } else if (hex.length === 6) {
-      r = parseInt(hex.slice(0, 2), 16);
-      g = parseInt(hex.slice(2, 4), 16);
-      b = parseInt(hex.slice(4, 6), 16);
-      parsed = true;
-    } else if (hex.length === 8) {
-      r = parseInt(hex.slice(0, 2), 16);
-      g = parseInt(hex.slice(2, 4), 16);
-      b = parseInt(hex.slice(4, 6), 16);
-      a = Math.round((parseInt(hex.slice(6, 8), 16) / 255) * 100) / 100;
-      parsed = true;
-    }
-  }
-
-  if (!parsed) {
-    const rgbMatch = str.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
-    if (rgbMatch) {
-      r = Math.min(255, parseInt(rgbMatch[1], 10));
-      g = Math.min(255, parseInt(rgbMatch[2], 10));
-      b = Math.min(255, parseInt(rgbMatch[3], 10));
-      if (rgbMatch[4] !== undefined) a = parseFloat(rgbMatch[4]);
-      parsed = true;
-    }
-  }
-
-  if (!parsed) {
-    return [
-      { label: "RAW", value: str },
-      { label: "CSS", value: `color: ${str};` },
-    ];
-  }
-
-  const toHex = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
-  const hexVal = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  const rgbVal = a === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`;
-
-  const rNorm = r / 255, gNorm = g / 255, bNorm = b / 255;
-  const max = Math.max(rNorm, gNorm, bNorm), min = Math.min(rNorm, gNorm, bNorm);
-  let h = 0, s = 0, l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case rNorm: h = (gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0); break;
-      case gNorm: h = (bNorm - rNorm) / d + 2; break;
-      case bNorm: h = (rNorm - gNorm) / d + 4; break;
-    }
-    h = Math.round(h * 60);
-  }
-  s = Math.round(s * 100);
-  l = Math.round(l * 100);
-  const hslVal = a === 1 ? `hsl(${h}, ${s}%, ${l}%)` : `hsla(${h}, ${s}%, ${l}%, ${a})`;
-
-  return [
-    { label: "HEX", value: hexVal },
-    { label: "RGB", value: rgbVal },
-    { label: "HSL", value: hslVal },
-    { label: "CSS", value: `color: ${hexVal};` },
-  ];
+  return parseColorFormats(colorValue.value) ?? [];
 });
 
 async function copyFormatValue(val: string, label: string) {

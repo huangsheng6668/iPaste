@@ -100,6 +100,9 @@ export const useIpasteStore = defineStore("ipaste", () => {
     categories.value.find((category) => category.id === selectedCategoryId.value),
   );
 
+  /** 键盘循环切换分类用的完整顺序：history → 自定义分类 → automation。 */
+  const allCategoryIds = computed(() => ["history", ...categories.value.map((category) => category.id), "automation"]);
+
   const visibleItems = computed<ClipViewItem[]>(() => {
     const query = search.value.trim().toLowerCase();
     const source =
@@ -760,6 +763,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     activeCategory,
     visibleItems,
     selectedItem,
+    allCategoryIds,
     load,
     reloadClips,
     loadMoreClips,

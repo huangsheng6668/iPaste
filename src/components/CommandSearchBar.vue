@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-vue-next";
 import { t } from "../i18n";
+import { isMacOs } from "../lib/env";
 import { categoryDisplayName } from "../lib/format";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useWindowDrag } from "../composables/useWindowDrag";
@@ -58,7 +59,6 @@ const editingName = ref("");
 
 const { startWindowDrag } = useWindowDrag({ mainWindow: true });
 
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const searchShortcutHint = computed(() => (isMacOs ? "⌘F" : "Ctrl+F"));
 
 function updateScrollState() {
@@ -78,12 +78,12 @@ watch(
   },
 );
 
+// 滚动箭头只随分类数量增减变化，浅监听 length 即可
 watch(
-  () => props.categories,
+  () => props.categories.length,
   () => {
     void nextTick(updateScrollState);
   },
-  { deep: true },
 );
 
 onMounted(() => {

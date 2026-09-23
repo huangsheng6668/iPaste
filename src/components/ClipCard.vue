@@ -13,7 +13,7 @@ import {
 } from "lucide-vue-next";
 import { clipImageSrc } from "../lib/clipMedia";
 import { t } from "../i18n";
-import { categoryDisplayName, clipMetricText, formatTime, typeLabel } from "../lib/format";
+import { categoryDisplayName, clipMetricText, formatTime, isCodeText, typeLabel } from "../lib/format";
 import type { Category, ClipViewItem } from "../types";
 
 const props = defineProps<{
@@ -39,11 +39,7 @@ const emit = defineEmits<{
 
 const isImage = computed(() => props.item.clipType === "image");
 const isColor = computed(() => props.item.clipType === "color");
-const isCode = computed(() => {
-  if (props.item.clipType === "html") return true;
-  const text = props.item.text || "";
-  return /^(const|let|var|function|import|export|class|def|public|private|fn|impl|struct|enum|\{|<|SELECT|INSERT|UPDATE|DELETE)/m.test(text);
-});
+const isCode = computed(() => isCodeText(props.item.clipType, props.item.text || ""));
 const imageSrc = computed(() => clipImageSrc(props.item));
 const colorPreviewValue = computed(() => props.item.text.trim());
 const displayTitle = computed(() => props.item.displayName?.trim() || "");

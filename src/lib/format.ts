@@ -61,6 +61,14 @@ export function clipMetricText(type: ClipType, text: string, previewText: string
   return type === "image" ? imageStats(previewText) : textStats(text);
 }
 
+const CODE_HINT_PATTERN = /^(const|let|var|function|import|export|class|def|public|private|fn|impl|struct|enum|\{|<|SELECT|INSERT|UPDATE|DELETE)/m;
+
+/** 文本是否呈现为代码（html 视为代码；否则按代码提示行判定）。 */
+export function isCodeText(clipType: string, text: string): boolean {
+  if (clipType === "html") return true;
+  return CODE_HINT_PATTERN.test(text);
+}
+
 export function pluralText(keyOne: I18nKey, keyOther: I18nKey, value: number) {
   const category = new Intl.PluralRules(currentLocale.value).select(value);
   return t(category === "one" ? keyOne : keyOther, { value });

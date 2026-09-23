@@ -9,10 +9,9 @@ import {
 } from "../lib/ocrLanguages";
 import { ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
+import { isMacOs } from "../lib/env";
 import type { ClipViewItem, ImageOcrResult, ImageOcrWord } from "../types";
 import type { useImageViewer } from "./useImageViewer";
-
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 
 type OcrSourceWord = ImageOcrWord & {
   sourceIndex: number;

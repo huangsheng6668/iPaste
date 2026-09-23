@@ -16,6 +16,7 @@ import {
   Unplug,
 } from "lucide-vue-next";
 import { t } from "../../i18n";
+import { isMacOs } from "../../lib/env";
 import { formatBytes } from "../../lib/format";
 import { useIpasteStore } from "../../stores/ipasteStore";
 import { useOpenaiOcr } from "../../composables/useOpenaiOcr";
@@ -23,7 +24,6 @@ import { useMocrInstaller } from "../../composables/useMocrInstaller";
 import { useOcrInstaller } from "../../composables/useOcrInstaller";
 import type { OcrEngine } from "../../types";
 
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const store = useIpasteStore();
 const {
   openaiBaseUrl,

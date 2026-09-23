@@ -3,6 +3,7 @@ import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { formatShortcut } from "../lib/format";
 import { errorMessage } from "../lib/appError";
+import { isMacOs } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
 
 export type ShortcutKind = "panel" | "ocr";
@@ -11,7 +12,6 @@ const DEFAULT_SHORTCUTS: Record<ShortcutKind, string> = {
   panel: "CommandOrControl+Shift+V",
   ocr: "CommandOrControl+Shift+O",
 };
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 
 export function useShortcutRecorder(kind: ShortcutKind = "panel") {
   const store = useIpasteStore();

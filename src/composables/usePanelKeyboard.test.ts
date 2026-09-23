@@ -89,6 +89,9 @@ function setupDeps(overrides: Record<string, unknown> = {}) {
     get selectedItem(): ClipViewItem | null {
       return this.visibleItems[this.selectedIndex] ?? null;
     },
+    get allCategoryIds(): string[] {
+      return ["history", ...this.categories.map((category) => category.id), "automation"];
+    },
     visibleActions: [action1] as AutomationAction[],
     selectedActionIndex: 0,
     search: "",

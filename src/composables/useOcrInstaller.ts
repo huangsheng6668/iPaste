@@ -5,12 +5,10 @@ import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/appError";
-import { isTauri } from "../lib/env";
+import { isMacOs, isTauri } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrInstallProgress, OcrInstallStatus, OcrMode } from "../types";
-
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 
 export function useOcrInstaller() {
   const store = useIpasteStore();

@@ -28,7 +28,7 @@ import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
 import { sendTargets as buildSendTargets, type SendTarget } from "./lib/deviceDisplay";
-import { isTauri } from "./lib/env";
+import { isMacOs, isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
@@ -42,7 +42,6 @@ const isClipViewerWindow = new URLSearchParams(window.location.search).get("wind
 const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
 const isOcrOverlayWindow = new URLSearchParams(window.location.search).get("window") === "ocr-overlay";
 const isOcrResultWindow = new URLSearchParams(window.location.search).get("window") === "ocr-result";
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const isPreservingCurrentApp = ref(false);
 const editingClipKey = ref<string | null>(null);
 const editingClipName = ref("");
@@ -473,14 +472,15 @@ const selectedClipItem = computed(() => store.visibleItems[store.selectedIndex] 
 const selectedAutomationAction = computed(() => store.visibleActions[store.selectedActionIndex] ?? null);
 
 const nextCategoryLabel = computed(() => {
-  const allCategories = [
-    { id: "history", name: t("category.history") },
-    ...store.categories.map((c) => ({ id: c.id, name: categoryDisplayName(c.name) })),
-    { id: "automation", name: t("automation.entry") },
-  ];
-  const currentIndex = allCategories.findIndex((c) => c.id === store.selectedCategoryId);
-  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % allCategories.length : 0;
-  return allCategories[nextIndex]?.name || t("category.history");
+  const categoryNamesById = new Map<string, string>([
+    ["history", t("category.history")],
+    ...store.categories.map((c) => [c.id, categoryDisplayName(c.name)] as const),
+    ["automation", t("automation.entry")],
+  ]);
+  const ids = store.allCategoryIds;
+  const currentIndex = ids.indexOf(store.selectedCategoryId);
+  const nextId = ids[currentIndex >= 0 ? (currentIndex + 1) % ids.length : 0] ?? "history";
+  return categoryNamesById.get(nextId) || t("category.history");
 });
 
 async function focusEditingClipName() {

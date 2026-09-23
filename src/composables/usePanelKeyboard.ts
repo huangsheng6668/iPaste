@@ -49,12 +49,12 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
   }
 
   function cycleCategory(delta: number) {
-    const allCategoryIds = ["history", ...store.categories.map((category) => category.id), "automation"];
-    const currentIndex = allCategoryIds.indexOf(store.selectedCategoryId);
-    const length = allCategoryIds.length;
+    const ids = store.allCategoryIds;
+    const currentIndex = ids.indexOf(store.selectedCategoryId);
+    const length = ids.length;
     if (length <= 1) return;
     const nextIndex = currentIndex === -1 ? 0 : (currentIndex + delta + length) % length;
-    const targetCategoryId = allCategoryIds[nextIndex];
+    const targetCategoryId = ids[nextIndex];
     if (targetCategoryId && targetCategoryId !== store.selectedCategoryId) {
       closeFloatingLayers();
       finishEditingCategory();

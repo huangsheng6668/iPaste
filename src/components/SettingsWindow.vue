@@ -17,6 +17,7 @@ import AboutTab from "./settings/AboutTab.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { useUpdater } from "../composables/useUpdater";
 import { t } from "../i18n";
+import { isMacOs } from "../lib/env";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
 import type { AppInfo } from "../types";
@@ -31,7 +32,6 @@ const activeTab = ref<SettingsTab>(
   requestedTab && validTabs.has(requestedTab) ? requestedTab : "general",
 );
 const appInfo = ref<AppInfo | null>(null);
-const isMacOs = /mac/i.test(navigator.platform) || /Mac OS/i.test(navigator.userAgent);
 const updater = useUpdater();
 
 const tabs = computed(() => {
