@@ -25,6 +25,7 @@ import { useClipEditor } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
 import { useOcrEngineSelect } from "../composables/useOcrEngineSelect";
 import { clipImageSrc } from "../lib/clipMedia";
+import { isEditableTarget } from "../lib/dom";
 import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
 import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
@@ -221,15 +222,6 @@ function handleViewerKeydown(event: KeyboardEvent) {
 
   void closeWindow();
 }
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  const element = target instanceof HTMLElement ? target : null;
-  if (!element) return false;
-  return element.isContentEditable
-    || element.tagName === "INPUT"
-    || element.tagName === "TEXTAREA";
-}
-
 
 function handleViewerResize() {
   hideSelectionAction();

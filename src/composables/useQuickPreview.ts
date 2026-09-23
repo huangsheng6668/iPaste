@@ -3,6 +3,7 @@ import { t } from "../i18n";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
 import { clipImageSrc } from "../lib/clipMedia";
 import { clipMetricText, typeLabel } from "../lib/format";
+import { isEditableTarget } from "../lib/dom";
 import { ipasteApi } from "../lib/ipasteApi";
 import type { ClipViewItem } from "../types";
 
@@ -55,11 +56,6 @@ export function useQuickPreview(options: QuickPreviewOptions) {
     return clipMetricText(item.clipType, item.text, item.previewText);
   });
   const quickPreviewColorValue = computed(() => quickPreviewContent.value.trim());
-
-  function isEditableTarget(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) return false;
-    return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
-  }
 
   function hoverPreviewItem(item: ClipViewItem) {
     if (isQuickPreviewActive.value) return;
