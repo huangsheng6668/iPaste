@@ -138,3 +138,65 @@ describe("deleteClip 删除补位", () => {
     expect(store.clips).toHaveLength(20);
   });
 });
+
+describe("upsertClip 窗口截断与计数", () => {
+  it("新条目置顶并截断到 120 条", () => {
+    const store = useIpasteStore();
+    store.selectedCategoryId = "history";
+    store.clips = Array.from({ length: 120 }, (_, index) => makeClip(`c${String(index).padStart(3, "0")}`, index));
+    store.hasMoreClips = true;
+
+    store.upsertClip(makeClip("new-clip", -1), 121, true);
+
+    expect(store.clips[0]?.id).toBe("new-clip");
+    expect(store.clips).toHaveLength(120);
+  });
+
+  it("无 totalCount 且已到页尾时递增两个计数", () => {
+    const store = useIpasteStore();
+    store.selectedCategoryId = "history";
+    store.clips = [makeClip("c01", 0)];
+    store.hasMoreClips = false;
+    store.clipTotalCount = 1;
+    store.visibleHistoryTotalCount = 1;
+
+    store.upsertClip(makeClip("new-clip", -1));
+
+    expect(store.clipTotalCount).toBe(2);
+    expect(store.visibleHistoryTotalCount).toBe(2);
+  });
+});
+
+describe("reloadClips 竞态守卫", () => {
+  it("并发 reload 只采纳最新请求的结果", async () => {
+    const store = useIpasteStore();
+    store.selectedCategoryId = "history";
+    let resolveFirst!: (page: ClipPage) => void;
+    listClipsMock.mockImplementationOnce(() => new Promise<ClipPage>((resolve) => { resolveFirst = resolve; }));
+    listClipsMock.mockImplementationOnce(() => Promise.resolve(pageOf(0, 20, "")));
+
+    const first = store.reloadClips();
+    const second = store.reloadClips();
+    resolveFirst({ clips: [makeClip("stale", 99)], hasMore: false, totalCount: 1, allCount: 1 });
+    await Promise.all([first, second]);
+
+    expect(store.clips.some((clip) => clip.id === "stale")).toBe(false);
+    expect(store.clips).toHaveLength(20);
+  });
+
+  it("陈旧请求失败不写入 error", async () => {
+    const store = useIpasteStore();
+    store.selectedCategoryId = "history";
+    let rejectFirst!: (error: Error) => void;
+    listClipsMock.mockImplementationOnce(() => new Promise<ClipPage>((_, reject) => { rejectFirst = reject; }));
+    listClipsMock.mockImplementationOnce(() => Promise.resolve(pageOf(0, 20, "")));
+
+    const first = store.reloadClips();
+    const second = store.reloadClips();
+    rejectFirst(new Error("stale request failed"));
+    await Promise.all([first, second]);
+
+    expect(store.error).toBeNull();
+    expect(store.clips).toHaveLength(20);
+  });
+});

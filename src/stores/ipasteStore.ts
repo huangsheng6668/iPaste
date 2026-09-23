@@ -161,17 +161,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     }
   }
 
-  async function createCategory(name: string, options: { select?: boolean } = {}) {
-    const color = CATEGORY_COLORS[categories.value.length % CATEGORY_COLORS.length];
-    const category = await ipasteApi.createCategory(name, color);
-    categories.value = [...categories.value, category].sort(compareSortOrder);
-    syncCloudInBackground();
-    if (options.select ?? true) {
-      selectedCategoryId.value = category.id;
-      selectedIndex.value = 0;
-    }
-    return category;
-  }
+  // —— 历史分页 ——
 
   async function loadMoreClips() {
     if (fallbackGroups.value.length > 0) return;
@@ -234,6 +224,90 @@ export const useIpasteStore = defineStore("ipaste", () => {
     }
   }
 
+  async function deleteClip(id: string) {
+    await ipasteApi.deleteClip(id);
+    const hadClip = clips.value.some((clip) => clip.id === id);
+    clips.value = clips.value.filter((clip) => clip.id !== id);
+    if (hadClip) {
+      clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
+      visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
+      await backfillClips();
+    }
+    clampSelection();
+  }
+
+  /**
+   * 删除补位：已加载窗口少了条目且服务端还有下一页时，按缺口从下一页顶部取回，
+   * 保持窗口条数不减。否则连续删除后窗口可能缩到 0，而剩余历史只能靠触底滚动
+   * 加载——空列表无法触发滚动，后续记录就再也看不到了。
+   */
+  async function backfillClips() {
+    if (fallbackGroups.value.length > 0 || !hasMoreClips.value) return;
+
+    try {
+      const page = await ipasteApi.listClips(clips.value.length, 1, search.value);
+      const existingIds = new Set(clips.value.map((clip) => clip.id));
+      clips.value = [...clips.value, ...page.clips.filter((clip) => !existingIds.has(clip.id))];
+      hasMoreClips.value = page.hasMore;
+      visibleHistoryTotalCount.value = page.totalCount;
+      clipTotalCount.value = page.allCount;
+    } catch (unknownError) {
+      error.value = errorMessage(unknownError);
+    }
+  }
+
+  async function clearHistory() {
+    const deleted = await ipasteApi.clearClips();
+    clips.value = [];
+    hasMoreClips.value = false;
+    clipTotalCount.value = 0;
+    visibleHistoryTotalCount.value = 0;
+    selectedIndex.value = 0;
+    return deleted;
+  }
+
+  function upsertClip(clip: ClipItem, totalCount?: number, wasInserted = false) {
+    const hadClip = clips.value.some((item) => item.id === clip.id);
+    const hasSearch = Boolean(search.value.trim());
+    const matchesCurrentSearch = clipMatchesSearch(clip, search.value);
+
+    if (!hasSearch || matchesCurrentSearch) {
+      clips.value = [clip, ...clips.value.filter((item) => item.id !== clip.id)].slice(0, 120);
+    }
+
+    if (typeof totalCount === "number") {
+      clipTotalCount.value = totalCount;
+      if (!hasSearch) {
+        visibleHistoryTotalCount.value = totalCount;
+      } else if (wasInserted && clipMatchesSearch(clip, search.value)) {
+        visibleHistoryTotalCount.value += 1;
+      }
+    } else if (!hadClip && !hasMoreClips.value) {
+      clipTotalCount.value += 1;
+      visibleHistoryTotalCount.value += 1;
+    }
+    if (!hasSearch) {
+      hasMoreClips.value = hasMoreClips.value || clips.value.length >= CLIP_PAGE_SIZE;
+    }
+    if (selectedCategoryId.value === "history") {
+      selectedIndex.value = 0;
+    }
+  }
+
+  // —— 分类 CRUD ——
+
+  async function createCategory(name: string, options: { select?: boolean } = {}) {
+    const color = CATEGORY_COLORS[categories.value.length % CATEGORY_COLORS.length];
+    const category = await ipasteApi.createCategory(name, color);
+    categories.value = [...categories.value, category].sort(compareSortOrder);
+    syncCloudInBackground();
+    if (options.select ?? true) {
+      selectedCategoryId.value = category.id;
+      selectedIndex.value = 0;
+    }
+    return category;
+  }
+
   async function createCategoryWithClip(name: string, clipId: string, options: { select?: boolean } = {}) {
     const color = CATEGORY_COLORS[categories.value.length % CATEGORY_COLORS.length];
     const { category, item } = await ipasteApi.createCategoryWithClip(name, color, clipId);
@@ -292,58 +366,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     syncCloudInBackground();
   }
 
-  async function deleteClip(id: string) {
-    await ipasteApi.deleteClip(id);
-    const hadClip = clips.value.some((clip) => clip.id === id);
-    clips.value = clips.value.filter((clip) => clip.id !== id);
-    if (hadClip) {
-      clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
-      visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
-      await backfillClips();
-    }
-    clampSelection();
-  }
-
-  /**
-   * 删除补位：已加载窗口少了条目且服务端还有下一页时，按缺口从下一页顶部取回，
-   * 保持窗口条数不减。否则连续删除后窗口可能缩到 0，而剩余历史只能靠触底滚动
-   * 加载——空列表无法触发滚动，后续记录就再也看不到了。
-   */
-  async function backfillClips() {
-    if (fallbackGroups.value.length > 0 || !hasMoreClips.value) return;
-
-    try {
-      const page = await ipasteApi.listClips(clips.value.length, 1, search.value);
-      const existingIds = new Set(clips.value.map((clip) => clip.id));
-      clips.value = [...clips.value, ...page.clips.filter((clip) => !existingIds.has(clip.id))];
-      hasMoreClips.value = page.hasMore;
-      visibleHistoryTotalCount.value = page.totalCount;
-      clipTotalCount.value = page.allCount;
-    } catch (unknownError) {
-      error.value = errorMessage(unknownError);
-    }
-  }
-
-  async function clearHistory() {
-    const deleted = await ipasteApi.clearClips();
-    clips.value = [];
-    hasMoreClips.value = false;
-    clipTotalCount.value = 0;
-    visibleHistoryTotalCount.value = 0;
-    selectedIndex.value = 0;
-    return deleted;
-  }
-
-  async function renameClip(item: ClipViewItem, displayName: string | null) {
-    const next = await ipasteApi.renameClip(item.id, item.collection, displayName);
-    // 浏览器 dev 下 mock 未命中时后端返回 undefined；Tauri 下命令成功必有结果。
-    if (!next) return;
-    patchItem(item.collection, next);
-    if (item.collection === "category") {
-      syncCloudInBackground();
-    }
-  }
-
   async function reorderCategories(categoryIds: string[]) {
     if (categoryIds.length !== categories.value.length) return;
 
@@ -378,6 +400,18 @@ export const useIpasteStore = defineStore("ipaste", () => {
       restoreCategorySelection(selectedItemKey);
       showError(unknownError);
       throw unknownError;
+    }
+  }
+
+  // —— 条目操作与面板命令 ——
+
+  async function renameClip(item: ClipViewItem, displayName: string | null) {
+    const next = await ipasteApi.renameClip(item.id, item.collection, displayName);
+    // 浏览器 dev 下 mock 未命中时后端返回 undefined；Tauri 下命令成功必有结果。
+    if (!next) return;
+    patchItem(item.collection, next);
+    if (item.collection === "category") {
+      syncCloudInBackground();
     }
   }
 
@@ -438,6 +472,25 @@ export const useIpasteStore = defineStore("ipaste", () => {
     await ipasteApi.showSettings();
   }
 
+  function patchItem(collection: "history" | "category", item: ClipItem | CategoryItem) {
+    if (collection === "history") {
+      const clip = item as ClipItem;
+      const hasClip = clips.value.some((entry) => entry.id === clip.id);
+      if (hasClip) {
+        clips.value = clips.value.map((entry) => (entry.id === clip.id ? clip : entry));
+      } else if (clipMatchesSearch(clip, search.value)) {
+        clips.value = [clip, ...clips.value].slice(0, 120);
+      }
+      return;
+    }
+
+    categoryItems.value = categoryItems.value.map((categoryItem) =>
+      categoryItem.id === item.id ? (item as CategoryItem) : categoryItem,
+    );
+  }
+
+  // —— settings 镜像 ——
+
   async function updateRetentionDays(days: number) {
     const settings = await ipasteApi.updateSettings(days);
     applySettings(settings);
@@ -447,15 +500,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   async function updateAppendCopyTimeout(minutes: number) {
     const nextMinutes = cleanAppendCopyTimeoutMinutes(minutes);
     appendCopyTimeoutMinutes.value = nextMinutes;
-
-    try {
-      const settings = await ipasteApi.updateAppendCopyTimeout(nextMinutes);
-      applySettings(settings);
-    } catch (unknownError) {
-      if (isCommandMissing(unknownError, "update_append_copy_timeout")) return;
-      showError(unknownError);
-      throw unknownError;
-    }
+    await persistSetting("update_append_copy_timeout", () => ipasteApi.updateAppendCopyTimeout(nextMinutes), { tolerateMissing: true });
   }
 
   async function updateShortcut(value: string) {
@@ -476,43 +521,19 @@ export const useIpasteStore = defineStore("ipaste", () => {
   async function updatePanelLayout(layout: PanelLayout) {
     const nextLayout = cleanPanelLayout(layout);
     panelLayout.value = nextLayout;
-
-    try {
-      const settings = await ipasteApi.updatePanelLayout(nextLayout);
-      applySettings(settings);
-    } catch (unknownError) {
-      if (isCommandMissing(unknownError, "update_panel_layout")) return;
-      showError(unknownError);
-      throw unknownError;
-    }
+    await persistSetting("update_panel_layout", () => ipasteApi.updatePanelLayout(nextLayout), { tolerateMissing: true });
   }
 
   async function updateOcrMode(mode: OcrMode) {
     const nextMode = cleanOcrMode(mode);
     ocrMode.value = nextMode;
-
-    try {
-      const settings = await ipasteApi.updateOcrMode(nextMode);
-      applySettings(settings);
-    } catch (unknownError) {
-      if (isCommandMissing(unknownError, "update_ocr_mode")) return;
-      showError(unknownError);
-      throw unknownError;
-    }
+    await persistSetting("update_ocr_mode", () => ipasteApi.updateOcrMode(nextMode), { tolerateMissing: true });
   }
 
   async function updateOcrEngine(engine: OcrEngine) {
     const nextEngine = cleanOcrEngine(engine);
     ocrEngine.value = nextEngine;
-
-    try {
-      const settings = await ipasteApi.updateOcrEngine(nextEngine);
-      applySettings(settings);
-    } catch (unknownError) {
-      if (isCommandMissing(unknownError, "update_ocr_engine")) return;
-      showError(unknownError);
-      throw unknownError;
-    }
+    await persistSetting("update_ocr_engine", () => ipasteApi.updateOcrEngine(nextEngine), { tolerateMissing: true });
   }
 
   async function saveOpenaiOcrConfig(
@@ -543,16 +564,40 @@ export const useIpasteStore = defineStore("ipaste", () => {
     const nextLanguage = cleanLanguage(value);
     language.value = nextLanguage;
     setLanguage(nextLanguage);
+    await persistSetting("update_language", () => ipasteApi.updateLanguage(nextLanguage), { tolerateMissing: true });
+  }
 
+  /** settings 落库统一编排：成功回填广播；老二进制命令缺失时按需静默容忍。 */
+  async function persistSetting(
+    command: string,
+    save: () => Promise<AppSettings>,
+    options: { tolerateMissing?: boolean } = {},
+  ): Promise<void> {
     try {
-      const settings = await ipasteApi.updateLanguage(nextLanguage);
-      applySettings(settings);
+      applySettings(await save());
     } catch (unknownError) {
-      if (isCommandMissing(unknownError, "update_language")) return;
+      if (options.tolerateMissing && isCommandMissing(unknownError, command)) return;
       showError(unknownError);
       throw unknownError;
     }
   }
+
+  function applySettings(settings: AppSettings) {
+    shortcut.value = settings.shortcut;
+    ocrShortcut.value = settings.ocrShortcut || "CommandOrControl+Shift+O";
+    retentionDays.value = settings.retentionDays;
+    appendCopyTimeoutMinutes.value = settings.appendCopyTimeoutMinutes;
+    panelOpenBehavior.value = settings.panelOpenBehavior;
+    panelLayout.value = settings.panelLayout;
+    ocrMode.value = settings.ocrMode;
+    ocrEngine.value = cleanOcrEngine(settings.ocrEngine);
+    language.value = settings.language;
+    setLanguage(language.value);
+    cloud.value = settings.cloud;
+    cloudOcr.value = cleanCloudOcrSettings(settings.cloudOcr);
+  }
+
+  // —— 云同步 ——
 
   async function saveCloudSettings(apiAddress: string, apiKey: string) {
     const settings = await ipasteApi.updateCloudSettings(apiAddress, apiKey);
@@ -604,20 +649,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     backgroundSyncTimer = null;
   }
 
-  function applySettings(settings: AppSettings) {
-    shortcut.value = settings.shortcut;
-    ocrShortcut.value = settings.ocrShortcut || "CommandOrControl+Shift+O";
-    retentionDays.value = settings.retentionDays;
-    appendCopyTimeoutMinutes.value = settings.appendCopyTimeoutMinutes;
-    panelOpenBehavior.value = settings.panelOpenBehavior;
-    panelLayout.value = settings.panelLayout;
-    ocrMode.value = settings.ocrMode;
-    ocrEngine.value = cleanOcrEngine(settings.ocrEngine);
-    language.value = settings.language;
-    setLanguage(language.value);
-    cloud.value = settings.cloud;
-    cloudOcr.value = cleanCloudOcrSettings(settings.cloudOcr);
-  }
+  // —— 选择与导航 ——
 
   function selectCategory(id: string) {
     selectedCategoryId.value = id;
@@ -657,51 +689,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     selectedIndex.value = clampIndex(selectedIndex.value, visibleItems.value.length);
   }
 
-  function upsertClip(clip: ClipItem, totalCount?: number, wasInserted = false) {
-    const hadClip = clips.value.some((item) => item.id === clip.id);
-    const hasSearch = Boolean(search.value.trim());
-    const matchesCurrentSearch = clipMatchesSearch(clip, search.value);
-
-    if (!hasSearch || matchesCurrentSearch) {
-      clips.value = [clip, ...clips.value.filter((item) => item.id !== clip.id)].slice(0, 120);
-    }
-
-    if (typeof totalCount === "number") {
-      clipTotalCount.value = totalCount;
-      if (!hasSearch) {
-        visibleHistoryTotalCount.value = totalCount;
-      } else if (wasInserted && clipMatchesSearch(clip, search.value)) {
-        visibleHistoryTotalCount.value += 1;
-      }
-    } else if (!hadClip && !hasMoreClips.value) {
-      clipTotalCount.value += 1;
-      visibleHistoryTotalCount.value += 1;
-    }
-    if (!hasSearch) {
-      hasMoreClips.value = hasMoreClips.value || clips.value.length >= CLIP_PAGE_SIZE;
-    }
-    if (selectedCategoryId.value === "history") {
-      selectedIndex.value = 0;
-    }
-  }
-
-  function patchItem(collection: "history" | "category", item: ClipItem | CategoryItem) {
-    if (collection === "history") {
-      const clip = item as ClipItem;
-      const hasClip = clips.value.some((entry) => entry.id === clip.id);
-      if (hasClip) {
-        clips.value = clips.value.map((entry) => (entry.id === clip.id ? clip : entry));
-      } else if (clipMatchesSearch(clip, search.value)) {
-        clips.value = [clip, ...clips.value].slice(0, 120);
-      }
-      return;
-    }
-
-    categoryItems.value = categoryItems.value.map((categoryItem) =>
-      categoryItem.id === item.id ? (item as CategoryItem) : categoryItem,
-    );
-  }
-
   function restoreCategorySelection(itemKey: string | null) {
     const index = itemKey ? indexForKey(visibleItems.value, contextItemKey, itemKey) : -1;
     if (index >= 0) {
@@ -711,6 +698,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
     clampSelection();
   }
+
+  // —— automation ——
 
   const visibleActions = computed(() => filterAutomations(automations.value, actionsQuery.value));
 
