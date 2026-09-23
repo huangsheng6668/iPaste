@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { AlertCircle, ClipboardCopy, Download, Info, Pencil, Play, Trash2, Upload } from "lucide-vue-next";
+import { AlertCircle } from "lucide-vue-next";
 import ClipContextMenu from "./components/ClipContextMenu.vue";
+import AutomationContextMenu from "./components/AutomationContextMenu.vue";
+import AutomationDetailDialog from "./components/AutomationDetailDialog.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
-import AutomationDetailPane from "./components/AutomationDetailPane.vue";
 import ClipViewerWindow from "./components/ClipViewerWindow.vue";
 import OcrOverlayWindow from "./components/OcrOverlayWindow.vue";
 import OcrResultWindow from "./components/OcrResultWindow.vue";
@@ -23,13 +24,13 @@ import { useAutomationFlow } from "./composables/useAutomationFlow";
 import { useClipContextMenu } from "./composables/useClipContextMenu";
 import { useClipListScroll } from "./composables/useClipListScroll";
 import { useDragSort } from "./composables/useDragSort";
+import { useInlineRename } from "./composables/useInlineRename";
 import { usePanelKeyboard } from "./composables/usePanelKeyboard";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
-import { sendTargets as buildSendTargets, type SendTarget } from "./lib/deviceDisplay";
 import { isMacOs, isTauri } from "./lib/env";
-import { categoryDisplayName, formatShortcut, typeLabel } from "./lib/format";
+import { categoryDisplayName, formatShortcut } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
@@ -42,36 +43,43 @@ const isClipViewerWindow = new URLSearchParams(window.location.search).get("wind
 const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
 const isOcrOverlayWindow = new URLSearchParams(window.location.search).get("window") === "ocr-overlay";
 const isOcrResultWindow = new URLSearchParams(window.location.search).get("window") === "ocr-result";
+// 主窗口 = 下方所有辅助窗口路由都不匹配时的默认渲染分支（template v-else）。
+const isMainWindow =
+  !isSettingsWindow && !isClipViewerWindow && !isLanSyncWindow && !isOcrOverlayWindow && !isOcrResultWindow;
 const isPreservingCurrentApp = ref(false);
-const editingClipKey = ref<string | null>(null);
-const editingClipName = ref("");
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
 let lastUpdateCheckAt = 0;
 let suppressNextItemSelect = false;
 
-// —— 「发送到」目标列表（瞬态：右键与悬停展开时拉取，不做持久事件订阅）——
-const sendTargetList = ref<SendTarget[]>([]);
-
-async function refreshSendTargets() {
-  if (!isTauri) return;
-  try {
-    sendTargetList.value = buildSendTargets(await ipasteApi.deviceList());
-  } catch {
-    // 拉取失败保留上次列表；空列表时子菜单回退「暂无在线设备」提示。
-  }
-}
+// 行内重命名：选中同步与落库路径（store.renameClip）由 App 注入。
+const inlineRename = useInlineRename({
+  onBegin: (item) => {
+    const index = store.visibleItems.findIndex((visibleItem) => contextItemKey(visibleItem) === contextItemKey(item));
+    if (index >= 0) {
+      store.setSelectedIndex(index);
+    }
+  },
+  onCommit: (item, name) => store.renameClip(item, name),
+});
+const {
+  renamingKey: editingClipKey,
+  renameValue: editingClipName,
+  begin: startEditingClipName,
+  commit: commitEditingClipName,
+  cancel: cancelEditingClipName,
+} = inlineRename;
 
 const clipMenu = useClipContextMenu(store, {
   onStartRename: startEditingClipName,
   onFullClose: closeFloatingLayers,
-  refreshSendTargets,
 });
 const {
   contextMenu,
   editingCategoryId,
   showMoveSubmenu,
   showSendSubmenu,
+  sendTargetList,
   pendingDeleteContextKey,
   pendingDeleteByKey,
   contextDeleteLabel,
@@ -227,11 +235,7 @@ const canReorderVisibleItems = computed(() =>
 );
 
 onMounted(async () => {
-  if (isClipViewerWindow) return;
-  if (isSettingsWindow) return;
-  if (isLanSyncWindow) return;
-  if (isOcrOverlayWindow) return;
-  if (isOcrResultWindow) return;
+  if (!isMainWindow) return;
 
   document.addEventListener("keydown", handleKeydown, true);
   document.addEventListener("keyup", handleKeyup, true);
@@ -259,11 +263,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (isClipViewerWindow) return;
-  if (isSettingsWindow) return;
-  if (isLanSyncWindow) return;
-  if (isOcrOverlayWindow) return;
-  if (isOcrResultWindow) return;
+  if (!isMainWindow) return;
 
   document.removeEventListener("keydown", handleKeydown, true);
   document.removeEventListener("keyup", handleKeyup, true);
@@ -378,35 +378,6 @@ function selectClipCard(index: number) {
   store.setSelectedIndex(index);
 }
 
-async function startEditingClipName(item: ClipViewItem) {
-  const index = store.visibleItems.findIndex((visibleItem) => contextItemKey(visibleItem) === contextItemKey(item));
-  if (index >= 0) {
-    store.setSelectedIndex(index);
-  }
-
-  editingClipKey.value = contextItemKey(item);
-  editingClipName.value = item.displayName?.trim() || typeLabel(item.clipType);
-  await focusEditingClipName();
-}
-
-function updateEditingClipName(value: string) {
-  editingClipName.value = value;
-}
-
-async function commitEditingClipName(item: ClipViewItem) {
-  if (editingClipKey.value !== contextItemKey(item)) return;
-
-  const name = editingClipName.value.trim();
-  editingClipKey.value = null;
-  editingClipName.value = "";
-  await store.renameClip(item, name || null);
-}
-
-function cancelEditingClipName() {
-  editingClipKey.value = null;
-  editingClipName.value = "";
-}
-
 async function openClipViewer(item: ClipViewItem, autoRecognize = false) {
   await ipasteApi.openClipViewer(item, originalClipId(item), autoRecognize);
 }
@@ -482,15 +453,6 @@ const nextCategoryLabel = computed(() => {
   const nextId = ids[currentIndex >= 0 ? (currentIndex + 1) % ids.length : 0] ?? "history";
   return categoryNamesById.get(nextId) || t("category.history");
 });
-
-async function focusEditingClipName() {
-  await nextTick();
-  window.setTimeout(() => {
-    const input = document.querySelector<HTMLInputElement>(".clip-title-input");
-    input?.focus();
-    input?.select();
-  }, 40);
-}
 </script>
 
 <template>
@@ -583,7 +545,7 @@ async function focusEditingClipName() {
         @apply="store.applyItem"
         @expand="openClipViewer"
         @open-context-menu="openClipContextMenu"
-        @update-editing-name="updateEditingClipName"
+        @update-editing-name="editingClipName = $event"
         @commit-rename="commitEditingClipName"
         @cancel-rename="cancelEditingClipName"
         @reorder-pointer-down="startItemDrag"
@@ -658,104 +620,27 @@ async function focusEditingClipName() {
       @cancel="automationConfirmOpen = false"
     />
 
-    <Teleport to="body">
-      <div
-        v-if="automationDetailOpen && automationDetailAction"
-        class="dialog-backdrop"
-        @click.self="automationDetailOpen = false"
-      >
-        <div class="automation-detail-panel">
-          <AutomationDetailPane
-            :action="automationDetailAction"
-            @run="runSelectedAction(automationDetailAction); automationDetailOpen = false"
-          />
-          <div class="flex justify-end border-t border-slate-200 px-4 py-2">
-            <button
-              type="button"
-              class="btn-ghost"
-              @click="automationDetailOpen = false"
-            >
-              {{ t("common.cancel") }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <AutomationDetailDialog
+      :open="automationDetailOpen"
+      :action="automationDetailAction"
+      @run="(action) => { runSelectedAction(action); automationDetailOpen = false; }"
+      @close="automationDetailOpen = false"
+    />
 
-    <div
+    <AutomationContextMenu
       v-if="automationContextMenu"
-      class="clip-context-menu"
-      :style="{ left: `${automationContextMenu.x}px`, top: `${automationContextMenu.y}px` }"
-      @click.stop
-      @contextmenu.prevent.stop
-    >
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="runSelectedAction(automationContextMenu.action); closeAutomationContextMenu()"
-      >
-        <Play class="size-3.5" /> {{ t("automation.run") }}
-      </button>
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="openAutomationEditor(automationContextMenu.action); closeAutomationContextMenu()"
-      >
-        <Pencil class="size-3.5" /> {{ t("automation.edit") }}
-      </button>
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="copyAutomationCommand(automationContextMenu.action); closeAutomationContextMenu()"
-      >
-        <ClipboardCopy class="size-3.5" /> {{ t("automation.copy") }}
-      </button>
-      <div class="context-menu-separator" />
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="openAutomationDetail(automationContextMenu.action); closeAutomationContextMenu()"
-      >
-        <Info class="size-3.5" /> {{ t("automation.detailStatus") }}
-      </button>
-      <div class="context-menu-separator" />
-      <button
-        type="button"
-        class="context-menu-item context-menu-item-strong"
-        tabindex="-1"
-        role="menuitem"
-        @click="deleteAutomationAction(automationContextMenu.action); closeAutomationContextMenu()"
-      >
-        <Trash2 class="size-3.5" /> {{ t("automation.delete") }}
-      </button>
-      <div class="context-menu-separator" />
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="triggerImport"
-      >
-        <Upload class="size-3.5" /> {{ t("automation.importAction") }}
-      </button>
-      <button
-        type="button"
-        class="context-menu-item"
-        tabindex="-1"
-        role="menuitem"
-        @click="exportAllAutomations"
-      >
-        <Download class="size-3.5" /> {{ t("automation.exportAll") }}
-      </button>
-    </div>
+      :automation="automationContextMenu.action"
+      :x="automationContextMenu.x"
+      :y="automationContextMenu.y"
+      @run="runSelectedAction(automationContextMenu.action)"
+      @edit="openAutomationEditor(automationContextMenu.action)"
+      @copy="copyAutomationCommand(automationContextMenu.action)"
+      @detail="openAutomationDetail(automationContextMenu.action)"
+      @delete="deleteAutomationAction(automationContextMenu.action)"
+      @import="triggerImport"
+      @export="exportAllAutomations"
+      @close="closeAutomationContextMenu"
+    />
 
     <input
       ref="importFileInput"

@@ -1,7 +1,8 @@
 import { ref } from "vue";
 import { t } from "../i18n";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
-import { SEND_TARGET_ALL } from "../lib/deviceDisplay";
+import { sendTargets as buildSendTargets, SEND_TARGET_ALL, type SendTarget } from "../lib/deviceDisplay";
+import { isTauri } from "../lib/env";
 import { ipasteApi, type LanClipSource } from "../lib/ipasteApi";
 import { showError } from "../stores/uiStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
@@ -14,15 +15,14 @@ type ClipContextMenuOptions = {
   onStartRename: (item: ClipViewItem) => void | Promise<void>;
   /** 菜单动作执行前的全量浮层关闭（quick preview、分类栏）；缺省回落到菜单自身 close()。 */
   onFullClose?: () => void;
-  /** 右键菜单打开与「发送到」子菜单展开时刷新在线设备目标列表（App.vue 负责拉取 deviceList）。 */
-  refreshSendTargets?: () => void;
 };
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 
 /**
  * 剪贴卡片右键菜单（含“移动到分类”“发送到设备”两个子菜单）的开关状态与业务动作
- * （原 App.vue context menu 段）。定位（positionContextMenu/positionMoveSubmenu/
+ * （原 App.vue context menu 段）。「发送到」目标列表（sendTargetList）在右键打开
+ * 与子菜单展开时按需拉取。定位（positionContextMenu/positionMoveSubmenu/
  * positionSendSubmenu 与元素 ref）由 ClipContextMenu.vue 负责：组件 watch
  * contextMenu/showMoveSubmenu/showSendSubmenu prop 触发。全量浮层关闭（quick preview、
  * 分类栏）仍由 App.vue 的 closeFloatingLayers 编排。
@@ -41,6 +41,18 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
   let moveSubmenuCloseTimer: number | null = null;
   let sendSubmenuCloseTimer: number | null = null;
 
+  // —— 「发送到」目标列表（瞬态：右键与悬停展开时拉取，不做持久事件订阅）——
+  const sendTargetList = ref<SendTarget[]>([]);
+
+  async function refreshSendTargets() {
+    if (!isTauri) return;
+    try {
+      sendTargetList.value = buildSendTargets(await ipasteApi.deviceList());
+    } catch {
+      // 拉取失败保留上次列表；空列表时子菜单回退「暂无在线设备」提示。
+    }
+  }
+
   function openFallbackContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
     contextMenu.value = payload;
   }
@@ -51,7 +63,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
     deleteConfirm.cancel();
     contextMenu.value = payload;
     // 预热「发送到」目标列表：右键即拉取，悬停展开子菜单时已就绪。
-    options.refreshSendTargets?.();
+    void refreshSendTargets();
   }
 
   async function pasteContextItem() {
@@ -172,7 +184,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
     closeMoveSubmenu();
     showSendSubmenu.value = true;
     // 展开即刷新：设备在线态可能自右键预热后又变化。
-    options.refreshSendTargets?.();
+    void refreshSendTargets();
   }
 
   function scheduleCloseSendSubmenu() {
@@ -240,6 +252,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
     contextMenu,
     showMoveSubmenu,
     showSendSubmenu,
+    sendTargetList,
     pendingDeleteContextKey,
     pendingDeleteByKey,
     editingCategoryId,
