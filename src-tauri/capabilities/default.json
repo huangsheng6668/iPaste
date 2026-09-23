@@ -19,7 +19,6 @@
         { "path": "$APPDATA/ocr/**" }
       ]
     },
-    "clipboard-manager:default",
     "global-shortcut:default",
     "autostart:default",
     "updater:default",
