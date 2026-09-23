@@ -23,12 +23,12 @@ import { useImageViewer } from "../composables/useImageViewer";
 import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
-import { useOcrEngineSelect } from "../composables/useOcrEngineSelect";
+import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { isEditableTarget } from "../lib/dom";
 import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
 import { t } from "../i18n";
-import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
+import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { formatTime, typeLabel } from "../lib/format";
 import type { ClipViewerPayload } from "../types";
@@ -69,14 +69,6 @@ const {
 // 独立窗口不走 App.vue 的 store.load（见 App.vue 早退分支），OCR 面板的
 // 引擎切换需读取当前引擎与云 OCR 配置状态
 const appStore = useIpasteStore();
-const { ocrEngineOptions, switchOcrEngine } = useOcrEngineSelect();
-async function changeEngine(event: Event) {
-  if (isRecognizingImage.value) return;
-  const engine = await switchOcrEngine((event.target as HTMLSelectElement).value);
-  if (engine) {
-    void recognizeImageText();
-  }
-}
 const editorOptions = { payload, isPinned: ref(false), isImage, ocr, error };
 const editor = useClipEditor(item, editorOptions);
 const {
@@ -86,13 +78,18 @@ const {
 } = editor;
 editorHandle.hideSelectionAction = hideSelectionAction;
 editorHandle.selectionAction = selectionAction;
-const viewerWindow = useViewerWindow(editor.hasChanged, { error, hideSelectionAction });
+const viewerWindow = useViewerWindow(editor, {
+  error,
+  payload,
+  isImage,
+  autoRecognize: recognizeImageText,
+});
 const {
-  windowLabel, isPinned, showClosePrompt, isSavingBeforeClose,
+  isPinned, showClosePrompt, isSavingBeforeClose,
   startWindowDrag, togglePinned, closeWindow, cancelClose,
-  forceCloseWindow,
+  loadPayload, saveAndClose, discardAndClose,
 } = viewerWindow;
-editorOptions.isPinned = viewerWindow.isPinned;
+editorOptions.isPinned = isPinned;
 const displayTime = computed(() => {
   const current = item.value;
   if (!current) return "";
@@ -116,60 +113,6 @@ watch(imageSrc, () => {
   resetImageViewState();
   resetOcrState();
 });
-
-function loadPayload() {
-  const params = new URLSearchParams(window.location.search);
-  const label = params.get("label");
-  if (!label) {
-    error.value = t("viewer.payloadMissing");
-    return;
-  }
-  windowLabel.value = label;
-
-  const raw = localStorage.getItem(clipViewerStorageKey(label));
-  if (!raw) {
-    error.value = t("viewer.payloadExpired");
-    return;
-  }
-
-  try {
-    payload.value = JSON.parse(raw) as ClipViewerPayload;
-    draftText.value = payload.value.item.text;
-  } catch {
-    error.value = t("viewer.payloadInvalid");
-    return;
-  }
-
-  // 主面板「识别文字」一键入口：打开即自动识别
-  if (params.get("auto-recognize") === "1" && isImage.value) {
-    void recognizeImageText();
-  }
-}
-
-
-async function saveAndClose() {
-  if (!hasChanged.value) {
-    await forceCloseWindow();
-    return;
-  }
-
-  isSavingBeforeClose.value = true;
-  try {
-    await applyChanges();
-  } finally {
-    isSavingBeforeClose.value = false;
-  }
-
-  if (!hasChanged.value) {
-    showClosePrompt.value = false;
-    await forceCloseWindow();
-  }
-}
-
-async function discardAndClose() {
-  showClosePrompt.value = false;
-  await forceCloseWindow();
-}
 
 
 function handleViewerKeydown(event: KeyboardEvent) {
@@ -530,23 +473,11 @@ function handleViewerResize() {
                     {{ t("viewer.ocrFailed") }}
                   </p>
                 </div>
-                <select
-                  class="ocr-language-select"
-                  :value="appStore.ocrEngine"
+                <OcrEngineSelect
+                  :engine="appStore.ocrEngine"
                   :disabled="isRecognizingImage"
-                  :aria-label="t('ocr.engineLabel')"
-                  :title="t('ocr.engineLabel')"
-                  @change="changeEngine"
-                >
-                  <option
-                    v-for="option in ocrEngineOptions"
-                    :key="option.value"
-                    :value="option.value"
-                    :disabled="!option.ready"
-                  >
-                    {{ option.ready ? option.label : `${option.label} · ${t('ocr.engineUnconfigured')}` }}
-                  </option>
-                </select>
+                  @rerun="recognizeImageText"
+                />
                 <select
                   class="ocr-language-select"
                   :value="selectedOcrLanguage"

@@ -1,15 +1,29 @@
 import { onMounted, onUnmounted, ref, type ComputedRef, type Ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ipasteApi } from "../lib/ipasteApi";
+import { t } from "../i18n";
+import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
 import { isTauri } from "../lib/env";
+import { useWindowDrag } from "./useWindowDrag";
+import type { ClipViewerPayload } from "../types";
 
-type WindowOptions = {
-  error: Ref<string | null>;
+type EditorBridge = {
+  hasChanged: ComputedRef<boolean>;
+  applyChanges: () => Promise<void>;
   hideSelectionAction: () => void;
+  draftText: Ref<string>;
 };
 
-export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: WindowOptions) {
+type ViewerWindowOptions = {
+  error: Ref<string | null>;
+  /** 编辑器初始草稿来自 payload，读取在 loadPayload 中完成 */
+  payload: Ref<ClipViewerPayload | null>;
+  isImage: ComputedRef<boolean>;
+  /** 主面板「识别文字」一键入口：payload 带 auto-recognize 时触发 */
+  autoRecognize: () => void | Promise<void>;
+};
+
+export function useViewerWindow(editor: EditorBridge, options: ViewerWindowOptions) {
   const windowLabel = ref("");
   const isPinned = ref(isTauri);
   const showClosePrompt = ref(false);
@@ -17,12 +31,8 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
   let isForceClosing = false;
   let unlistenCloseRequested: (() => void) | null = null;
 
-  async function startWindowDrag(event: MouseEvent) {
-    if (!isTauri || event.button !== 0) return;
-
-    event.preventDefault();
-    await getCurrentWindow().startDragging();
-  }
+  // 无边框窗口标题区左键拖动（简单变体，与其它辅助窗口共用）
+  const { startWindowDrag } = useWindowDrag();
 
   async function togglePinned() {
     isPinned.value = !isPinned.value;
@@ -32,7 +42,7 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
   }
 
   async function closeWindow() {
-    if (hasChanged.value) {
+    if (editor.hasChanged.value) {
       requestClose();
       return;
     }
@@ -42,7 +52,7 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
 
   function requestClose() {
     showClosePrompt.value = true;
-    options.hideSelectionAction();
+    editor.hideSelectionAction();
   }
 
   function cancelClose() {
@@ -64,8 +74,62 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
     window.close();
   }
 
+  async function saveAndClose() {
+    if (!editor.hasChanged.value) {
+      await forceCloseWindow();
+      return;
+    }
+
+    isSavingBeforeClose.value = true;
+    try {
+      await editor.applyChanges();
+    } finally {
+      isSavingBeforeClose.value = false;
+    }
+
+    if (!editor.hasChanged.value) {
+      showClosePrompt.value = false;
+      await forceCloseWindow();
+    }
+  }
+
+  async function discardAndClose() {
+    showClosePrompt.value = false;
+    await forceCloseWindow();
+  }
+
+  function loadPayload() {
+    const params = new URLSearchParams(window.location.search);
+    const label = params.get("label");
+    if (!label) {
+      options.error.value = t("viewer.payloadMissing");
+      return;
+    }
+    windowLabel.value = label;
+
+    const raw = localStorage.getItem(clipViewerStorageKey(label));
+    if (!raw) {
+      options.error.value = t("viewer.payloadExpired");
+      return;
+    }
+
+    try {
+      const next = JSON.parse(raw) as ClipViewerPayload;
+      options.payload.value = next;
+      editor.draftText.value = next.item.text;
+    } catch {
+      options.error.value = t("viewer.payloadInvalid");
+      return;
+    }
+
+    // 主面板「识别文字」一键入口：打开即自动识别
+    if (params.get("auto-recognize") === "1" && options.isImage.value) {
+      void options.autoRecognize();
+    }
+  }
+
   function handleBeforeUnload(event: BeforeUnloadEvent) {
-    if (isForceClosing || !hasChanged.value) return;
+    if (isForceClosing || !editor.hasChanged.value) return;
 
     event.preventDefault();
     event.returnValue = "";
@@ -84,7 +148,7 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
       unlistenCloseRequested = await getCurrentWindow().onCloseRequested(async (event) => {
         event.preventDefault();
         if (isForceClosing) return;
-        if (!hasChanged.value) {
+        if (!editor.hasChanged.value) {
           await forceCloseWindow();
           return;
         }
@@ -111,6 +175,9 @@ export function useViewerWindow(hasChanged: ComputedRef<boolean>, options: Windo
     requestClose,
     cancelClose,
     forceCloseWindow,
+    saveAndClose,
+    discardAndClose,
+    loadPayload,
     handleBeforeUnload,
   };
 }
