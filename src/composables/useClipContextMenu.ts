@@ -6,6 +6,7 @@ import { ipasteApi, type LanClipSource } from "../lib/ipasteApi";
 import { showError } from "../stores/uiStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type { ClipViewItem } from "../types";
+import { useTwoStepConfirm } from "./useTwoStepConfirm";
 
 type IpasteStore = ReturnType<typeof useIpasteStore>;
 
@@ -31,7 +32,11 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
   const showMoveSubmenu = ref(false);
   const showSendSubmenu = ref(false);
   const pendingDeleteContextKey = ref<string | null>(null);
-  const pendingDeleteByKey = ref<string | null>(null);
+  // Backspace 两击删除确认状态机（timeoutMs=null：不自动复位，由任意其他
+  // 按键/选卡/开菜单显式复位，行为与原先裸 ref 一致）。外部（usePanelKeyboard/
+  // App.vue）继续以 pendingDeleteByKey ref 形式读写 confirmingKey。
+  const deleteConfirm = useTwoStepConfirm(null);
+  const pendingDeleteByKey = deleteConfirm.confirmingKey;
   const editingCategoryId = ref<string | null>(null);
   let moveSubmenuCloseTimer: number | null = null;
   let sendSubmenuCloseTimer: number | null = null;
@@ -43,7 +48,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
   function openClipContextMenu(payload: { item: ClipViewItem; index: number; x: number; y: number }) {
     store.setSelectedIndex(payload.index);
     pendingDeleteContextKey.value = null;
-    pendingDeleteByKey.value = null;
+    deleteConfirm.cancel();
     contextMenu.value = payload;
     // 预热「发送到」目标列表：右键即拉取，悬停展开子菜单时已就绪。
     options.refreshSendTargets?.();
@@ -103,7 +108,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
   }
 
   async function deleteSelectedItem(item: ClipViewItem) {
-    pendingDeleteByKey.value = null;
+    deleteConfirm.cancel();
     if (item.collection === "history") {
       await store.deleteClip(item.id);
       return;
@@ -218,7 +223,7 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
   function close() {
     contextMenu.value = null;
     pendingDeleteContextKey.value = null;
-    pendingDeleteByKey.value = null;
+    deleteConfirm.cancel();
     closeMoveSubmenu();
     closeSendSubmenu();
   }

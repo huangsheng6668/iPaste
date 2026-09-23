@@ -8,6 +8,7 @@ import { isTauri } from "../lib/env";
 import { errorMessage } from "../lib/appError";
 import { fingerprintOf, sendTargets as buildSendTargets, statusKey, type DeviceStatusKey } from "../lib/deviceDisplay";
 import { INVALID_TICKET, useDeviceSync } from "../composables/useDeviceSync";
+import { useTwoStepConfirm } from "../composables/useTwoStepConfirm";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
@@ -76,26 +77,15 @@ function onDisconnect(entry: DeviceInfo) {
 
 // 撤销走两击确认（对齐 useClearHistory 的状态确认模式）：第一次点击进入
 // 确认态并 3 秒后自动回退，第二次点击执行。
-const confirmingRevokeId = ref<string | null>(null);
-let revokeResetTimer: ReturnType<typeof setTimeout> | null = null;
-
-function resetRevokeConfirm() {
-  confirmingRevokeId.value = null;
-  if (revokeResetTimer) {
-    clearTimeout(revokeResetTimer);
-    revokeResetTimer = null;
-  }
-}
+const revokeConfirm = useTwoStepConfirm();
 
 function onRevoke(entry: DeviceInfo) {
   const nodeId = entry.device.nodeId;
-  if (confirmingRevokeId.value !== nodeId) {
-    confirmingRevokeId.value = nodeId;
-    if (revokeResetTimer) clearTimeout(revokeResetTimer);
-    revokeResetTimer = setTimeout(resetRevokeConfirm, 3000);
+  if (!revokeConfirm.isConfirming(nodeId)) {
+    revokeConfirm.request(nodeId);
     return;
   }
-  resetRevokeConfirm();
+  revokeConfirm.cancel();
   void runDeviceAction(() => sync.revoke(nodeId));
 }
 
@@ -266,7 +256,6 @@ onUnmounted(() => {
     countdownTimer = null;
   }
   if (copyResetTimer) clearTimeout(copyResetTimer);
-  if (revokeResetTimer) clearTimeout(revokeResetTimer);
 });
 </script>
 
@@ -353,11 +342,11 @@ onUnmounted(() => {
               v-if="!isRevoked(entry)"
               type="button"
               class="lan-action"
-              :class="{ 'lan-action-danger': confirmingRevokeId === entry.device.nodeId }"
+              :class="{ 'lan-action-danger': revokeConfirm.isConfirming(entry.device.nodeId) }"
               @click="onRevoke(entry)"
             >
               {{
-                confirmingRevokeId === entry.device.nodeId
+                revokeConfirm.isConfirming(entry.device.nodeId)
                   ? t("deviceSync.action.revokeConfirm")
                   : t("deviceSync.action.revoke")
               }}
