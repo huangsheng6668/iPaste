@@ -115,11 +115,6 @@ pub(crate) enum ControlMsg {
         origin_node_id: Option<String>,
     },
     RequestClip,
-    /// 本地主动断开。v5 的 registry 经 drop 控制通道触发同一会话退出路径
-    ///（session loop 的 `None` 分支与此共用发 Disconnect 帧的 arm），
-    /// 目前无构造方，保留给显式断开语义。
-    #[allow(dead_code)]
-    Disconnect,
 }
 
 /// 本机设备名（host 名兜底 iPaste-device）。配对流程消费。

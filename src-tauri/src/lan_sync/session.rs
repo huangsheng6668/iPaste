@@ -590,8 +590,8 @@ pub(crate) async fn run_session_loop<R, W>(
                         break;
                     }
                 }
-                // 本地主动断开：尽力发一帧 Disconnect，随即退出。
-                Some(ControlMsg::Disconnect) | None => {
+                // 本地主动断开（registry drop 控制通道）：尽力发一帧 Disconnect，随即退出。
+                None => {
                     let mut wh = writer.lock().await;
                     let _ = wh.write_message(&LanMessage::Disconnect, None).await;
                     break;

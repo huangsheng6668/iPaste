@@ -103,7 +103,6 @@ impl Store {
         Ok(())
     }
 
-    #[allow(dead_code)]
     fn list_syncable_category_items_with_conn(
         &self,
         conn: &Connection,
