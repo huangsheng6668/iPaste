@@ -112,10 +112,7 @@ fn read_current_payload() -> Result<Option<(String, Vec<u8>)>, String> {
 
 fn image_data_url(bytes: &Option<Vec<u8>>) -> Result<String, String> {
     let png = bytes.as_ref().ok_or_else(|| "无图片数据".to_string())?;
-    let b64: String = base64::engine::general_purpose::STANDARD
-        .encode(png)
-        .chars()
-        .collect();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(png);
     Ok(format!("data:image/png;base64,{}", b64))
 }
 
