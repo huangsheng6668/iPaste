@@ -46,6 +46,8 @@ export function useClipEditor(item: ComputedRef<ClipViewItem | undefined>, optio
 
     try {
       const next = await ipasteApi.updateClipContent(item.value.id, item.value.collection, draftText.value);
+      // 浏览器 dev 下 mock 未命中时后端返回 undefined；Tauri 下命令成功必有结果。
+      if (!next) return;
       const nextItem = { ...next, collection: item.value.collection } as typeof item.value;
       options.payload.value = {
         ...options.payload.value!,

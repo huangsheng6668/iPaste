@@ -336,6 +336,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   async function renameClip(item: ClipViewItem, displayName: string | null) {
     const next = await ipasteApi.renameClip(item.id, item.collection, displayName);
+    // 浏览器 dev 下 mock 未命中时后端返回 undefined；Tauri 下命令成功必有结果。
+    if (!next) return;
     patchItem(item.collection, next);
     if (item.collection === "category") {
       syncCloudInBackground();
@@ -381,6 +383,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   async function updateClipContent(item: ClipViewItem, text: string) {
     const next = await ipasteApi.updateClipContent(item.id, item.collection, text);
+    // 浏览器 dev 下 mock 未命中时后端返回 undefined；Tauri 下命令成功必有结果。
+    if (!next) return next;
     patchItem(item.collection, next);
     if (item.collection === "category") {
       syncCloudInBackground();
