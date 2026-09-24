@@ -3,7 +3,10 @@
 //! 与 iroh 无耦合：Reader/Writer 泛型于 `AsyncRead`/`AsyncWrite`，测试用
 //! `tokio::io::duplex`，生产端接 iroh 的 `RecvStream`/`SendStream`。
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use crate::lan_sync::protocol::{LanMessage, LAN_MAX_PAYLOAD};
 
@@ -92,7 +95,7 @@ impl<W: AsyncWrite + Unpin> FrameWriter<W> {
 ///
 /// registry 的入站分流需要先读首帧判断走向（`PairRequest` → 配对门；其余 →
 /// 会话），而会话路径的 reader 必须能重新看到这一帧——本函数把已消费的线格式
-/// 字节原样返回，供回放适配器（registry 的 `PrefixedFrame`）拼回流头部。
+/// 字节原样返回，供回放适配器（本模块的 `PrefixedFrame`）拼回流头部。
 /// 帧格式与各项上限校验同 `FrameReader::read_message`；两条路径刻意分开，
 /// 会话热路径（read_message）不必为回放字节做逐帧拷贝。
 pub(crate) async fn read_message_with_raw<R: AsyncRead + Unpin>(
@@ -129,6 +132,40 @@ pub(crate) async fn read_message_with_raw<R: AsyncRead + Unpin>(
         raw.extend_from_slice(&payload);
     }
     Ok((msg, raw))
+}
+
+/// 会话读回放适配器（v0.9.2 A2）：先把 `prefix`（已被入站首帧路由消费的线格式
+/// 字节）排空，再透传内部流。会话循环由此无损地看到「首帧 + 流的剩余部分」——
+/// 首帧既不丢失（否则拨号方的首发 Ping 被吞、对端会话凭空少一帧），也不重复
+/// （prefix 未排空前绝不 poll 内部流，前缀与后续字节不会交错）。
+pub(super) struct PrefixedFrame<R> {
+    prefix: Vec<u8>,
+    pos: usize,
+    inner: R,
+}
+
+impl<R> PrefixedFrame<R> {
+    pub(super) fn new(prefix: Vec<u8>, inner: R) -> Self {
+        Self { prefix, pos: 0, inner }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for PrefixedFrame<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if this.pos < this.prefix.len() {
+            // 只回前缀字节，立即 Ready（read_exact 的 buf 必有剩余容量）
+            let n = (this.prefix.len() - this.pos).min(buf.remaining());
+            buf.put_slice(&this.prefix[this.pos..this.pos + n]);
+            this.pos += n;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
 }
 
 #[cfg(test)]
