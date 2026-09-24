@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Category, CategoryItem, CategoryWithItem } from "../../types";
 import { isCommandMissing } from "../appError";
 import { isTauri } from "../env";
-import { call } from "./index";
+import { call } from "./call";
 import { buildMockCategory, buildMockCategoryItem, mockCategories, mockCategoryItems, mockClips } from "./mockBackend";
 
 /** 分类域：分类与分类条目的 CRUD、重排，以及从历史片段保存快照。 */

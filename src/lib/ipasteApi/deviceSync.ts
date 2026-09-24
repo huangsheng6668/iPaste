@@ -3,7 +3,7 @@ import type { AutoSyncMode } from "../../types/generated/AutoSyncMode";
 import type { ClipSource } from "../../types/generated/ClipSource";
 import type { DeviceInfo } from "../../types/generated/DeviceInfo";
 import type { PairRequested } from "../../types/generated/PairRequested";
-import { call } from "./index";
+import { call } from "./call";
 
 /** device_send_clip 的 source 参数（Rust ClipSource 的 serde 形状，camelCase）。 */
 export type LanClipSource = ClipSource;

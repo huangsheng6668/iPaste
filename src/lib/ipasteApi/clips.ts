@@ -11,7 +11,7 @@ import type {
 } from "../../types";
 import { clipMatchesSearch } from "../clipSearch";
 import { isTauri } from "../env";
-import { call } from "./index";
+import { call } from "./call";
 import { mockCategories, mockCategoryItems, mockClips, mockSnapshot } from "./mockBackend";
 
 /** 剪贴板历史域：快照引导、分页/搜索、条目编辑与删除、复制与回贴、主面板与放大预览窗口。 */

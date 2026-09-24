@@ -28,7 +28,7 @@ path = "src/bin/mocr_engine.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# 传递依赖版本锚点：aes-gcm / zeroize（lan_sync 加密由 iroh QUIC TLS 承担，应用层不直接引用）
+# 设计备忘：aes-gcm / zeroize 由 lan_sync 依赖链（iroh QUIC TLS）间接引入，应用层不直接引用，故不作直接依赖
 arboard = "3.6.1"
 base64 = "0.22.1"
 chrono = { version = "0.4", features = ["serde"] }

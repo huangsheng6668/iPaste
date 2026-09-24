@@ -516,6 +516,7 @@ pub(crate) fn max_sendable_image_bytes() -> u64 {
     expanded / 4 * 3
 }
 
+/// 把待发送的条目内容编码成同步 payload 字节（v4 lan_send_clip/lan_send_category
 /// 原样迁移；命令层单条发送与整组发送共用）。
 ///
 /// - 文本类条目：`text` 即原文，直接转 UTF-8 字节。

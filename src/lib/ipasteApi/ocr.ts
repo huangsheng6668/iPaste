@@ -1,5 +1,5 @@
 import type { AppSettings, ImageOcrResult, OcrInstallStatus, OcrResultPayload, ScreenshotSelection } from "../../types";
-import { call } from "./index";
+import { call } from "./call";
 import {
   buildInstalledMocrStatus,
   buildInstalledPaddleStatus,

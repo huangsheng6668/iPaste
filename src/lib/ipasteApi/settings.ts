@@ -1,5 +1,5 @@
 import type { AppInfo, AppSettings, AppSnapshot, CloudOcrPromptMessage, Language, OcrMode } from "../../types";
-import { call } from "./index";
+import { call } from "./call";
 import { DEFAULT_OPENAI_OCR_PROMPTS, fallbackAppInfo, mockSettings, mockSnapshot } from "./mockBackend";
 
 /** 设置域：应用设置项更新、云同步配置、快捷键、开机自启与设置窗口。 */
