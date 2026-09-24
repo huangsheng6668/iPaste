@@ -20,6 +20,8 @@ use objc2_app_kit::{
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSPoint, NSObjectProtocol, NSRect};
 #[cfg(target_os = "macos")]
+use tauri::Manager;
+#[cfg(target_os = "macos")]
 use crate::models::{AppState, MainPanelState};
 #[cfg(target_os = "macos")]
 use crate::paste::run_on_main_thread_for_paste;
