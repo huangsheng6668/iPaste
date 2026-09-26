@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { Palette, Pencil, Plus, Trash2, Zap } from "lucide-vue-next";
+import { Plus, Zap } from "lucide-vue-next";
 import { useDragSort } from "../composables/useDragSort";
 import CategoryRow from "./category/CategoryRow.vue";
+import CategoryContextMenu from "./category/CategoryContextMenu.vue";
 import { t } from "../i18n";
 import { categoryDisplayName } from "../lib/format";
 import type { Category } from "../types";
@@ -486,42 +487,12 @@ function countLabel(count: number | undefined) {
       </button>
     </div>
 
-    <div
-      v-if="categoryMenu"
-      class="category-context-menu"
-      :style="{ left: `${categoryMenu.left}px`, top: `${categoryMenu.top}px` }"
-      @click.stop
-      @contextmenu.prevent.stop
-    >
-      <button
-        type="button"
-        class="category-context-item"
-        tabindex="-1"
-        @click="editCategory(categoryMenu.category)"
-      >
-        <Pencil class="size-3.5" />
-        <span>{{ t("common.rename") }}</span>
-      </button>
-      <button
-        type="button"
-        class="category-context-item"
-        tabindex="-1"
-        @click="openColorPicker(categoryMenu.category, $event)"
-      >
-        <Palette class="size-3.5" />
-        <span>{{ t("category.changeColor") }}</span>
-      </button>
-      <div class="context-menu-separator" />
-      <button
-        type="button"
-        class="category-context-item category-context-item-danger"
-        :class="{ 'category-context-item-confirm': pendingDeleteCategoryId === categoryMenu.category.id }"
-        tabindex="-1"
-        @click="requestDeleteCategory(categoryMenu.category.id, { keepMenuOpen: true })"
-      >
-        <Trash2 class="size-3.5" />
-        <span>{{ pendingDeleteCategoryId === categoryMenu.category.id ? t("common.confirmDelete") : t("category.delete") }}</span>
-      </button>
-    </div>
+    <CategoryContextMenu
+      :menu="categoryMenu"
+      :is-pending-delete="pendingDeleteCategoryId === categoryMenu?.category.id"
+      @rename="categoryMenu && editCategory(categoryMenu.category)"
+      @change-color="categoryMenu && openColorPicker(categoryMenu.category, $event)"
+      @delete="categoryMenu && requestDeleteCategory(categoryMenu.category.id, { keepMenuOpen: true })"
+    />
   </section>
 </template>
