@@ -16,6 +16,7 @@ import { t } from "../i18n";
 import { isMacOs } from "../lib/env";
 import { categoryDisplayName } from "../lib/format";
 import { ipasteApi } from "../lib/ipasteApi";
+import { showError } from "../stores/uiStore";
 import { useWindowDrag } from "../composables/useWindowDrag";
 import type { Category } from "../types";
 
@@ -95,12 +96,15 @@ onUnmounted(() => {
   window.removeEventListener("resize", updateScrollState);
 });
 
+// 这两条命令此前是裸的 void：失败时点按钮毫无反应。
+// 设备同步尤其糟——面板一失焦就自动隐藏，用户只看到「面板没了、窗口也没出现」，
+// 没有任何线索说明是命令失败了。与 ipasteStore 的动作失败一致走瞬态 toast。
 function onLanSync() {
-  void ipasteApi.openLanSync();
+  void ipasteApi.openLanSync().catch(showError);
 }
 
 function onScreenshotOcr() {
-  void ipasteApi.startScreenshotOcr();
+  void ipasteApi.startScreenshotOcr().catch(showError);
 }
 
 function clearSearch() {
