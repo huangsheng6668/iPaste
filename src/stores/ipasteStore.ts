@@ -5,16 +5,12 @@ import { clipMatchesSearch } from "../lib/clipSearch";
 import { errorMessage } from "../lib/appError";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
 import { filterAutomations } from "./lib/automationFilter";
-import {
-  compareSortOrder,
-  compareCategoryItemOrder,
-  orderCategoriesByIds,
-  orderCategoryItemsByIds,
-} from "./lib/ordering";
+import { orderCategoryItemsByIds } from "./lib/ordering";
 import { clampIndex, indexForKey, moveIndex } from "./lib/selection";
 import { showError } from "./uiStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCloudSyncStore } from "./cloudSyncStore";
+import { useCategoryStore } from "./categoryStore";
 import type {
   AppSnapshot,
   AutomationAction,
@@ -26,7 +22,6 @@ import type {
   ClipViewItem,
 } from "../types";
 
-const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const CLIP_PAGE_SIZE = 20;
 
 export const useIpasteStore = defineStore("ipaste", () => {
@@ -38,9 +33,9 @@ export const useIpasteStore = defineStore("ipaste", () => {
   // 云端快照落地（hydrate + clampSelection）留在本 store，经注册注入同步执行器。
   sync.registerSnapshotApplier(() => applyCloudSnapshot());
 
+  const category = useCategoryStore();
+
   const clips = ref<ClipItem[]>([]);
-  const categories = ref<Category[]>([]);
-  const categoryItems = ref<CategoryItem[]>([]);
   const selectedCategoryId = ref<string>("history");
   const selectedIndex = ref(0);
   const search = ref("");
@@ -61,18 +56,18 @@ export const useIpasteStore = defineStore("ipaste", () => {
   let clipRequestId = 0;
 
   const activeCategory = computed(() =>
-    categories.value.find((category) => category.id === selectedCategoryId.value),
+    category.categories.find((entry) => entry.id === selectedCategoryId.value),
   );
 
   /** 键盘循环切换分类用的完整顺序：history → 自定义分类 → automation。 */
-  const allCategoryIds = computed(() => ["history", ...categories.value.map((category) => category.id), "automation"]);
+  const allCategoryIds = computed(() => ["history", ...category.categories.map((entry) => entry.id), "automation"]);
 
   const visibleItems = computed<ClipViewItem[]>(() => {
     const query = search.value.trim().toLowerCase();
     const source =
       selectedCategoryId.value === "history"
         ? clips.value.map((clip) => ({ ...clip, collection: "history" as const }))
-        : categoryItems.value
+        : category.categoryItems
             .filter((item) => item.categoryId === selectedCategoryId.value)
             .map((item) => ({ ...item, collection: "category" as const }));
 
@@ -89,8 +84,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
     hasMoreClips.value = snapshot.hasMoreClips;
     clipTotalCount.value = snapshot.clipTotalCount;
     visibleHistoryTotalCount.value = snapshot.clipTotalCount;
-    categories.value = snapshot.categories;
-    categoryItems.value = snapshot.categoryItems;
+    category.categories = snapshot.categories;
+    category.categoryItems = snapshot.categoryItems;
     isListening.value = snapshot.isListening;
     isAppendCopyEnabled.value = snapshot.isAppendCopyEnabled;
     settings.applySnapshotSettings(snapshot);
@@ -104,7 +99,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const snapshot = await ipasteApi.snapshot();
       hydrateFromSnapshot(snapshot);
 
-      if (!categories.value.some((category) => category.id === selectedCategoryId.value)) {
+      if (!category.categories.some((entry) => entry.id === selectedCategoryId.value)) {
         selectedCategoryId.value = "history";
       }
       clampSelection();
@@ -248,109 +243,79 @@ export const useIpasteStore = defineStore("ipaste", () => {
     }
   }
 
-  // —— 分类 CRUD ——
+  // —— 分类 ——（数据 CRUD 在 categoryStore；选择/计数等面板编排留在本层包装）
 
   async function createCategory(name: string, options: { select?: boolean } = {}) {
-    const color = CATEGORY_COLORS[categories.value.length % CATEGORY_COLORS.length];
-    const category = await ipasteApi.createCategory(name, color);
-    categories.value = [...categories.value, category].sort(compareSortOrder);
-    sync.syncCloudInBackground();
+    const created = await category.createCategory(name);
     if (options.select ?? true) {
-      selectedCategoryId.value = category.id;
+      selectedCategoryId.value = created.id;
       selectedIndex.value = 0;
     }
-    return category;
+    return created;
   }
 
   async function createCategoryWithClip(name: string, clipId: string, options: { select?: boolean } = {}) {
-    const color = CATEGORY_COLORS[categories.value.length % CATEGORY_COLORS.length];
-    const { category, item } = await ipasteApi.createCategoryWithClip(name, color, clipId);
-    categories.value = [...categories.value, category].sort(compareSortOrder);
-    categoryItems.value = [...categoryItems.value, item].sort(compareCategoryItemOrder);
+    const { category: created, item } = await category.createCategoryWithClip(name, clipId);
     clips.value = clips.value.map((clip) =>
       clip.id === clipId ? { ...clip, favoriteCount: clip.favoriteCount + 1 } : clip,
     );
-    sync.syncCloudInBackground();
     if (options.select ?? true) {
-      selectedCategoryId.value = category.id;
+      selectedCategoryId.value = created.id;
       selectedIndex.value = 0;
       fallbackGroups.value = [];
     }
-    return { category, item };
+    return { category: created, item };
   }
 
-  async function renameCategory(category: Category, name: string) {
-    const next = await ipasteApi.updateCategory(category.id, name, category.color);
-    categories.value = categories.value.map((item) => (item.id === next.id ? next : item));
-    sync.syncCloudInBackground();
+  async function renameCategory(target: Category, name: string) {
+    await category.renameCategory(target, name);
   }
 
-  async function updateCategoryColor(category: Category, color: string) {
-    const next = await ipasteApi.updateCategory(category.id, category.name, color);
-    categories.value = categories.value.map((item) => (item.id === next.id ? next : item));
-    sync.syncCloudInBackground();
+  async function updateCategoryColor(target: Category, color: string) {
+    await category.updateCategoryColor(target, color);
   }
 
   async function deleteCategory(id: string) {
-    await ipasteApi.deleteCategory(id);
-    categories.value = categories.value.filter((category) => category.id !== id);
-    categoryItems.value = categoryItems.value.filter((item) => item.categoryId !== id);
+    await category.deleteCategory(id);
     selectedCategoryId.value = "history";
     selectedIndex.value = 0;
     fallbackGroups.value = [];
-    sync.syncCloudInBackground();
   }
 
   async function addToCategory(clipId: string, categoryId: string) {
-    const item = await ipasteApi.addClipToCategory(clipId, categoryId);
-    const existing = categoryItems.value.some((categoryItem) => categoryItem.id === item.id);
-    if (!existing) {
-      categoryItems.value = [...categoryItems.value, item].sort(compareCategoryItemOrder);
+    const { created } = await category.addToCategory(clipId, categoryId);
+    if (created) {
       clips.value = clips.value.map((clip) =>
         clip.id === clipId ? { ...clip, favoriteCount: clip.favoriteCount + 1 } : clip,
       );
-      sync.syncCloudInBackground();
     }
   }
 
   async function removeCategoryItem(id: string) {
-    await ipasteApi.removeCategoryItem(id);
-    categoryItems.value = categoryItems.value.filter((item) => item.id !== id);
+    await category.removeCategoryItem(id);
     clampSelection();
-    sync.syncCloudInBackground();
   }
 
   async function reorderCategories(categoryIds: string[]) {
-    if (categoryIds.length !== categories.value.length) return;
-
-    const previous = categories.value;
-    categories.value = orderCategoriesByIds(previous, categoryIds);
-
-    try {
-      categories.value = await ipasteApi.reorderCategories(categoryIds);
-      sync.syncCloudInBackground();
-    } catch (unknownError) {
-      categories.value = previous;
-      showError(unknownError);
-      throw unknownError;
-    }
+    await category.reorderCategories(categoryIds);
   }
 
+  /** 条目重排与选中恢复强耦合（选中键随乐观顺序移动），整体留在本 store。 */
   async function reorderCategoryItems(categoryId: string, itemIds: string[]) {
-    const targetItems = categoryItems.value.filter((item) => item.categoryId === categoryId);
+    const targetItems = category.categoryItems.filter((item) => item.categoryId === categoryId);
     if (itemIds.length !== targetItems.length) return;
 
-    const previous = categoryItems.value;
+    const previous = category.categoryItems;
     const selectedItemKey = selectedItem.value?.collection === "category" ? contextItemKey(selectedItem.value) : null;
-    categoryItems.value = orderCategoryItemsByIds(previous, categoryId, itemIds);
+    category.categoryItems = orderCategoryItemsByIds(previous, categoryId, itemIds);
     restoreCategorySelection(selectedItemKey);
 
     try {
-      categoryItems.value = await ipasteApi.reorderCategoryItems(categoryId, itemIds);
+      category.categoryItems = await ipasteApi.reorderCategoryItems(categoryId, itemIds);
       restoreCategorySelection(selectedItemKey);
       sync.syncCloudInBackground();
     } catch (unknownError) {
-      categoryItems.value = previous;
+      category.categoryItems = previous;
       restoreCategorySelection(selectedItemKey);
       showError(unknownError);
       throw unknownError;
@@ -438,9 +403,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       return;
     }
 
-    categoryItems.value = categoryItems.value.map((categoryItem) =>
-      categoryItem.id === item.id ? (item as CategoryItem) : categoryItem,
-    );
+    category.patchCategoryItem(item as CategoryItem);
   }
 
   // —— 云同步 ——（执行与计时器在 cloudSyncStore；快照落地留在本 store）
@@ -471,7 +434,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   function activatePanelDefault() {
-    if (settings.panelOpenBehavior === "history" || !categories.value.some((category) => category.id === selectedCategoryId.value)) {
+    if (settings.panelOpenBehavior === "history" || !category.categories.some((entry) => entry.id === selectedCategoryId.value)) {
       selectCategory("history");
       return;
     }
@@ -530,8 +493,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   return {
     clips,
-    categories,
-    categoryItems,
+    categories: computed({ get: () => category.categories, set: (value) => (category.categories = value) }),
+    categoryItems: computed({ get: () => category.categoryItems, set: (value) => (category.categoryItems = value) }),
     selectedCategoryId,
     selectedIndex,
     search,
