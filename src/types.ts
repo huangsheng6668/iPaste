@@ -1,16 +1,14 @@
 // 共享契约类型：结构字段来自 src/types/generated（ts-rs 从 Rust 生成，
 // 运行 npm run gen:types 再生成）。本文件只做三件事：
 // 1. 再导出生成类型（保持既有类型名不变）；
-// 2. 用 Omit & 交集恢复前端的窄字面量联合（Rust 侧是 String）；
+// 2. 用 Omit & 交集恢复前端的窄字面量联合（Rust 侧仍是 String 的字段）；
 // 3. 定义纯前端类型（ClipViewItem、ClipUpdatedEvent 等）。
 // 不允许在本文件手写与 Rust 重复的结构字段。
+//
+// Task 40 起，panelOpenBehavior/panelLayout/ocrMode/ocrEngine/language 在 Rust 侧已是 serde 枚举，
+// 生成物自带字面量联合，这里不再手写同名联合，直接再导出（Rust 增删枚举值时前端自动跟随）。
 
 export type ClipType = "text" | "link" | "color" | "image" | "file" | "html";
-export type PanelOpenBehavior = "history" | "last_selected";
-export type PanelLayout = "top" | "side";
-export type OcrMode = "fast" | "best";
-export type OcrEngine = "local" | "openai";
-export type Language = "en" | "zh-CN" | "ja" | "ko" | "es" | "fr" | "de";
 export type AutomationStatus = "idle" | "running" | "success" | "failed" | "timed_out";
 export type SyncState = "local" | "syncing" | "synced" | "conflict";
 
@@ -21,7 +19,12 @@ import type { ClipPage as ClipPageGen } from "./types/generated/ClipPage";
 import type { CategoryWithItem as CategoryWithItemGen } from "./types/generated/CategoryWithItem";
 import type { CategoryHitGroup as CategoryHitGroupGen } from "./types/generated/CategoryHitGroup";
 import type { SearchResult as SearchResultGen } from "./types/generated/SearchResult";
-import type { AppSettings as AppSettingsGen } from "./types/generated/AppSettings";
+import type { AppSettings } from "./types/generated/AppSettings";
+import type { Language } from "./types/generated/Language";
+import type { OcrEngine } from "./types/generated/OcrEngine";
+import type { OcrMode } from "./types/generated/OcrMode";
+import type { PanelLayout } from "./types/generated/PanelLayout";
+import type { PanelOpenBehavior } from "./types/generated/PanelOpenBehavior";
 import type { OcrInstallStatus as OcrInstallStatusGen } from "./types/generated/OcrInstallStatus";
 import type { AutomationAction as AutomationActionGen } from "./types/generated/AutomationAction";
 import type { AutomationRunSummary as AutomationRunSummaryGen } from "./types/generated/AutomationRunSummary";
@@ -68,14 +71,6 @@ export type SearchResult =
   | (Omit<Extract<SearchResultGen, { kind: "history" }>, "page"> & { page: ClipPage })
   | (Omit<Extract<SearchResultGen, { kind: "categoryHits" }>, "groups"> & { groups: CategoryHitGroup[] });
 
-export type AppSettings = Omit<AppSettingsGen, "panelOpenBehavior" | "panelLayout" | "ocrMode" | "ocrEngine" | "language"> & {
-  panelOpenBehavior: PanelOpenBehavior;
-  panelLayout: PanelLayout;
-  ocrMode: OcrMode;
-  ocrEngine: OcrEngine;
-  language: Language;
-};
-
 export type OcrInstallStatus = Omit<OcrInstallStatusGen, "mode"> & { mode: OcrMode | "mocr" };
 
 export type AutomationRunSummary = Omit<AutomationRunSummaryGen, "status"> & { status: AutomationStatus };
@@ -88,6 +83,7 @@ export type AutomationAction = Omit<AutomationActionGen, "lastRun"> & { lastRun:
 
 export type { AppInfo, AutomationInput, CloudSettings, ClipUpdate, OcrInstallProgress, ImageOcrResult, ImageOcrWord };
 export type { ScreenshotSelection, OcrResultPayload };
+export type { AppSettings, Language, OcrEngine, OcrMode, PanelLayout, PanelOpenBehavior };
 export type { CloudOcrSettings } from "./types/generated/CloudOcrSettings";
 export type { CloudOcrPromptMessage } from "./types/generated/CloudOcrPromptMessage";
 export type { Category };

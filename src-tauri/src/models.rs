@@ -144,6 +144,169 @@ pub(crate) enum SearchResult {
     CategoryHits { groups: Vec<CategoryHitGroup> },
 }
 
+/// 主面板布局。线格式与历史 DB 字符串逐字一致（Task 40 枚举化）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub(crate) enum PanelLayout {
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "side")]
+    Side,
+}
+
+impl PanelLayout {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Side => "side",
+        }
+    }
+    /// DB 历史字符串解析；非法值由调用方回落默认。
+    pub(crate) fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "top" => Some(Self::Top),
+            "side" => Some(Self::Side),
+            _ => None,
+        }
+    }
+    pub(crate) fn default_value() -> Self {
+        Self::Top
+    }
+}
+
+/// 本地 OCR 识别模式（Paddle 快速/精确）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub(crate) enum OcrMode {
+    #[serde(rename = "fast")]
+    Fast,
+    #[serde(rename = "best")]
+    Best,
+}
+
+impl OcrMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Best => "best",
+        }
+    }
+    pub(crate) fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "fast" => Some(Self::Fast),
+            "best" => Some(Self::Best),
+            _ => None,
+        }
+    }
+    pub(crate) fn default_value() -> Self {
+        Self::Fast
+    }
+}
+
+/// OCR 引擎（本地 / OpenAI 兼容云端）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub(crate) enum OcrEngine {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "openai")]
+    Openai,
+}
+
+impl OcrEngine {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Openai => "openai",
+        }
+    }
+    pub(crate) fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "local" => Some(Self::Local),
+            "openai" => Some(Self::Openai),
+            _ => None,
+        }
+    }
+    pub(crate) fn default_value() -> Self {
+        Self::Local
+    }
+}
+
+/// 面板唤出后的默认落点。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub(crate) enum PanelOpenBehavior {
+    #[serde(rename = "history")]
+    History,
+    #[serde(rename = "last_selected")]
+    LastSelected,
+}
+
+// 注意：PanelOpenBehavior 只有解码方向（DB 字符串 → 枚举），没有 as_str：
+// 写入侧仍走 registry 的 clean_panel_open_behavior（Task 40 有意保留 String 写签名），
+// 非测试代码里不存在枚举 → 字符串的转换点，留着就是死代码。
+impl PanelOpenBehavior {
+    pub(crate) fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "history" => Some(Self::History),
+            "last_selected" => Some(Self::LastSelected),
+            _ => None,
+        }
+    }
+    pub(crate) fn default_value() -> Self {
+        Self::History
+    }
+}
+
+/// 界面语言（与 i18n locale 码一致）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub(crate) enum Language {
+    #[serde(rename = "en")]
+    En,
+    #[serde(rename = "zh-CN")]
+    ZhCn,
+    #[serde(rename = "ja")]
+    Ja,
+    #[serde(rename = "ko")]
+    Ko,
+    #[serde(rename = "es")]
+    Es,
+    #[serde(rename = "fr")]
+    Fr,
+    #[serde(rename = "de")]
+    De,
+}
+
+impl Language {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::ZhCn => "zh-CN",
+            Self::Ja => "ja",
+            Self::Ko => "ko",
+            Self::Es => "es",
+            Self::Fr => "fr",
+            Self::De => "de",
+        }
+    }
+    pub(crate) fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "en" => Some(Self::En),
+            "zh-CN" => Some(Self::ZhCn),
+            "ja" => Some(Self::Ja),
+            "ko" => Some(Self::Ko),
+            "es" => Some(Self::Es),
+            "fr" => Some(Self::Fr),
+            "de" => Some(Self::De),
+            _ => None,
+        }
+    }
+    pub(crate) fn default_value() -> Self {
+        Self::En
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -154,11 +317,11 @@ pub(crate) struct AppSettings {
     pub(crate) retention_days: i64,
     #[ts(type = "number")]
     pub(crate) append_copy_timeout_minutes: i64,
-    pub(crate) panel_open_behavior: String,
-    pub(crate) panel_layout: String,
-    pub(crate) ocr_mode: String,
-    pub(crate) ocr_engine: String,
-    pub(crate) language: String,
+    pub(crate) panel_open_behavior: PanelOpenBehavior,
+    pub(crate) panel_layout: PanelLayout,
+    pub(crate) ocr_mode: OcrMode,
+    pub(crate) ocr_engine: OcrEngine,
+    pub(crate) language: Language,
     pub(crate) cloud: CloudSettings,
     pub(crate) cloud_ocr: CloudOcrSettings,
 }

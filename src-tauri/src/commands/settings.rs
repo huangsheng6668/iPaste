@@ -125,7 +125,7 @@ pub(crate) fn update_panel_layout(
     layout: String,
 ) -> Result<AppSettings, AppError> {
     let settings = state.store.update_panel_layout(layout)?;
-    apply_main_window_layout_geometry(&app, &settings.panel_layout)?;
+    apply_main_window_layout_geometry(&app, settings.panel_layout.as_str())?;
     emit_settings_changed(&app, &settings);
     Ok(settings)
 }
@@ -155,9 +155,9 @@ pub(crate) fn update_language(
     language: String,
 ) -> Result<AppSettings, AppError> {
     let settings = state.store.update_language(language)?;
-    apply_tray_language(&state, &settings.language);
+    apply_tray_language(&state, settings.language.as_str());
     if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
-        let _ = window.set_title(localized_text(&settings.language, "settings_title"));
+        let _ = window.set_title(localized_text(settings.language.as_str(), "settings_title"));
     }
     emit_settings_changed(&app, &settings);
     Ok(settings)

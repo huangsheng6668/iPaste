@@ -24,10 +24,10 @@ pub(crate) fn update_pause_capture_menu_label(state: &AppState, is_listening: bo
     let language = state
         .store
         .settings()
-        .map(|settings| settings.language)
-        .unwrap_or_else(|_| DEFAULT_LANGUAGE.to_string());
+        .map(|settings| settings.language.as_str())
+        .unwrap_or(DEFAULT_LANGUAGE);
     let label = localized_text(
-        &language,
+        language,
         if is_listening {
             "pause_capture"
         } else {
@@ -72,7 +72,7 @@ pub(crate) fn set_append_copy_enabled_inner(
             state.ui.append_copy_menu_item.clone(),
             session_id,
             timeout,
-            settings.language,
+            settings.language.as_str().to_string(),
         );
     }
     Ok(is_enabled)
@@ -82,10 +82,10 @@ fn update_append_copy_menu_label(state: &AppState, is_enabled: bool) {
     let language = state
         .store
         .settings()
-        .map(|settings| settings.language)
-        .unwrap_or_else(|_| DEFAULT_LANGUAGE.to_string());
+        .map(|settings| settings.language.as_str())
+        .unwrap_or(DEFAULT_LANGUAGE);
     let label = localized_text(
-        &language,
+        language,
         if is_enabled {
             "disable_append_copy"
         } else {

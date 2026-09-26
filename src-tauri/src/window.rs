@@ -41,7 +41,7 @@ pub(crate) const OCR_OVERLAY_WINDOW_PREFIX: &str = "ocr-overlay-";
 pub(crate) fn current_main_window_geometry(app: &tauri::AppHandle) -> WindowGeometry {
     app.try_state::<AppState>()
         .and_then(|state| state.store.settings().ok())
-        .map(|settings| main_window_geometry_for_layout(&settings.panel_layout))
+        .map(|settings| main_window_geometry_for_layout(settings.panel_layout.as_str()))
         .unwrap_or(MAIN_WINDOW_GEOMETRY)
 }
 
@@ -293,8 +293,8 @@ pub(crate) fn show_settings_window_with_tab(
     let language = app
         .try_state::<AppState>()
         .and_then(|state| state.store.settings().ok())
-        .map(|settings| settings.language)
-        .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
+        .map(|settings| settings.language.as_str())
+        .unwrap_or(DEFAULT_LANGUAGE);
     let tab_suffix = tab
         .filter(|tab| ["ocr", "permissions"].contains(tab))
         .map(|tab| format!("&tab={tab}"))
@@ -305,7 +305,7 @@ pub(crate) fn show_settings_window_with_tab(
         AuxiliaryWindowConfig {
             label: SETTINGS_WINDOW.to_string(),
             url: format!("index.html?window=settings{tab_suffix}"),
-            title: localized_text(&language, "settings_title").to_string(),
+            title: localized_text(language, "settings_title").to_string(),
             geometry: SETTINGS_WINDOW_GEOMETRY,
             decorations: true,
             always_on_top: false,
@@ -368,8 +368,8 @@ pub(crate) fn show_ocr_result_window(
     let language = app
         .try_state::<AppState>()
         .and_then(|state| state.store.settings().ok())
-        .map(|settings| settings.language)
-        .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
+        .map(|settings| settings.language.as_str())
+        .unwrap_or(DEFAULT_LANGUAGE);
     // 结果窗是 manga profile 的唯一入口：打开即后台预热推理进程，
     // 用户点击「日语 · 漫画」时模型多半已加载完毕（失败静默，不影响冷启动回退）。
     let prewarm_app = app.clone();
@@ -384,7 +384,7 @@ pub(crate) fn show_ocr_result_window(
                 "index.html?window=ocr-result&token={}",
                 percent_encode_component(token)
             ),
-            title: localized_text(&language, "screenshot_ocr").to_string(),
+            title: localized_text(language, "screenshot_ocr").to_string(),
             geometry: OCR_RESULT_WINDOW_GEOMETRY,
             decorations: false,
             always_on_top: true,

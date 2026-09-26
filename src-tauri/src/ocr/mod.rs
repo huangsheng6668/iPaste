@@ -103,8 +103,8 @@ pub(crate) fn install_status(
 
     #[cfg(not(target_os = "macos"))]
     {
-        let mode = store.settings()?.ocr_mode;
-        installer::ocr_install_status(app, &mode)
+        let mode = store.settings()?.ocr_mode.as_str();
+        installer::ocr_install_status(app, mode)
     }
 }
 
@@ -121,8 +121,8 @@ pub(crate) async fn install_assets(
 
     #[cfg(not(target_os = "macos"))]
     {
-        let mode = store.settings()?.ocr_mode;
-        tokio::task::spawn_blocking(move || installer::install_ocr_assets_inner(&app, &mode))
+        let mode = store.settings()?.ocr_mode.as_str();
+        tokio::task::spawn_blocking(move || installer::install_ocr_assets_inner(&app, mode))
             .await
             .map_err(|error| error.to_string())?
     }
@@ -140,12 +140,12 @@ pub(crate) fn remove_assets(
 
     #[cfg(not(target_os = "macos"))]
     {
-        let mode = store.settings()?.ocr_mode;
+        let mode = store.settings()?.ocr_mode.as_str();
         let root = installer::ocr_root_dir(app)?;
         if root.exists() {
             std::fs::remove_dir_all(&root).map_err(|error| error.to_string())?;
         }
-        installer::ocr_install_status(app, &mode)
+        installer::ocr_install_status(app, mode)
     }
 }
 
@@ -241,7 +241,7 @@ pub(crate) async fn recognize_image(
     if let Some(settings) = app
         .try_state::<crate::models::AppState>()
         .and_then(|state| state.store.settings().ok())
-        .filter(|settings| settings.ocr_engine == "openai")
+        .filter(|settings| settings.ocr_engine == crate::models::OcrEngine::Openai)
     {
         let cloud = settings.cloud_ocr;
         let img_path = image_path.clone();

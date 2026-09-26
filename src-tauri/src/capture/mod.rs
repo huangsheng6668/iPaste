@@ -123,7 +123,7 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
         let engine_is_cloud = state
             .store
             .settings()
-            .map(|settings| settings.ocr_engine == "openai")
+            .map(|settings| settings.ocr_engine == crate::models::OcrEngine::Openai)
             .unwrap_or(false);
         if engine_is_cloud {
             return Err("ocrCloudKeyMissing");

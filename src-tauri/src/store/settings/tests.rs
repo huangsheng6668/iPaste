@@ -31,11 +31,14 @@ fn settings_snapshot_is_stable() {
     assert_eq!(settings.ocr_shortcut, "CommandOrControl+Shift+O");
     assert_eq!(settings.retention_days, 30);
     assert_eq!(settings.append_copy_timeout_minutes, 1);
-    assert_eq!(settings.panel_open_behavior, "history");
-    assert_eq!(settings.panel_layout, "top");
-    assert_eq!(settings.ocr_mode, "fast");
-    assert_eq!(settings.ocr_engine, "local");
-    assert_eq!(settings.language, "en");
+    assert_eq!(
+        settings.panel_open_behavior,
+        crate::models::PanelOpenBehavior::History
+    );
+    assert_eq!(settings.panel_layout.as_str(), "top");
+    assert_eq!(settings.ocr_mode.as_str(), "fast");
+    assert_eq!(settings.ocr_engine.as_str(), "local");
+    assert_eq!(settings.language.as_str(), "en");
     assert_eq!(settings.cloud.api_address, "");
     assert!(!settings.cloud.enabled);
     assert!(settings.cloud.last_connected_at.is_none());
@@ -64,24 +67,30 @@ fn settings_round_trip_for_enum_like_values() {
     let store = temp_store();
 
     let s = store.update_panel_layout("side".to_string()).unwrap();
-    assert_eq!(s.panel_layout, "side");
+    assert_eq!(s.panel_layout.as_str(), "side");
 
     let s = store.update_ocr_mode("best".to_string()).unwrap();
-    assert_eq!(s.ocr_mode, "best");
+    assert_eq!(s.ocr_mode.as_str(), "best");
 
     let s = store
         .update_panel_open_behavior("last_selected".to_string())
         .unwrap();
-    assert_eq!(s.panel_open_behavior, "last_selected");
+    assert_eq!(
+        s.panel_open_behavior,
+        crate::models::PanelOpenBehavior::LastSelected
+    );
 
     let s = store.update_language("zh-CN".to_string()).unwrap();
-    assert_eq!(s.language, "zh-CN");
+    assert_eq!(s.language.as_str(), "zh-CN");
 
     let s = store.settings().unwrap();
-    assert_eq!(s.panel_layout, "side");
-    assert_eq!(s.ocr_mode, "best");
-    assert_eq!(s.panel_open_behavior, "last_selected");
-    assert_eq!(s.language, "zh-CN");
+    assert_eq!(s.panel_layout.as_str(), "side");
+    assert_eq!(s.ocr_mode.as_str(), "best");
+    assert_eq!(
+        s.panel_open_behavior,
+        crate::models::PanelOpenBehavior::LastSelected
+    );
+    assert_eq!(s.language.as_str(), "zh-CN");
 }
 
 #[test]
@@ -102,15 +111,15 @@ fn ocr_engine_round_trip_and_default() {
     let store = temp_store();
 
     // 缺省 local
-    assert_eq!(store.settings().unwrap().ocr_engine, "local");
+    assert_eq!(store.settings().unwrap().ocr_engine.as_str(), "local");
 
     let s = store.update_ocr_engine("openai".to_string()).unwrap();
-    assert_eq!(s.ocr_engine, "openai");
-    assert_eq!(store.settings().unwrap().ocr_engine, "openai");
+    assert_eq!(s.ocr_engine.as_str(), "openai");
+    assert_eq!(store.settings().unwrap().ocr_engine.as_str(), "openai");
 
     // 非法值被拒绝且不落库
     assert!(store.update_ocr_engine("bigmodel".to_string()).is_err());
-    assert_eq!(store.settings().unwrap().ocr_engine, "openai");
+    assert_eq!(store.settings().unwrap().ocr_engine.as_str(), "openai");
 }
 
 #[test]
@@ -158,6 +167,40 @@ fn sync_relay_url_rejects_non_https() {
         assert!(error.contains("https"), "got: {error}");
     }
     assert_eq!(store.sync_relay_url().unwrap(), None, "拒绝的值不落库");
+}
+
+/// Task 40 枚举化的遗留数据保护：库里存着非法枚举字符串（历史版本写入）时，
+/// 读取一律回落默认值而不是报错——迁移期不逼用户清库。
+#[test]
+fn legacy_invalid_enum_values_fall_back_to_defaults() {
+    let store = temp_store();
+    {
+        let conn = store.connect().unwrap();
+        for (key, value) in [
+            ("panel_layout", "diagonal"),
+            ("ocr_mode", "turbo"),
+            ("ocr_engine", "bigmodel"),
+            ("panel_open_behavior", "somewhere"),
+            ("language", "klingon"),
+        ] {
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![key, value],
+            )
+            .unwrap();
+        }
+    }
+
+    let s = store.settings().unwrap();
+    assert_eq!(s.panel_layout.as_str(), "top");
+    assert_eq!(s.ocr_mode.as_str(), "fast");
+    assert_eq!(s.ocr_engine.as_str(), "local");
+    assert_eq!(
+        s.panel_open_behavior,
+        crate::models::PanelOpenBehavior::History
+    );
+    assert_eq!(s.language.as_str(), "en");
 }
 
 #[test]

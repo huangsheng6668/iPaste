@@ -176,7 +176,7 @@ export const useSettingsStore = defineStore("settings", () => {
    * 老二进制命令缺失（tolerateMissing）→ 保持乐观值静默；
    * 真实失败 → 回滚乐观值 + toast + 继续抛出。
    * （Task 39 前的三种失败形态——乐观式只 toast 不回滚、回显式裸抛不 toast、
-   * 　命令缺失静默——统一为此一种。）
+   *   命令缺失静默——统一为此一种。）
    */
   async function writeSetting(
     command: string,

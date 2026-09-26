@@ -278,42 +278,42 @@ pub fn run() {
             let show_menu_item = MenuItem::with_id(
                 app,
                 "show",
-                localized_text(&settings.language, "open_ipaste"),
+                localized_text(settings.language.as_str(), "open_ipaste"),
                 true,
                 Some(settings.shortcut.as_str()),
             )?;
             let ocr_menu_item = MenuItem::with_id(
                 app,
                 "screenshot-ocr",
-                localized_text(&settings.language, "screenshot_ocr"),
+                localized_text(settings.language.as_str(), "screenshot_ocr"),
                 true,
                 Some(settings.ocr_shortcut.as_str()),
             )?;
             let append_copy_menu_item = MenuItem::with_id(
                 app,
                 "append-copy",
-                localized_text(&settings.language, "enable_append_copy"),
+                localized_text(settings.language.as_str(), "enable_append_copy"),
                 true,
                 None::<&str>,
             )?;
             let pause_capture_menu_item = MenuItem::with_id(
                 app,
                 "pause",
-                localized_text(&settings.language, "pause_capture"),
+                localized_text(settings.language.as_str(), "pause_capture"),
                 true,
                 None::<&str>,
             )?;
             let settings_menu_item = MenuItem::with_id(
                 app,
                 "settings",
-                localized_text(&settings.language, "settings"),
+                localized_text(settings.language.as_str(), "settings"),
                 true,
                 None::<&str>,
             )?;
             let quit_menu_item = MenuItem::with_id(
                 app,
                 "quit",
-                localized_text(&settings.language, "quit_ipaste"),
+                localized_text(settings.language.as_str(), "quit_ipaste"),
                 true,
                 None::<&str>,
             )?;

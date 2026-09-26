@@ -239,8 +239,8 @@ pub(crate) fn recognize_image_text_paddle(
     profile: Option<String>,
     language: Option<String>,
 ) -> Result<crate::models::ImageOcrResult, String> {
-    let mode = store.settings()?.ocr_mode;
-    recognize_with_mode(app, &mode, image_path, profile, language)
+    let mode = store.settings()?.ocr_mode.as_str();
+    recognize_with_mode(app, mode, image_path, profile, language)
 }
 
 /// 降级入口：AppState 取不到（无法读设置）时由调度方按默认模式调用。

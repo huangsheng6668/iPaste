@@ -5,7 +5,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::super::Store;
 use super::registry;
-use crate::models::{AppSettings, AutoPushSettings, Category, CategoryItem, ClipPage};
+use crate::models::{
+    AppSettings, AutoPushSettings, Category, CategoryItem, ClipPage, Language, OcrEngine, OcrMode,
+    PanelLayout, PanelOpenBehavior,
+};
 use crate::{
     util::{clean_append_copy_timeout_minutes, clean_retention_days},
     CLIP_PAGE_SIZE, DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_RETENTION_DAYS,
@@ -58,11 +61,18 @@ impl Store {
                 clean_append_copy_timeout_minutes,
                 DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
             )?,
-            panel_open_behavior: value(registry::PANEL_OPEN_BEHAVIOR.key),
-            panel_layout: value(registry::PANEL_LAYOUT.key),
-            ocr_mode: value(registry::OCR_MODE.key),
-            ocr_engine: value(registry::OCR_ENGINE.key),
-            language: value(registry::LANGUAGE.key),
+            panel_open_behavior: PanelOpenBehavior::from_db_str(&value(
+                registry::PANEL_OPEN_BEHAVIOR.key,
+            ))
+            .unwrap_or_else(PanelOpenBehavior::default_value),
+            panel_layout: PanelLayout::from_db_str(&value(registry::PANEL_LAYOUT.key))
+                .unwrap_or_else(PanelLayout::default_value),
+            ocr_mode: OcrMode::from_db_str(&value(registry::OCR_MODE.key))
+                .unwrap_or_else(OcrMode::default_value),
+            ocr_engine: OcrEngine::from_db_str(&value(registry::OCR_ENGINE.key))
+                .unwrap_or_else(OcrEngine::default_value),
+            language: Language::from_db_str(&value(registry::LANGUAGE.key))
+                .unwrap_or_else(Language::default_value),
             cloud: self.cloud_settings_with_conn(conn)?,
             cloud_ocr: self.cloud_ocr_settings_with_conn(conn)?,
         })
