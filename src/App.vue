@@ -28,6 +28,7 @@ import { useInlineRename } from "./composables/useInlineRename";
 import { usePanelKeyboard } from "./composables/usePanelKeyboard";
 import type { PanelCommand, PanelContext } from "./composables/panelKeymap";
 import { useWindowRoute } from "./composables/useWindowRoute";
+import { usePanelDomLifecycle } from "./composables/usePanelDomLifecycle";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
@@ -164,6 +165,19 @@ const panelKeyboard = usePanelKeyboard({
 });
 const { handleKeydown, handleKeyup } = panelKeyboard;
 
+// 主面板的全局监听（keyup/keydown 捕获、选区变化、窗口失焦、可见性）；
+// 辅助窗口 enabled=false，既不注册也不注销。
+usePanelDomLifecycle(
+  {
+    onKeydown: handleKeydown,
+    onKeyup: handleKeyup,
+    onSelectionChange: handleSelectionChange,
+    onWindowBlur: closeFloatingLayers,
+    onVisibilityChange: handleVisibilityChange,
+  },
+  { enabled: isMainWindow },
+);
+
 const {
   clipListElement,
   handleClipListScroll,
@@ -242,11 +256,6 @@ const canReorderVisibleItems = computed(() =>
 onMounted(async () => {
   if (!isMainWindow) return;
 
-  document.addEventListener("keydown", handleKeydown, true);
-  document.addEventListener("keyup", handleKeyup, true);
-  document.addEventListener("selectionchange", handleSelectionChange);
-  window.addEventListener("blur", closeFloatingLayers);
-  document.addEventListener("visibilitychange", handleVisibilityChange);
   setupWatches();
 
   await store.load();
@@ -270,11 +279,6 @@ onMounted(async () => {
 onUnmounted(() => {
   if (!isMainWindow) return;
 
-  document.removeEventListener("keydown", handleKeydown, true);
-  document.removeEventListener("keyup", handleKeyup, true);
-  document.removeEventListener("selectionchange", handleSelectionChange);
-  window.removeEventListener("blur", closeFloatingLayers);
-  document.removeEventListener("visibilitychange", handleVisibilityChange);
   clearMoveSubmenuCloseTimer();
   clearSendSubmenuCloseTimer();
   cleanupClipListScroll();
