@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import {
-  ChevronLeft,
-  ChevronRight,
   ClipboardPaste,
   CornerDownLeft,
   Copy,
@@ -14,11 +12,10 @@ import { useImageViewer } from "../composables/useImageViewer";
 import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor, type ClipEditorHandle } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
-import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
 import ViewerToolbar from "./viewer/ViewerToolbar.vue";
+import ViewerOcrPanel from "./viewer/ViewerOcrPanel.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { isEditableTarget } from "../lib/dom";
-import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
@@ -311,102 +308,24 @@ function handleViewerResize() {
             <span />
           </div>
 
-          <aside
+          <ViewerOcrPanel
             v-if="showImageOcrPanel"
-            class="viewer-image-ocr-panel"
-            :class="{ 'viewer-image-ocr-panel-collapsed': isImageOcrPanelCollapsed }"
-            @wheel.stop
-          >
-            <button
-              type="button"
-              class="viewer-image-ocr-toggle"
-              :aria-label="isImageOcrPanelCollapsed ? t('viewer.expandOcr') : t('viewer.collapseOcr')"
-              :data-tooltip="isImageOcrPanelCollapsed ? t('viewer.expandOcr') : t('viewer.collapseOcr')"
-              @pointerdown.stop
-              @click="toggleImageOcrPanel"
-            >
-              <ChevronLeft
-                v-if="isImageOcrPanelCollapsed"
-                class="size-4"
-              />
-              <ChevronRight
-                v-else
-                class="size-4"
-              />
-            </button>
-
-            <div
-              class="viewer-image-ocr-panel-body"
-              @pointerdown.stop
-              @wheel.stop
-            >
-              <div class="viewer-image-ocr-heading">
-                <div class="min-w-0">
-                  <h2>{{ t("viewer.ocrTitle") }}</h2>
-                  <p v-if="imageOcrResult">
-                    {{ imageOcrSummary }}
-                  </p>
-                  <p v-else-if="isRecognizingImage">
-                    {{ t("viewer.ocrRecognizing") }}
-                  </p>
-                  <p v-else>
-                    {{ t("viewer.ocrFailed") }}
-                  </p>
-                </div>
-                <OcrEngineSelect
-                  :engine="settings.ocrEngine"
-                  :disabled="isRecognizingImage"
-                  @rerun="recognizeImageText"
-                />
-                <select
-                  class="ocr-language-select"
-                  :value="selectedOcrLanguage"
-                  :disabled="isRecognizingImage"
-                  :aria-label="t('ocr.languageLabel')"
-                  @change="changeOcrLanguage(($event.target as HTMLSelectElement).value)"
-                >
-                  <option
-                    v-for="option in OCR_LANGUAGE_OPTIONS"
-                    :key="option.id"
-                    :value="option.id"
-                  >
-                    {{ t(option.labelKey) }}
-                  </option>
-                </select>
-                <button
-                  v-if="imageOcrResult?.text"
-                  type="button"
-                  class="viewer-paste-button"
-                  @click="pasteImageOcrText"
-                >
-                  <Copy class="size-4" />
-                  <span>{{ t("viewer.copyText") }}</span>
-                </button>
-              </div>
-
-              <p
-                v-if="imageOcrError"
-                class="viewer-image-ocr-error"
-              >
-                {{ imageOcrError }}
-              </p>
-              <p
-                v-else-if="isRecognizingImage"
-                class="viewer-image-ocr-loading"
-              >
-                {{ imageOcrLoadingText }}
-              </p>
-              <textarea
-                v-else-if="imageOcrResult"
-                class="viewer-image-ocr-text subtle-scrollbar"
-                :value="imageOcrText"
-                readonly
-                spellcheck="false"
-                @focus="clearImageTextSelection"
-                @pointerdown="clearImageTextSelection"
-              />
-            </div>
-          </aside>
+            :panel-collapsed="isImageOcrPanelCollapsed"
+            :is-recognizing="isRecognizingImage"
+            :has-result="Boolean(imageOcrResult)"
+            :has-result-text="Boolean(imageOcrResult?.text)"
+            :summary="imageOcrSummary"
+            :loading-text="imageOcrLoadingText"
+            :error-text="imageOcrError"
+            :text="imageOcrText"
+            :engine="settings.ocrEngine"
+            :selected-language="selectedOcrLanguage"
+            @toggle="toggleImageOcrPanel"
+            @rerun="recognizeImageText"
+            @change-language="changeOcrLanguage"
+            @paste-text="pasteImageOcrText"
+            @clear-selection="clearImageTextSelection"
+          />
         </div>
       </template>
 
