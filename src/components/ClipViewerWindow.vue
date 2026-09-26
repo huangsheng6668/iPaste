@@ -30,6 +30,7 @@ import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { formatTime, typeLabel } from "../lib/format";
 import type { ClipViewerPayload } from "../types";
 
@@ -70,7 +71,8 @@ const {
 } = ocr;
 // 独立窗口不走 App.vue 的 store.load（见 App.vue 早退分支），OCR 面板的
 // 引擎切换需读取当前引擎与云 OCR 配置状态
-const appStore = useIpasteStore();
+const appStore = useIpasteStore(); // 窗口快照自举（load）
+const settings = useSettingsStore();
 // isPinned 的 ref 由下方 useViewerWindow 持有（其 hasChanged 依赖编辑器，只能后建），
 // 经 computed 延迟取值，编辑器选项构造时即为最终形态
 const editor = useClipEditor(item, {
@@ -481,7 +483,7 @@ function handleViewerResize() {
                   </p>
                 </div>
                 <OcrEngineSelect
-                  :engine="appStore.ocrEngine"
+                  :engine="settings.ocrEngine"
                   :disabled="isRecognizingImage"
                   @rerun="recognizeImageText"
                 />

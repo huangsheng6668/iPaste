@@ -10,7 +10,6 @@ import { showError } from "./uiStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCloudSyncStore } from "./cloudSyncStore";
 import { useCategoryStore } from "./categoryStore";
-import { useAutomationStore } from "./automationStore";
 import type {
   AppSnapshot,
   CapturedEvent,
@@ -34,7 +33,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
   sync.registerSnapshotApplier(() => applyCloudSnapshot());
 
   const category = useCategoryStore();
-  const automation = useAutomationStore();
 
   const clips = ref<ClipItem[]>([]);
   const selectedCategoryId = ref<string>("history");
@@ -487,8 +485,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   return {
     clips,
-    categories: computed({ get: () => category.categories, set: (value) => (category.categories = value) }),
-    categoryItems: computed({ get: () => category.categoryItems, set: (value) => (category.categoryItems = value) }),
     selectedCategoryId,
     selectedIndex,
     search,
@@ -539,59 +535,5 @@ export const useIpasteStore = defineStore("ipaste", () => {
     applyCaptured,
     applyClipUpdate,
     closePanelRequested,
-    // —— automation 域转发（实现在 automationStore；可写 computed 兼容既有赋值点）——
-    automations: computed({ get: () => automation.automations, set: (value) => (automation.automations = value) }),
-    selectedActionIndex: computed({
-      get: () => automation.selectedActionIndex,
-      set: (value) => (automation.selectedActionIndex = value),
-    }),
-    actionsQuery: computed({ get: () => automation.actionsQuery, set: (value) => (automation.actionsQuery = value) }),
-    runningAutomationLogs: computed({
-      get: () => automation.runningAutomationLogs,
-      set: (value) => (automation.runningAutomationLogs = value),
-    }),
-    visibleActions: computed(() => automation.visibleActions),
-    loadAutomations: automation.loadAutomations,
-    createAutomation: automation.createAutomation,
-    updateAutomation: automation.updateAutomation,
-    deleteAutomation: automation.deleteAutomation,
-    runAutomation: automation.runAutomation,
-
-    // —— 设置域转发（实现在 settingsStore；可写 computed 保持外部赋值兼容，Task 17 移除）——
-    shortcut: computed({ get: () => settings.shortcut, set: (value) => (settings.shortcut = value) }),
-    ocrShortcut: computed({ get: () => settings.ocrShortcut, set: (value) => (settings.ocrShortcut = value) }),
-    retentionDays: computed({ get: () => settings.retentionDays, set: (value) => (settings.retentionDays = value) }),
-    appendCopyTimeoutMinutes: computed({
-      get: () => settings.appendCopyTimeoutMinutes,
-      set: (value) => (settings.appendCopyTimeoutMinutes = value),
-    }),
-    panelOpenBehavior: computed({
-      get: () => settings.panelOpenBehavior,
-      set: (value) => (settings.panelOpenBehavior = value),
-    }),
-    panelLayout: computed({ get: () => settings.panelLayout, set: (value) => (settings.panelLayout = value) }),
-    ocrMode: computed({ get: () => settings.ocrMode, set: (value) => (settings.ocrMode = value) }),
-    ocrEngine: computed({ get: () => settings.ocrEngine, set: (value) => (settings.ocrEngine = value) }),
-    language: computed({ get: () => settings.language, set: (value) => (settings.language = value) }),
-    cloud: computed({ get: () => settings.cloud, set: (value) => (settings.cloud = value) }),
-    cloudOcr: computed({ get: () => settings.cloudOcr, set: (value) => (settings.cloudOcr = value) }),
-    applySettings: settings.applySettings,
-    updateRetentionDays: settings.updateRetentionDays,
-    updateAppendCopyTimeout: settings.updateAppendCopyTimeout,
-    updateShortcut: settings.updateShortcut,
-    updateOcrShortcut: settings.updateOcrShortcut,
-    updatePanelOpenBehavior: settings.updatePanelOpenBehavior,
-    updatePanelLayout: settings.updatePanelLayout,
-    updateOcrMode: settings.updateOcrMode,
-    updateOcrEngine: settings.updateOcrEngine,
-    updateLanguage: settings.updateLanguage,
-    saveOpenaiOcrConfig: settings.saveOpenaiOcrConfig,
-    clearOpenaiOcrConfig: settings.clearOpenaiOcrConfig,
-    testOpenaiOcr: settings.testOpenaiOcr,
-    saveCloudSettings: sync.saveCloudSettings,
-    disableCloudSync: sync.disableCloudSync,
-    testCloudSettings: sync.testCloudSettings,
-    syncCloudNow: sync.syncCloudNow,
-    syncCloudInBackground: sync.syncCloudInBackground,
   };
 });
