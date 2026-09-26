@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { subscribe, type UnlistenFn } from "./platform/events";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { AlertCircle } from "lucide-vue-next";
 import ClipContextMenu from "./components/ClipContextMenu.vue";
@@ -252,11 +252,11 @@ onMounted(async () => {
     scheduleSilentUpdateCheck();
   }
   if (isTauri) {
-    unlistenShortcutOpened = await listen(IPASTE_EVENTS.shortcutOpened, closeFloatingLayers);
-    unlistenPanelVisibilityChanged = await listen<{ visible: boolean; preservesCurrentApp: boolean; nativePanel?: boolean }>(
+    unlistenShortcutOpened = await subscribe(IPASTE_EVENTS.shortcutOpened, closeFloatingLayers);
+    unlistenPanelVisibilityChanged = await subscribe<{ visible: boolean; preservesCurrentApp: boolean; nativePanel?: boolean }>(
       IPASTE_EVENTS.panelVisibilityChanged,
-      (event) => {
-        applyPanelVisibility(event.payload);
+      (payload) => {
+        applyPanelVisibility(payload);
       },
     );
   }
