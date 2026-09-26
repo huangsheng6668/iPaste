@@ -206,6 +206,27 @@ struct AuxiliaryWindowConfig {
     monitor_index: Option<usize>,
 }
 
+/// 辅助窗口要落在哪块屏——**与主面板同一套取屏规则**（光标所在屏）。
+///
+/// 主面板由 `position_window_near_cursor` 按光标所在屏定位；辅助窗口此前用的是
+/// 「主窗口的 `current_monitor()`，取不到就 `primary_monitor()`」。两套规则一旦不一致，
+/// 窗口就会开到另一块屏上；而面板失焦即自动隐藏，用户眼前的屏幕上会什么都不剩，
+/// 表现就是「页面打不开」。`current_monitor()` 在窗口刚被移动过时还可能返回旧值，
+/// 所以光标屏放第一位，主窗口显示器与主显示器退为兜底。
+fn auxiliary_target_monitor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    app.cursor_position()
+        .ok()
+        .and_then(|cursor| {
+            positioning::monitor_for_point(app, cursor.x.round() as i32, cursor.y.round() as i32)
+                .ok()
+        })
+        .or_else(|| {
+            app.get_webview_window(MAIN_WINDOW)
+                .and_then(|window| window.current_monitor().ok().flatten())
+        })
+        .or_else(|| app.primary_monitor().ok().flatten())
+}
+
 fn show_auxiliary_window(
     app: &tauri::AppHandle,
     config: AuxiliaryWindowConfig,
@@ -215,9 +236,7 @@ fn show_auxiliary_window(
     let main_monitor = if config.near_main_window {
         None
     } else {
-        app.get_webview_window(MAIN_WINDOW)
-            .and_then(|window| window.current_monitor().ok().flatten())
-            .or_else(|| app.primary_monitor().ok().flatten())
+        auxiliary_target_monitor(app)
     };
     let window = if let Some(window) = app.get_webview_window(&config.label) {
         window
