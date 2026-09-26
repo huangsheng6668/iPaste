@@ -3,6 +3,7 @@ import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
 import { isTauri } from "../lib/env";
+import { readStored } from "../platform/storage";
 import { windowHandle } from "../platform/window";
 import { useWindowDrag } from "./useWindowDrag";
 import type { ClipViewerPayload } from "../types";
@@ -107,7 +108,7 @@ export function useViewerWindow(editor: EditorBridge, options: ViewerWindowOptio
     }
     windowLabel.value = label;
 
-    const raw = localStorage.getItem(clipViewerStorageKey(label));
+    const raw = readStored(clipViewerStorageKey(label));
     if (!raw) {
       options.error.value = t("viewer.payloadExpired");
       return;

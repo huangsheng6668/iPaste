@@ -11,6 +11,7 @@ import type {
 } from "../../types";
 import { clipMatchesSearch } from "../clipSearch";
 import { isTauri } from "../env";
+import { writeStored } from "../../platform/storage";
 import { call } from "./call";
 import { mockCategories, mockCategoryItems, mockClips, mockSnapshot } from "./mockBackend";
 
@@ -115,7 +116,7 @@ export const clipsApi = {
   openClipViewer(item: ClipViewItem, originalClipId: string, autoRecognize = false) {
     const label = `clip-viewer-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const payload: ClipViewerPayload = { label, originalClipId, item };
-    localStorage.setItem(clipViewerStorageKey(label), JSON.stringify(payload));
+    writeStored(clipViewerStorageKey(label), JSON.stringify(payload));
 
     const recognizeParam = autoRecognize ? "&auto-recognize=1" : "";
     if (!isTauri) {
