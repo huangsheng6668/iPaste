@@ -10,6 +10,14 @@ pub(crate) fn temp_store() -> Store {
         std::process::id(),
         uuid_like()
     ));
+    // 目录名是「进程 id + 进程内计数器」，两段都可能重复：PID 会被系统回收，
+    // 计数器每次运行都从 0 起，而临时目录从不清理。撞名时 create_dir_all 会
+    // 静默复用上一轮留下的 test.db，于是上一轮的 settings / paired_devices
+    // 直接渗进本轮断言（表现为看似无关的测试随机失败）。
+    // 先整目录删掉，保证每个 temp_store() 都对应一个全新的库。
+    if dir.exists() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     std::fs::create_dir_all(&dir).unwrap();
     let db_path = dir.join("test.db");
     let store = Store::new(db_path).expect("store init");
@@ -23,6 +31,12 @@ pub(crate) fn temp_store() -> Store {
         .expect("clear automation_runs");
     conn.execute("DELETE FROM automations", [])
         .expect("clear automations");
+    // settings / paired_devices 也必须清：上面的目录删除已经保证是空库，
+    // 但这两张表一旦漏清就会以最隐蔽的方式污染断言（默认值测试拿到别人的值）。
+    conn.execute("DELETE FROM settings", [])
+        .expect("clear settings");
+    conn.execute("DELETE FROM paired_devices", [])
+        .expect("clear paired_devices");
     store
 }
 
