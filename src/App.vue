@@ -27,6 +27,7 @@ import { useDragSort } from "./composables/useDragSort";
 import { useInlineRename } from "./composables/useInlineRename";
 import { usePanelKeyboard } from "./composables/usePanelKeyboard";
 import type { PanelCommand, PanelContext } from "./composables/panelKeymap";
+import { useWindowRoute } from "./composables/useWindowRoute";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
@@ -47,14 +48,8 @@ const categoryStore = useCategoryStore();
 const automationStore = useAutomationStore();
 const cloudSyncStore = useCloudSyncStore();
 const updater = useUpdater();
-const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
-const isClipViewerWindow = new URLSearchParams(window.location.search).get("window") === "clip-viewer";
-const isLanSyncWindow = new URLSearchParams(window.location.search).get("window") === "lan-sync";
-const isOcrOverlayWindow = new URLSearchParams(window.location.search).get("window") === "ocr-overlay";
-const isOcrResultWindow = new URLSearchParams(window.location.search).get("window") === "ocr-result";
-// 主窗口 = 下方所有辅助窗口路由都不匹配时的默认渲染分支（template v-else）。
-const isMainWindow =
-  !isSettingsWindow && !isClipViewerWindow && !isLanSyncWindow && !isOcrOverlayWindow && !isOcrResultWindow;
+// 窗口类型的唯一来源（useWindowRoute）：模板与脚本都读同一个值。
+const { windowKind, isMainWindow } = useWindowRoute();
 const isPreservingCurrentApp = ref(false);
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
@@ -599,11 +594,11 @@ const nextCategoryLabel = computed(() => {
 </script>
 
 <template>
-  <SettingsWindow v-if="isSettingsWindow" />
-  <ClipViewerWindow v-else-if="isClipViewerWindow" />
-  <LanSyncPanel v-else-if="isLanSyncWindow" />
-  <OcrOverlayWindow v-else-if="isOcrOverlayWindow" />
-  <OcrResultWindow v-else-if="isOcrResultWindow" />
+  <SettingsWindow v-if="windowKind === 'settings'" />
+  <ClipViewerWindow v-else-if="windowKind === 'clip-viewer'" />
+  <LanSyncPanel v-else-if="windowKind === 'lan-sync'" />
+  <OcrOverlayWindow v-else-if="windowKind === 'ocr-overlay'" />
+  <OcrResultWindow v-else-if="windowKind === 'ocr-result'" />
 
   <main
     v-else
