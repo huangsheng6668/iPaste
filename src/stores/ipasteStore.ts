@@ -4,17 +4,15 @@ import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
 import { errorMessage } from "../lib/appError";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
-import { filterAutomations } from "./lib/automationFilter";
 import { orderCategoryItemsByIds } from "./lib/ordering";
 import { clampIndex, indexForKey, moveIndex } from "./lib/selection";
 import { showError } from "./uiStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCloudSyncStore } from "./cloudSyncStore";
 import { useCategoryStore } from "./categoryStore";
+import { useAutomationStore } from "./automationStore";
 import type {
   AppSnapshot,
-  AutomationAction,
-  AutomationInput,
   Category,
   CategoryHitGroup,
   CategoryItem,
@@ -34,15 +32,12 @@ export const useIpasteStore = defineStore("ipaste", () => {
   sync.registerSnapshotApplier(() => applyCloudSnapshot());
 
   const category = useCategoryStore();
+  const automation = useAutomationStore();
 
   const clips = ref<ClipItem[]>([]);
   const selectedCategoryId = ref<string>("history");
   const selectedIndex = ref(0);
   const search = ref("");
-  const automations = ref<AutomationAction[]>([]);
-  const selectedActionIndex = ref(0);
-  const actionsQuery = ref("");
-  const runningAutomationLogs = ref<Record<string, { stdout: string; stderr: string }>>({});
   const closePanelRequested = ref(false);
   const isListening = ref(true);
   const isAppendCopyEnabled = ref(false);
@@ -464,33 +459,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clampSelection();
   }
 
-  // —— automation ——
-
-  const visibleActions = computed(() => filterAutomations(automations.value, actionsQuery.value));
-
-  async function loadAutomations() {
-    automations.value = await ipasteApi.listAutomations();
-  }
-
-  async function createAutomation(input: AutomationInput) {
-    await ipasteApi.createAutomation(input);
-    await loadAutomations();
-  }
-
-  async function updateAutomation(id: string, input: AutomationInput) {
-    await ipasteApi.updateAutomation(id, input);
-    await loadAutomations();
-  }
-
-  async function deleteAutomation(id: string) {
-    await ipasteApi.deleteAutomation(id);
-    await loadAutomations();
-  }
-
-  async function runAutomation(id: string) {
-    return await ipasteApi.runAutomation(id);
-  }
-
   return {
     clips,
     categories: computed({ get: () => category.categories, set: (value) => (category.categories = value) }),
@@ -542,17 +510,24 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clampSelection,
     upsertClip,
     patchItem,
-    automations,
-    selectedActionIndex,
-    actionsQuery,
-    runningAutomationLogs,
     closePanelRequested,
-    visibleActions,
-    loadAutomations,
-    createAutomation,
-    updateAutomation,
-    deleteAutomation,
-    runAutomation,
+    // —— automation 域转发（实现在 automationStore；可写 computed 兼容既有赋值点）——
+    automations: computed({ get: () => automation.automations, set: (value) => (automation.automations = value) }),
+    selectedActionIndex: computed({
+      get: () => automation.selectedActionIndex,
+      set: (value) => (automation.selectedActionIndex = value),
+    }),
+    actionsQuery: computed({ get: () => automation.actionsQuery, set: (value) => (automation.actionsQuery = value) }),
+    runningAutomationLogs: computed({
+      get: () => automation.runningAutomationLogs,
+      set: (value) => (automation.runningAutomationLogs = value),
+    }),
+    visibleActions: computed(() => automation.visibleActions),
+    loadAutomations: automation.loadAutomations,
+    createAutomation: automation.createAutomation,
+    updateAutomation: automation.updateAutomation,
+    deleteAutomation: automation.deleteAutomation,
+    runAutomation: automation.runAutomation,
 
     // —— 设置域转发（实现在 settingsStore；可写 computed 保持外部赋值兼容，Task 17 移除）——
     shortcut: computed({ get: () => settings.shortcut, set: (value) => (settings.shortcut = value) }),
