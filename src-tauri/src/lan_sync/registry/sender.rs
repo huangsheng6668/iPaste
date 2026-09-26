@@ -12,6 +12,7 @@ use crate::lan_sync::autopush::fan_out_targets;
 use crate::lan_sync::protocol::LAN_MAX_PAYLOAD;
 use crate::lan_sync::ControlMsg;
 use crate::models::{AutoSyncMode, ClipItem, DeviceOnline};
+use crate::util::LockRecover;
 
 use super::{build_send_payload, hex_encode_32, DeviceLinkRegistry};
 
@@ -36,7 +37,7 @@ impl DeviceLinkRegistry {
         &self,
         target: Option<&str>,
     ) -> Result<Vec<(String, mpsc::Sender<ControlMsg>)>, String> {
-        let links = self.inner.links.lock().expect("links 锁中毒");
+        let links = self.inner.links.lock_recover("links");
         let mut out: Vec<(String, mpsc::Sender<ControlMsg>)> = Vec::new();
         match target {
             None => {
@@ -70,7 +71,7 @@ impl DeviceLinkRegistry {
     /// 通道时生效（same_channel）：会话被收编/替换后，旧批量的清理不得误改
     /// 新会话的标记（收编时新登记已复位为 false）。
     fn mark_batch_busy(&self, node_id: &str, tx: &mpsc::Sender<ControlMsg>, busy: bool) {
-        let mut links = self.inner.links.lock().expect("links 锁中毒");
+        let mut links = self.inner.links.lock_recover("links");
         if let Some(handle) = links.get_mut(node_id) {
             let same = handle
                 .control_tx
@@ -93,7 +94,7 @@ impl DeviceLinkRegistry {
         tx: &mpsc::Sender<ControlMsg>,
         msg: ControlMsg,
     ) -> bool {
-        let links = self.inner.links.lock().expect("links 锁中毒");
+        let links = self.inner.links.lock_recover("links");
         if links.get(node_id).is_some_and(|handle| handle.batch_busy) {
             count_auto_drop(
                 &self.inner.auto_dropped,
@@ -294,7 +295,7 @@ impl DeviceLinkRegistry {
         // 两段式锁纪律：第一段在 links 锁内只收集 Connected 链路的 (node, 控制通道)，
         // 仅 clone sender——锁内无 SQLite/IO（无 await 纪律 + 最小化锁持有）。
         let candidates: Vec<(String, mpsc::Sender<ControlMsg>)> = {
-            let links = self.inner.links.lock().expect("links 锁中毒");
+            let links = self.inner.links.lock_recover("links");
             links
                 .iter()
                 .filter(|(_, handle)| handle.status == DeviceOnline::Connected)
