@@ -40,11 +40,7 @@ pub(crate) fn set_main_window_dragging(
     state: tauri::State<'_, AppState>,
     dragging: bool,
 ) -> Result<(), AppError> {
-    let mut is_dragging = state
-        .window.is_dragging_main_window
-        .lock()
-        .map_err(|error| error.to_string())?;
-    *is_dragging = dragging;
+    state.window.set_dragging_main_window(dragging)?;
     Ok(())
 }
 

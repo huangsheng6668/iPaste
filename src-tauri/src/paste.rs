@@ -108,9 +108,7 @@ pub(crate) fn remember_target_app_for_paste(app: &tauri::AppHandle) {
     };
 
     if let Some(bundle_id) = frontmost_external_app_bundle_id(app) {
-        if let Ok(mut target) = state.window.target_app_bundle_id.lock() {
-            *target = Some(bundle_id);
-        }
+        state.window.set_target_app_bundle_id(Some(bundle_id));
     }
 }
 
@@ -156,10 +154,9 @@ pub(crate) fn paste_to_previous_app(
     state: &AppState,
 ) -> Result<(), AppError> {
     let target_app_bundle_id = state
-        .window.target_app_bundle_id
-        .lock()
-        .map_err(|error| AppError::internal(error.to_string()))?
-        .clone();
+        .window
+        .target_app_bundle_id()
+        .map_err(AppError::internal)?;
 
     prepare_target_for_paste(app, target_app_bundle_id.clone()).map_err(AppError::from)?;
 

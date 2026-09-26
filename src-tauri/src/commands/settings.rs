@@ -25,10 +25,7 @@ pub(crate) fn set_listening(
     state: tauri::State<'_, AppState>,
     enabled: bool,
 ) -> Result<bool, AppError> {
-    *state
-        .capture.is_listening
-        .lock()
-        .map_err(|error| error.to_string())? = enabled;
+    state.capture.set_listening(enabled)?;
     let _ = app.emit(
         EVENT_LISTENING_CHANGED,
         ListeningChanged {
@@ -76,11 +73,7 @@ pub(crate) fn update_shortcut(
     shortcut: String,
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
-    let active_ocr_shortcut = state
-        .shortcuts.active_ocr_shortcut
-        .lock()
-        .map_err(|error| AppError::internal(error.to_string()))?
-        .clone();
+    let active_ocr_shortcut = state.shortcuts.active_ocr_shortcut().map_err(AppError::internal)?;
     crate::shortcut::ensure_shortcut_not_conflicting(&shortcut, &active_ocr_shortcut)
         .map_err(AppError::from)?;
     update_registered_app_shortcut(&app, &state, &shortcut)?;
@@ -94,11 +87,7 @@ pub(crate) fn update_ocr_shortcut(
     shortcut: String,
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
-    let active_panel_shortcut = state
-        .shortcuts.active_shortcut
-        .lock()
-        .map_err(|error| AppError::internal(error.to_string()))?
-        .clone();
+    let active_panel_shortcut = state.shortcuts.active_shortcut().map_err(AppError::internal)?;
     crate::shortcut::ensure_shortcut_not_conflicting(&shortcut, &active_panel_shortcut)
         .map_err(AppError::from)?;
     crate::shortcut::update_registered_ocr_shortcut(&app, &state, &shortcut)?;

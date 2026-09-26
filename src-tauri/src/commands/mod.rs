@@ -37,10 +37,7 @@ pub(crate) fn build_app_snapshot(
     state.store.prune_expired()?;
     let (clip_page, categories, category_items) = state.store.snapshot()?;
     let settings = state.store.settings()?;
-    let is_listening = *state
-        .capture.is_listening
-        .lock()
-        .map_err(|error| AppError::internal(error.to_string()))?;
+    let is_listening = state.capture.is_listening()?;
     let is_append_copy_enabled = state
         .capture.append_copy_state
         .lock()

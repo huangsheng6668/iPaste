@@ -435,13 +435,7 @@ pub fn run() {
                         let app = window.app_handle();
                         let is_dragging = app
                             .try_state::<AppState>()
-                            .and_then(|state| {
-                                state
-                                    .window.is_dragging_main_window
-                                    .lock()
-                                    .ok()
-                                    .map(|value| *value)
-                            })
+                            .and_then(|state| state.window.is_dragging_main_window().ok())
                             .unwrap_or(false);
 
                         if is_dragging || window.is_focused().unwrap_or(false) {

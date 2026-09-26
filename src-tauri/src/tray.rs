@@ -214,11 +214,7 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
         },
     ));
 
-    let is_listening = state
-        .capture.is_listening
-        .lock()
-        .map(|listening| *listening)
-        .unwrap_or(true);
+    let is_listening = state.capture.is_listening_or_default();
     let _ = state.ui.pause_capture_menu_item.set_text(localized_text(
         language,
         if is_listening {
@@ -250,14 +246,10 @@ pub(crate) fn handle_append_copy_menu(app: &tauri::AppHandle, state: &AppState) 
 }
 
 pub(crate) fn handle_pause_capture_menu(app: &tauri::AppHandle, state: &AppState) {
-    // 锁只覆盖状态翻转：菜单文案（SQLite + FFI）与事件 emit 都可能阻塞，
-    // 不能连带卡住 clipboard watcher 等等待 is_listening 的线程
-    let listening = {
-        let Ok(mut listening) = state.capture.is_listening.lock() else {
-            return;
-        };
-        *listening = !*listening;
-        *listening
+    // 锁只覆盖状态翻转（访问器内部即持锁-翻转-释放）：菜单文案（SQLite + FFI）
+    // 与事件 emit 都可能阻塞，不能连带卡住 clipboard watcher 等等待 is_listening 的线程
+    let Some(listening) = state.capture.toggle_listening() else {
+        return;
     };
     update_pause_capture_menu_label(state, listening);
     let _ = app.emit(

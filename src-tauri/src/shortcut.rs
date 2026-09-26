@@ -55,16 +55,8 @@ pub(crate) fn set_app_shortcut_enabled_inner(
 ) -> Result<bool, String> {
     // 与 update_registered_app_shortcut 同理：注册/反注册不能持锁
     let (panel_shortcut, ocr_shortcut) = {
-        let panel = state
-            .shortcuts.active_shortcut
-            .lock()
-            .map_err(|error| error.to_string())?
-            .clone();
-        let ocr = state
-            .shortcuts.active_ocr_shortcut
-            .lock()
-            .map_err(|error| error.to_string())?
-            .clone();
+        let panel = state.shortcuts.active_shortcut()?;
+        let ocr = state.shortcuts.active_ocr_shortcut()?;
         (panel, ocr)
     };
 
@@ -76,10 +68,7 @@ pub(crate) fn set_app_shortcut_enabled_inner(
         unregister_app_shortcut(app, ocr_shortcut.as_str())?;
     }
 
-    *state
-        .shortcuts.is_app_shortcut_enabled
-        .lock()
-        .map_err(|error| error.to_string())? = enabled;
+    state.shortcuts.set_app_shortcut_enabled(enabled)?;
     Ok(enabled)
 }
 
@@ -90,12 +79,7 @@ pub(crate) fn update_registered_app_shortcut(
 ) -> Result<(), String> {
     // 注册/反注册不能在 active_shortcut 锁内进行：快捷键事件 handler 在主线程
     // 锁同一把锁，而插件注册接口可能同步等待主线程，持锁等待会互相死锁。
-    let previous = state
-        .shortcuts.active_shortcut
-        .lock()
-        .map_err(|error| error.to_string())?
-        .clone();
-
+    let previous = state.shortcuts.active_shortcut()?;
     if previous == shortcut {
         if is_app_shortcut_enabled(state)? && !app.global_shortcut().is_registered(shortcut) {
             register_app_shortcut(app, shortcut)?;
@@ -125,10 +109,7 @@ pub(crate) fn update_registered_app_shortcut(
         return Err(error.to_string());
     }
 
-    *state
-        .shortcuts.active_shortcut
-        .lock()
-        .map_err(|error| error.to_string())? = shortcut.to_string();
+    state.shortcuts.set_active_shortcut(shortcut)?;
     Ok(())
 }
 
@@ -138,12 +119,7 @@ pub(crate) fn update_registered_ocr_shortcut(
     shortcut: &str,
 ) -> Result<(), String> {
     // 注册/反注册不能在 active_ocr_shortcut 锁内进行（同面板键的死锁约束）
-    let previous = state
-        .shortcuts.active_ocr_shortcut
-        .lock()
-        .map_err(|error| error.to_string())?
-        .clone();
-
+    let previous = state.shortcuts.active_ocr_shortcut()?;
     if previous == shortcut {
         if is_app_shortcut_enabled(state)? && !app.global_shortcut().is_registered(shortcut) {
             register_app_shortcut(app, shortcut)?;
@@ -173,19 +149,12 @@ pub(crate) fn update_registered_ocr_shortcut(
         return Err(error.to_string());
     }
 
-    *state
-        .shortcuts.active_ocr_shortcut
-        .lock()
-        .map_err(|error| error.to_string())? = shortcut.to_string();
+    state.shortcuts.set_active_ocr_shortcut(shortcut)?;
     Ok(())
 }
 
 fn is_app_shortcut_enabled(state: &AppState) -> Result<bool, String> {
-    state
-        .shortcuts.is_app_shortcut_enabled
-        .lock()
-        .map(|value| *value)
-        .map_err(|error| error.to_string())
+    state.shortcuts.is_app_shortcut_enabled()
 }
 
 fn shortcut_registration_error(shortcut: &str, error: impl ToString) -> String {
