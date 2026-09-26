@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { subscribe, type UnlistenFn } from "../platform/events";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
@@ -96,10 +96,10 @@ export function useMocrInstaller() {
   onMounted(async () => {
     if (!isTauri) return;
     await loadMocrStatus();
-    unlistenMocrProgress = await listen<OcrInstallProgress>(
+    unlistenMocrProgress = await subscribe<OcrInstallProgress>(
       IPASTE_EVENTS.mocrInstallProgress,
-      (event) => {
-        mocrProgress.value = event.payload;
+      (progress) => {
+        mocrProgress.value = progress;
       },
     );
   });
