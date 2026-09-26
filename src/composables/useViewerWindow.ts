@@ -1,9 +1,9 @@
 import { onMounted, onUnmounted, ref, type ComputedRef, type Ref } from "vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { t } from "../i18n";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
 import { isTauri } from "../lib/env";
+import { windowHandle } from "../platform/window";
 import { useWindowDrag } from "./useWindowDrag";
 import type { ClipViewerPayload } from "../types";
 
@@ -37,7 +37,7 @@ export function useViewerWindow(editor: EditorBridge, options: ViewerWindowOptio
   async function togglePinned() {
     isPinned.value = !isPinned.value;
     if (isTauri) {
-      await getCurrentWindow().setAlwaysOnTop(isPinned.value);
+      await windowHandle().setAlwaysOnTop(isPinned.value);
     }
   }
 
@@ -63,7 +63,7 @@ export function useViewerWindow(editor: EditorBridge, options: ViewerWindowOptio
     isForceClosing = true;
     if (isTauri) {
       try {
-        await ipasteApi.closeClipViewer(windowLabel.value || getCurrentWindow().label);
+        await ipasteApi.closeClipViewer(windowLabel.value || windowHandle().label);
       } catch (unknownError) {
         isForceClosing = false;
         options.error.value = errorMessage(unknownError);
@@ -138,14 +138,14 @@ export function useViewerWindow(editor: EditorBridge, options: ViewerWindowOptio
   onMounted(async () => {
     if (isTauri) {
       try {
-        isPinned.value = await getCurrentWindow().isAlwaysOnTop();
+        isPinned.value = await windowHandle().isAlwaysOnTop();
       } catch {
         isPinned.value = true;
       }
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
     if (isTauri) {
-      unlistenCloseRequested = await getCurrentWindow().onCloseRequested(async (event) => {
+      unlistenCloseRequested = await windowHandle().onCloseRequested(async (event) => {
         event.preventDefault();
         if (isForceClosing) return;
         if (!editor.hasChanged.value) {
