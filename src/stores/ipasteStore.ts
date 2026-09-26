@@ -1,9 +1,8 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { cleanLanguage, setLanguage } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { clipMatchesSearch } from "../lib/clipSearch";
-import { errorMessage, isCommandMissing } from "../lib/appError";
+import { errorMessage } from "../lib/appError";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
 import { filterAutomations } from "./lib/automationFilter";
 import {
@@ -14,22 +13,8 @@ import {
 } from "./lib/ordering";
 import { clampIndex, indexForKey, moveIndex } from "./lib/selection";
 import { showError } from "./uiStore";
-import {
-  DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
-  DEFAULT_LANGUAGE,
-  DEFAULT_OCR_ENGINE,
-  DEFAULT_OCR_MODE,
-  DEFAULT_PANEL_LAYOUT,
-  DEFAULT_RETENTION_DAYS,
-  cleanAppendCopyTimeoutMinutes,
-  cleanCloudOcrSettings,
-  cleanOcrEngine,
-  cleanOcrMode,
-  cleanPanelLayout,
-  DEFAULT_OPENAI_OCR_PROMPTS,
-} from "./lib/settings";
+import { useSettingsStore } from "./settingsStore";
 import type {
-  AppSettings,
   AppSnapshot,
   AutomationAction,
   AutomationInput,
@@ -38,20 +23,16 @@ import type {
   CategoryItem,
   ClipItem,
   ClipViewItem,
-  CloudOcrPromptMessage,
-  CloudOcrSettings,
-  CloudSettings,
-  Language,
-  OcrEngine,
-  OcrMode,
-  PanelLayout,
-  PanelOpenBehavior,
 } from "../types";
 
 const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", "#475569"];
 const CLIP_PAGE_SIZE = 20;
 
 export const useIpasteStore = defineStore("ipaste", () => {
+  const settings = useSettingsStore();
+  // 保留天变更后的全量重载回调（原 updateRetentionDays 直接 await load()，行为保持）。
+  settings.registerRetentionReloader(() => load());
+
   const clips = ref<ClipItem[]>([]);
   const categories = ref<Category[]>([]);
   const categoryItems = ref<CategoryItem[]>([]);
@@ -63,8 +44,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const actionsQuery = ref("");
   const runningAutomationLogs = ref<Record<string, { stdout: string; stderr: string }>>({});
   const closePanelRequested = ref(false);
-  const shortcut = ref("CommandOrControl+Shift+V");
-  const ocrShortcut = ref("CommandOrControl+Shift+O");
   const isListening = ref(true);
   const isAppendCopyEnabled = ref(false);
   const isLoading = ref(false);
@@ -74,25 +53,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const clipTotalCount = ref(0);
   const visibleHistoryTotalCount = ref(0);
   const error = ref<string | null>(null);
-  const retentionDays = ref(DEFAULT_RETENTION_DAYS);
-  const appendCopyTimeoutMinutes = ref(DEFAULT_APPEND_COPY_TIMEOUT_MINUTES);
-  const panelOpenBehavior = ref<PanelOpenBehavior>("history");
-  const panelLayout = ref<PanelLayout>(DEFAULT_PANEL_LAYOUT);
-  const ocrMode = ref<OcrMode>(DEFAULT_OCR_MODE);
-  const ocrEngine = ref<OcrEngine>(DEFAULT_OCR_ENGINE);
-  const language = ref<Language>(DEFAULT_LANGUAGE);
-  const cloud = ref<CloudSettings>({
-    apiAddress: "",
-    apiKey: "",
-    enabled: false,
-    lastConnectedAt: null,
-  });
-  const cloudOcr = ref<CloudOcrSettings>({
-    openaiBaseUrl: "",
-    openaiModel: "",
-    openaiApiKey: "",
-    openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
-  });
   let backgroundSyncTimer: number | null = null;
   let clipRequestId = 0;
 
@@ -119,7 +79,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   const selectedItem = computed(() => visibleItems.value[selectedIndex.value]);
 
-  /** load 与 applyCloudSnapshot 共用的快照装配（原两处 ~20 行逐行重复）。 */
+  /** load 与 applyCloudSnapshot 共用的快照装配；设置字段委托 settingsStore。 */
   function hydrateFromSnapshot(snapshot: AppSnapshot) {
     clips.value = snapshot.clips;
     hasMoreClips.value = snapshot.hasMoreClips;
@@ -127,19 +87,9 @@ export const useIpasteStore = defineStore("ipaste", () => {
     visibleHistoryTotalCount.value = snapshot.clipTotalCount;
     categories.value = snapshot.categories;
     categoryItems.value = snapshot.categoryItems;
-    shortcut.value = snapshot.shortcut;
     isListening.value = snapshot.isListening;
     isAppendCopyEnabled.value = snapshot.isAppendCopyEnabled;
-    retentionDays.value = snapshot.settings.retentionDays;
-    appendCopyTimeoutMinutes.value = cleanAppendCopyTimeoutMinutes(snapshot.settings.appendCopyTimeoutMinutes);
-    panelOpenBehavior.value = snapshot.settings.panelOpenBehavior;
-    panelLayout.value = cleanPanelLayout(snapshot.settings.panelLayout);
-    ocrMode.value = cleanOcrMode(snapshot.settings.ocrMode);
-    ocrEngine.value = cleanOcrEngine(snapshot.settings.ocrEngine);
-    language.value = cleanLanguage(snapshot.settings.language);
-    setLanguage(language.value);
-    cloud.value = snapshot.settings.cloud;
-    cloudOcr.value = cleanCloudOcrSettings(snapshot.settings.cloudOcr);
+    settings.applySnapshotSettings(snapshot);
   }
 
   async function load() {
@@ -489,125 +439,17 @@ export const useIpasteStore = defineStore("ipaste", () => {
     );
   }
 
-  // —— settings 镜像 ——
-
-  async function updateRetentionDays(days: number) {
-    const settings = await ipasteApi.updateSettings(days);
-    applySettings(settings);
-    await load();
-  }
-
-  async function updateAppendCopyTimeout(minutes: number) {
-    const nextMinutes = cleanAppendCopyTimeoutMinutes(minutes);
-    appendCopyTimeoutMinutes.value = nextMinutes;
-    await persistSetting("update_append_copy_timeout", () => ipasteApi.updateAppendCopyTimeout(nextMinutes), { tolerateMissing: true });
-  }
-
-  async function updateShortcut(value: string) {
-    const settings = await ipasteApi.updateShortcut(value);
-    applySettings(settings);
-  }
-
-  async function updateOcrShortcut(value: string) {
-    const settings = await ipasteApi.updateOcrShortcut(value);
-    applySettings(settings);
-  }
-
-  async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
-    const settings = await ipasteApi.updatePanelOpenBehavior(behavior);
-    applySettings(settings);
-  }
-
-  async function updatePanelLayout(layout: PanelLayout) {
-    const nextLayout = cleanPanelLayout(layout);
-    panelLayout.value = nextLayout;
-    await persistSetting("update_panel_layout", () => ipasteApi.updatePanelLayout(nextLayout), { tolerateMissing: true });
-  }
-
-  async function updateOcrMode(mode: OcrMode) {
-    const nextMode = cleanOcrMode(mode);
-    ocrMode.value = nextMode;
-    await persistSetting("update_ocr_mode", () => ipasteApi.updateOcrMode(nextMode), { tolerateMissing: true });
-  }
-
-  async function updateOcrEngine(engine: OcrEngine) {
-    const nextEngine = cleanOcrEngine(engine);
-    ocrEngine.value = nextEngine;
-    await persistSetting("update_ocr_engine", () => ipasteApi.updateOcrEngine(nextEngine), { tolerateMissing: true });
-  }
-
-  async function saveOpenaiOcrConfig(
-    baseUrl: string,
-    model: string,
-    apiKey: string,
-    prompts?: CloudOcrPromptMessage[],
-  ) {
-    const settings = await ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey, prompts);
-    applySettings(settings);
-  }
-
-  async function clearOpenaiOcrConfig() {
-    const settings = await ipasteApi.clearOpenaiOcrConfig();
-    applySettings(settings);
-  }
-
-  async function testOpenaiOcr(
-    baseUrl: string,
-    model: string,
-    apiKey: string,
-    prompts?: CloudOcrPromptMessage[],
-  ) {
-    return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey, prompts);
-  }
-
-  async function updateLanguage(value: Language) {
-    const nextLanguage = cleanLanguage(value);
-    language.value = nextLanguage;
-    setLanguage(nextLanguage);
-    await persistSetting("update_language", () => ipasteApi.updateLanguage(nextLanguage), { tolerateMissing: true });
-  }
-
-  /** settings 落库统一编排：成功回填广播；老二进制命令缺失时按需静默容忍。 */
-  async function persistSetting(
-    command: string,
-    save: () => Promise<AppSettings>,
-    options: { tolerateMissing?: boolean } = {},
-  ): Promise<void> {
-    try {
-      applySettings(await save());
-    } catch (unknownError) {
-      if (options.tolerateMissing && isCommandMissing(unknownError, command)) return;
-      showError(unknownError);
-      throw unknownError;
-    }
-  }
-
-  function applySettings(settings: AppSettings) {
-    shortcut.value = settings.shortcut;
-    ocrShortcut.value = settings.ocrShortcut || "CommandOrControl+Shift+O";
-    retentionDays.value = settings.retentionDays;
-    appendCopyTimeoutMinutes.value = settings.appendCopyTimeoutMinutes;
-    panelOpenBehavior.value = settings.panelOpenBehavior;
-    panelLayout.value = settings.panelLayout;
-    ocrMode.value = settings.ocrMode;
-    ocrEngine.value = cleanOcrEngine(settings.ocrEngine);
-    language.value = settings.language;
-    setLanguage(language.value);
-    cloud.value = settings.cloud;
-    cloudOcr.value = cleanCloudOcrSettings(settings.cloudOcr);
-  }
-
   // —— 云同步 ——
 
   async function saveCloudSettings(apiAddress: string, apiKey: string) {
-    const settings = await ipasteApi.updateCloudSettings(apiAddress, apiKey);
-    applySettings(settings);
+    const next = await ipasteApi.updateCloudSettings(apiAddress, apiKey);
+    settings.applySettings(next);
     await syncCloudNow();
   }
 
   async function disableCloudSync() {
-    const settings = await ipasteApi.disableCloudSync();
-    applySettings(settings);
+    const next = await ipasteApi.disableCloudSync();
+    settings.applySettings(next);
   }
 
   async function testCloudSettings(apiAddress: string, apiKey: string) {
@@ -615,7 +457,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   async function syncCloudNow() {
-    if (!cloud.value.enabled) return;
+    if (!settings.cloud.enabled) return;
 
     try {
       clearBackgroundSyncTimer();
@@ -627,7 +469,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   function syncCloudInBackground() {
-    if (!cloud.value.enabled) return;
+    if (!settings.cloud.enabled) return;
     clearBackgroundSyncTimer();
     backgroundSyncTimer = window.setTimeout(() => {
       backgroundSyncTimer = null;
@@ -669,7 +511,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   function activatePanelDefault() {
-    if (panelOpenBehavior.value === "history" || !categories.value.some((category) => category.id === selectedCategoryId.value)) {
+    if (settings.panelOpenBehavior === "history" || !categories.value.some((category) => category.id === selectedCategoryId.value)) {
       selectCategory("history");
       return;
     }
@@ -733,8 +575,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     selectedCategoryId,
     selectedIndex,
     search,
-    shortcut,
-    ocrShortcut,
     isListening,
     isAppendCopyEnabled,
     isLoading,
@@ -744,15 +584,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clipTotalCount,
     visibleHistoryTotalCount,
     error,
-    retentionDays,
-    appendCopyTimeoutMinutes,
-    panelOpenBehavior,
-    panelLayout,
-    ocrMode,
-    ocrEngine,
-    cloudOcr,
-    language,
-    cloud,
     activeCategory,
     visibleItems,
     selectedItem,
@@ -780,24 +611,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
     toggleAppendCopy,
     hidePanel,
     showSettings,
-    updateRetentionDays,
-    updateAppendCopyTimeout,
-    updateShortcut,
-    updateOcrShortcut,
-    updatePanelOpenBehavior,
-    updatePanelLayout,
-    updateOcrMode,
-    updateOcrEngine,
-    saveOpenaiOcrConfig,
-    clearOpenaiOcrConfig,
-    testOpenaiOcr,
-    updateLanguage,
     saveCloudSettings,
     disableCloudSync,
     testCloudSettings,
     syncCloudNow,
     syncCloudInBackground,
-    applySettings,
     selectCategory,
     clearSearch,
     activatePanelDefault,
@@ -817,5 +635,37 @@ export const useIpasteStore = defineStore("ipaste", () => {
     updateAutomation,
     deleteAutomation,
     runAutomation,
+
+    // —— 设置域转发（实现在 settingsStore；可写 computed 保持外部赋值兼容，Task 17 移除）——
+    shortcut: computed({ get: () => settings.shortcut, set: (value) => (settings.shortcut = value) }),
+    ocrShortcut: computed({ get: () => settings.ocrShortcut, set: (value) => (settings.ocrShortcut = value) }),
+    retentionDays: computed({ get: () => settings.retentionDays, set: (value) => (settings.retentionDays = value) }),
+    appendCopyTimeoutMinutes: computed({
+      get: () => settings.appendCopyTimeoutMinutes,
+      set: (value) => (settings.appendCopyTimeoutMinutes = value),
+    }),
+    panelOpenBehavior: computed({
+      get: () => settings.panelOpenBehavior,
+      set: (value) => (settings.panelOpenBehavior = value),
+    }),
+    panelLayout: computed({ get: () => settings.panelLayout, set: (value) => (settings.panelLayout = value) }),
+    ocrMode: computed({ get: () => settings.ocrMode, set: (value) => (settings.ocrMode = value) }),
+    ocrEngine: computed({ get: () => settings.ocrEngine, set: (value) => (settings.ocrEngine = value) }),
+    language: computed({ get: () => settings.language, set: (value) => (settings.language = value) }),
+    cloud: computed({ get: () => settings.cloud, set: (value) => (settings.cloud = value) }),
+    cloudOcr: computed({ get: () => settings.cloudOcr, set: (value) => (settings.cloudOcr = value) }),
+    applySettings: settings.applySettings,
+    updateRetentionDays: settings.updateRetentionDays,
+    updateAppendCopyTimeout: settings.updateAppendCopyTimeout,
+    updateShortcut: settings.updateShortcut,
+    updateOcrShortcut: settings.updateOcrShortcut,
+    updatePanelOpenBehavior: settings.updatePanelOpenBehavior,
+    updatePanelLayout: settings.updatePanelLayout,
+    updateOcrMode: settings.updateOcrMode,
+    updateOcrEngine: settings.updateOcrEngine,
+    updateLanguage: settings.updateLanguage,
+    saveOpenaiOcrConfig: settings.saveOpenaiOcrConfig,
+    clearOpenaiOcrConfig: settings.clearOpenaiOcrConfig,
+    testOpenaiOcr: settings.testOpenaiOcr,
   };
 });
