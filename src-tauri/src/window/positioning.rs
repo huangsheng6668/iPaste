@@ -256,7 +256,11 @@ fn fit_window_size_to_monitor(monitor: &tauri::Monitor, size: (i32, i32)) -> (i3
     )
 }
 
-pub(crate) fn monitor_for_point(app: &tauri::AppHandle, x: i32, y: i32) -> Result<tauri::Monitor, String> {
+pub(crate) fn monitor_for_point(
+    app: &tauri::AppHandle,
+    x: i32,
+    y: i32,
+) -> Result<tauri::Monitor, String> {
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
@@ -352,7 +356,10 @@ mod tests {
     #[test]
     fn fit_size_clamps_to_work_area_minus_margins() {
         assert_eq!(fit_size_to_work_area(1920, 1080, (800, 600), 8), (800, 600));
-        assert_eq!(fit_size_to_work_area(1920, 1080, (4000, 2000), 8), (1904, 1064));
+        assert_eq!(
+            fit_size_to_work_area(1920, 1080, (4000, 2000), 8),
+            (1904, 1064)
+        );
         assert_eq!(fit_size_to_work_area(10, 10, (800, 600), 8), (1, 1));
     }
 
@@ -369,6 +376,9 @@ mod tests {
         assert_eq!(distance_squared_to_rect(0, 0, 100, 100, 50, 50), 0);
         assert_eq!(distance_squared_to_rect(0, 0, 100, 100, 130, 0), 900);
         assert_eq!(distance_squared_to_rect(0, 0, 100, 100, 0, -20), 400);
-        assert_eq!(distance_squared_to_rect(0, 0, 100, 100, 130, -20), 900 + 400);
+        assert_eq!(
+            distance_squared_to_rect(0, 0, 100, 100, 130, -20),
+            900 + 400
+        );
     }
 }

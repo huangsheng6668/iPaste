@@ -100,8 +100,12 @@ pub(super) fn validate_ocr_manifest(manifest: &OcrManifest, mode: &str) -> Resul
     Ok(())
 }
 
+/// 供 commands.rs 使用的跨平台调度入口（原命令体内的 cfg 分支收编于此）。
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn ocr_install_status(app: &tauri::AppHandle, mode: &str) -> Result<OcrInstallStatus, String> {
+pub(crate) fn ocr_install_status(
+    app: &tauri::AppHandle,
+    mode: &str,
+) -> Result<OcrInstallStatus, String> {
     let mode = clean_ocr_mode(mode.to_string())?;
     match read_ocr_manifest_cache(app, &mode)? {
         Some(manifest) => ocr_install_status_for_manifest(app, &manifest, &mode),
@@ -323,7 +327,10 @@ pub(super) fn write_ocr_manifest_cache(
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(super) fn ocr_manifest_cache_path(app: &tauri::AppHandle, mode: &str) -> Result<PathBuf, String> {
+pub(super) fn ocr_manifest_cache_path(
+    app: &tauri::AppHandle,
+    mode: &str,
+) -> Result<PathBuf, String> {
     let mode = clean_ocr_mode(mode.to_string())?;
     Ok(ocr_root_dir(app)?.join(format!("manifest-{mode}.json")))
 }
@@ -333,4 +340,3 @@ pub(super) fn ocr_manifest_cache_path(app: &tauri::AppHandle, mode: &str) -> Res
 pub(super) fn is_usable_cached_manifest(manifest: &OcrManifest) -> bool {
     manifest.engine.id == OCR_ENGINE_ID
 }
-

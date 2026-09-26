@@ -7,8 +7,8 @@ use super::super::Store;
 use super::registry;
 use crate::models::{AppSettings, AutoPushSettings, Category, CategoryItem, ClipPage};
 use crate::{
-    DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_RETENTION_DAYS, CLIP_PAGE_SIZE,
     util::{clean_append_copy_timeout_minutes, clean_retention_days},
+    CLIP_PAGE_SIZE, DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_RETENTION_DAYS,
 };
 
 impl Store {
@@ -151,7 +151,9 @@ impl Store {
                 .map(|value| match value.parse::<bool>() {
                     Ok(parsed) => parsed,
                     Err(_) => {
-                        eprintln!("[autopush] settings 键 {key} 坏值（{value}），回退缺省 {default}");
+                        eprintln!(
+                            "[autopush] settings 键 {key} 坏值（{value}），回退缺省 {default}"
+                        );
                         default
                     }
                 })

@@ -238,7 +238,11 @@ mod export_tests {
     fn export_bindings_events() {
         // 完整性守护：新增事件常量时必须同步登记到 EVENT_TABLE，否则 events.ts 会静默缺项
         // （CI 新鲜度检查无法发现「从未生成」的缺失）。
-        assert_eq!(EVENT_TABLE.len(), 24, "IPASTE_EVENTS 常量数与生成表条目数不一致？");
+        assert_eq!(
+            EVENT_TABLE.len(),
+            24,
+            "IPASTE_EVENTS 常量数与生成表条目数不一致？"
+        );
         let mut out = String::from(
             "// AUTO-GENERATED from src-tauri/src/events.rs — do not edit.\n\
              // Run `npm run gen:types` to regenerate.\n\
@@ -252,7 +256,8 @@ mod export_tests {
             "} as const;\n\n\
              export type IpasteEventName = (typeof IPASTE_EVENTS)[keyof typeof IPASTE_EVENTS];\n",
         );
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/types/generated/events.ts");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/types/generated/events.ts");
         std::fs::write(path, out).unwrap();
     }
 
@@ -260,7 +265,11 @@ mod export_tests {
     /// 且重复值会让 `as const` 的键类型静默合并，属最难肉眼发现的错配）。
     #[test]
     fn event_table_covers_all_consts() {
-        assert_eq!(EVENT_TABLE.len(), 24, "事件目录条目数偏离快照，需同步更新此断言");
+        assert_eq!(
+            EVENT_TABLE.len(),
+            24,
+            "事件目录条目数偏离快照，需同步更新此断言"
+        );
         let set: std::collections::HashSet<_> = EVENT_TABLE.iter().map(|(_, v)| *v).collect();
         assert_eq!(set.len(), EVENT_TABLE.len(), "EVENT_TABLE 存在重复的事件值");
     }

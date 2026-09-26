@@ -11,10 +11,14 @@ impl DeviceLinkRegistry {
 
     /// store 行 + links 状态合成；撤销的恒 Offline（即使有残留登记）。
     pub(crate) fn device_infos(&self) -> Vec<DeviceInfo> {
-        let devices = self.inner.store.list_paired_devices().unwrap_or_else(|reason| {
-            eprintln!("[lan-sync] 读取设备列表失败：{reason}");
-            Vec::new()
-        });
+        let devices = self
+            .inner
+            .store
+            .list_paired_devices()
+            .unwrap_or_else(|reason| {
+                eprintln!("[lan-sync] 读取设备列表失败：{reason}");
+                Vec::new()
+            });
         if devices.is_empty() {
             return Vec::new();
         }
@@ -97,7 +101,13 @@ impl DeviceLinkRegistry {
     /// 停止入站接受循环并断开全部链路。Endpoint 本体随最后的 Arc 引用释放关闭
     ///（其 close() 是异步的，留给 Task 8 的 lib 接线决定是否显式等待）。
     pub(crate) fn shutdown(&self) {
-        if let Some(task) = self.inner.accept_task.lock().expect("accept_task 锁中毒").take() {
+        if let Some(task) = self
+            .inner
+            .accept_task
+            .lock()
+            .expect("accept_task 锁中毒")
+            .take()
+        {
             task.abort();
         }
         let handles: Vec<LinkHandle> = {

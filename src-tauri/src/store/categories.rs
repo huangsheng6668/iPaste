@@ -41,7 +41,10 @@ fn ensure_category_exists(conn: &Connection, category_id: &str) -> Result<(), St
     .ok_or_else(|| "未找到分类".to_string())
 }
 
-pub(crate) fn ensure_all_categories_exist(conn: &Connection, category_ids: &[String]) -> Result<(), String> {
+pub(crate) fn ensure_all_categories_exist(
+    conn: &Connection,
+    category_ids: &[String],
+) -> Result<(), String> {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM categories", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
@@ -90,7 +93,10 @@ impl Store {
         self.list_categories_with_conn(&conn)
     }
 
-    pub(super) fn list_categories_with_conn(&self, conn: &Connection) -> Result<Vec<Category>, String> {
+    pub(super) fn list_categories_with_conn(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<Category>, String> {
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, color, sort_order, created_at, updated_at
@@ -186,7 +192,10 @@ impl Store {
         let mut groups: std::collections::HashMap<String, Vec<CategoryItem>> =
             std::collections::HashMap::new();
         for item in items {
-            groups.entry(item.category_id.clone()).or_default().push(item);
+            groups
+                .entry(item.category_id.clone())
+                .or_default()
+                .push(item);
         }
         let result: Vec<CategoryHitGroup> = ordered_categories
             .into_iter()
@@ -255,11 +264,7 @@ impl Store {
         Ok(items)
     }
 
-    pub(crate) fn create_category(
-        &self,
-        name: String,
-        color: String,
-    ) -> Result<Category, String> {
+    pub(crate) fn create_category(&self, name: String, color: String) -> Result<Category, String> {
         let name = clean_category_name(name)?;
         let color = clean_color(color);
         let conn = self.connect()?;

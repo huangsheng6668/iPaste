@@ -21,8 +21,12 @@ const emit = defineEmits<{
     :aria-label="t('deviceSync.pair.title')"
   >
     <div class="lan-pair-dialog">
-      <h3 class="lan-pair-title">{{ t("deviceSync.pair.title") }}</h3>
-      <p class="lan-pair-device">{{ request.deviceName }}</p>
+      <h3 class="lan-pair-title">
+        {{ t("deviceSync.pair.title") }}
+      </h3>
+      <p class="lan-pair-device">
+        {{ request.deviceName }}
+      </p>
       <p class="lan-pair-fingerprint">
         {{ t("deviceSync.pair.fingerprint") }}: {{ request.fingerprint }}
       </p>

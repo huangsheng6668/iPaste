@@ -21,10 +21,7 @@ pub(crate) fn type_allowed(mode: AutoSyncMode, clip_type: &str) -> bool {
 
 /// 目标过滤（纯函数）：把准入矩阵应用到「在线目标 × 每设备偏好」列表，
 /// 返回应收 auto 推送的目标名。fan_out_auto 的锁外过滤阶段消费（Task 3）。
-pub(crate) fn fan_out_targets(
-    targets: &[(String, AutoSyncMode)],
-    clip_type: &str,
-) -> Vec<String> {
+pub(crate) fn fan_out_targets(targets: &[(String, AutoSyncMode)], clip_type: &str) -> Vec<String> {
     targets
         .iter()
         .filter(|(_, mode)| type_allowed(*mode, clip_type))
@@ -45,12 +42,19 @@ impl RecentReceived {
     }
 
     pub(crate) fn with_ttl(ttl: Duration) -> Self {
-        Self { entries: Mutex::new(VecDeque::new()), ttl }
+        Self {
+            entries: Mutex::new(VecDeque::new()),
+            ttl,
+        }
     }
 
     fn prune(&self, entries: &mut VecDeque<(String, Instant)>, now: Instant) {
         while let Some((_, at)) = entries.front() {
-            if now.duration_since(*at) > self.ttl { entries.pop_front(); } else { break; }
+            if now.duration_since(*at) > self.ttl {
+                entries.pop_front();
+            } else {
+                break;
+            }
         }
     }
 
@@ -113,7 +117,9 @@ mod tests {
     #[test]
     fn recent_cap_and_refresh() {
         let recent = RecentReceived::new();
-        for i in 0..RECENT_CAP { recent.insert(&format!("h{i}")); }
+        for i in 0..RECENT_CAP {
+            recent.insert(&format!("h{i}"));
+        }
         recent.insert("h0"); // 刷新最老的，挪到队尾
         recent.insert("new"); // 超容量，挤出当前最老（h1）
         assert!(recent.contains("h0"), "刷新过的不会被挤出");
@@ -134,7 +140,11 @@ mod tests {
         assert_eq!(got, vec!["all-dev".to_string(), "text-dev".to_string()]);
         // link/color/html 同为文本四类
         for t in ["link", "color", "html"] {
-            assert_eq!(fan_out_targets(&targets, t).len(), 2, "{t} 应放行 all+text 偏好");
+            assert_eq!(
+                fan_out_targets(&targets, t).len(),
+                2,
+                "{t} 应放行 all+text 偏好"
+            );
         }
     }
 

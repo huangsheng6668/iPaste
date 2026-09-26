@@ -153,12 +153,14 @@ impl CaptureSink for StoreSink {
             None => self.store.insert_captured_item(item),
         })?;
 
-        Ok(persisted.map(|(clip, clip_total_count, was_inserted)| PersistOutcome {
-            clip,
-            clip_total_count,
-            was_inserted,
-            from_append_copy,
-        }))
+        Ok(
+            persisted.map(|(clip, clip_total_count, was_inserted)| PersistOutcome {
+                clip,
+                clip_total_count,
+                was_inserted,
+                from_append_copy,
+            }),
+        )
     }
 }
 
@@ -230,7 +232,7 @@ fn capture_append_copy_item(
 
 fn append_copy_text(current: &str, next: &str) -> String {
     let next = next.trim();
-    let current = current.trim_end_matches(|value| value == '\r' || value == '\n');
+    let current = current.trim_end_matches(['\r', '\n']);
 
     if current.is_empty() {
         next.to_string()

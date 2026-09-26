@@ -137,7 +137,11 @@ pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) 
         // 每列内部按 Y 坐标从上往下（升序）
         let mut result = Vec::new();
         for mut col in columns {
-            col.sort_by(|a, b| a.top.partial_cmp(&b.top).unwrap_or(std::cmp::Ordering::Equal));
+            col.sort_by(|a, b| {
+                a.top
+                    .partial_cmp(&b.top)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             result.extend(col);
         }
         result
@@ -171,7 +175,11 @@ pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) 
         // 每行内部按 X 坐标从左向右（升序）
         let mut result = Vec::new();
         for mut row in rows {
-            row.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap_or(std::cmp::Ordering::Equal));
+            row.sort_by(|a, b| {
+                a.left
+                    .partial_cmp(&b.left)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             result.extend(row);
         }
         result

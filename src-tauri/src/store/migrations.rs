@@ -4,7 +4,9 @@ use rusqlite::{params, Connection};
 
 use super::Store;
 use crate::{
-    clipboard::image_bytes_from_data_url, util::{hash_text, new_id, preview}, DEFAULT_CLIPBOARD_SEEDS,
+    clipboard::image_bytes_from_data_url,
+    util::{hash_text, new_id, preview},
+    DEFAULT_CLIPBOARD_SEEDS,
 };
 
 fn add_column_if_missing(

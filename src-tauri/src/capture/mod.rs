@@ -3,9 +3,9 @@
 pub(crate) mod decision;
 pub(crate) mod overlay;
 pub(crate) mod ports;
-pub(crate) mod watcher;
 pub(crate) mod screen;
 pub(crate) mod selection;
+pub(crate) mod watcher;
 
 use std::{
     io::Write,
@@ -18,8 +18,8 @@ use tauri::{Emitter, Manager};
 
 use crate::error::AppError;
 use crate::events::{
-    ClipboardCaptured, EVENT_CLIPBOARD_CAPTURED, EVENT_OCR_OVERLAY_SESSION_START,
-    EVENT_OCR_SCREENSHOT_ERROR, OcrOverlaySessionStart, OcrScreenshotError,
+    ClipboardCaptured, OcrOverlaySessionStart, OcrScreenshotError, EVENT_CLIPBOARD_CAPTURED,
+    EVENT_OCR_OVERLAY_SESSION_START, EVENT_OCR_SCREENSHOT_ERROR,
 };
 use crate::models::{
     AppState, CapturedClipboardItem, MainWindowActivation, OcrResultPayload, ScreenshotSelection,
@@ -142,7 +142,9 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
 fn preflight_failed(app: &tauri::AppHandle, code: &str) {
     let _ = app.emit(
         EVENT_OCR_SCREENSHOT_ERROR,
-        OcrScreenshotError { code: code.to_string() },
+        OcrScreenshotError {
+            code: code.to_string(),
+        },
     );
     let tab = match code {
         "screenRecordingPermission" => Some("permissions"),
@@ -190,7 +192,8 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
 
     {
         let mut session = state
-            .ocr.capture_session
+            .ocr
+            .capture_session
             .lock()
             .map_err(|error| error.to_string())?;
         if session.is_some() {
@@ -276,7 +279,8 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     }
 
     *state
-        .ocr.capture_session
+        .ocr
+        .capture_session
         .lock()
         .map_err(|error| error.to_string())? = Some(CaptureSession {
         overlay_labels: labels.clone(),
@@ -338,17 +342,14 @@ pub(crate) async fn submit_screenshot_selection(
     };
 
     // 1) 从会话取出该显示器的冻结帧（触发时捕获的整屏画面）
-    let frame = capture_session
-        .lock()
-        .ok()
-        .and_then(|mut guard| {
-            guard.as_mut().and_then(|session| {
-                session
-                    .frozen_frames
-                    .get_mut(selection.monitor_index)
-                    .and_then(|frame| frame.take())
-            })
-        });
+    let frame = capture_session.lock().ok().and_then(|mut guard| {
+        guard.as_mut().and_then(|session| {
+            session
+                .frozen_frames
+                .get_mut(selection.monitor_index)
+                .and_then(|frame| frame.take())
+        })
+    });
     let frame = match frame {
         Some(frame) => frame,
         None => {
@@ -372,8 +373,8 @@ pub(crate) async fn submit_screenshot_selection(
     // 3) 裁剪冻结帧 + PNG（无二次截屏、无等待；失败仍需收尾会话）
     let png = match tokio::task::spawn_blocking(move || {
         let rect = screen::clamp_rect_to_image(rect, &frame);
-        let cropped = image::imageops::crop_imm(&frame, rect.x, rect.y, rect.width, rect.height)
-            .to_image();
+        let cropped =
+            image::imageops::crop_imm(&frame, rect.x, rect.y, rect.width, rect.height).to_image();
         screen::png_bytes(cropped)
     })
     .await

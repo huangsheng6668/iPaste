@@ -1,7 +1,11 @@
-use std::{thread, time::Duration};
 #[cfg(target_os = "macos")]
 use std::{ffi::c_int, ffi::c_void, process::Command, time::Instant};
+use std::{thread, time::Duration};
 
+use enigo::{
+    Direction::{Click, Press, Release},
+    Enigo, Key, Keyboard, Settings,
+};
 #[cfg(target_os = "macos")]
 use objc2::ffi::NSUInteger;
 #[cfg(target_os = "macos")]
@@ -12,16 +16,12 @@ use objc2_app_kit::{
 };
 #[cfg(target_os = "macos")]
 use objc2_foundation::NSString;
-use enigo::{
-    Direction::{Click, Press, Release},
-    Enigo, Key, Keyboard, Settings,
-};
 use tauri::Manager;
 
 use crate::error::AppError;
-use crate::models::{AppState, MainWindowActivation};
 #[cfg(target_os = "macos")]
 use crate::models::ProcessSerialNumber;
+use crate::models::{AppState, MainWindowActivation};
 
 #[cfg(target_os = "macos")]
 const PASTE_FOCUS_TIMEOUT: Duration = Duration::from_millis(250);
@@ -83,7 +83,8 @@ pub(crate) fn remember_main_window_activation(
     };
 
     let mut current = state
-        .window.main_window_activation
+        .window
+        .main_window_activation
         .lock()
         .map_err(|error| error.to_string())?;
     *current = activation;
@@ -94,7 +95,8 @@ pub(crate) fn current_main_window_activation(app: &tauri::AppHandle) -> MainWind
     app.try_state::<AppState>()
         .and_then(|state| {
             state
-                .window.main_window_activation
+                .window
+                .main_window_activation
                 .lock()
                 .ok()
                 .map(|activation| *activation)
@@ -210,7 +212,10 @@ fn permission_error(error: impl ToString) -> String {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn activate_app_for_paste(app: &tauri::AppHandle, bundle_id: &str) -> Result<(), String> {
+pub(crate) fn activate_app_for_paste(
+    app: &tauri::AppHandle,
+    bundle_id: &str,
+) -> Result<(), String> {
     if Some(bundle_id) == current_app_bundle_id(app).as_deref() {
         thread::sleep(Duration::from_millis(180));
         return Ok(());
@@ -333,7 +338,10 @@ pub(crate) fn focus_target_app_window(pid: c_int) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn system_focused_pid(system_wide: CFTypeRef, focused_application_attr: &NSString) -> Option<c_int> {
+fn system_focused_pid(
+    system_wide: CFTypeRef,
+    focused_application_attr: &NSString,
+) -> Option<c_int> {
     let mut focused_app: CFTypeRef = std::ptr::null();
     let status = unsafe {
         AXUIElementCopyAttributeValue(
@@ -474,7 +482,10 @@ pub(crate) fn wait_for_frontmost_app(
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn run_on_main_thread_for_paste<T, F>(app: &tauri::AppHandle, task: F) -> Result<T, String>
+pub(crate) fn run_on_main_thread_for_paste<T, F>(
+    app: &tauri::AppHandle,
+    task: F,
+) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
@@ -506,4 +517,3 @@ pub(crate) fn current_app_bundle_id(app: &tauri::AppHandle) -> Option<String> {
         .map(|bundle_id| bundle_id.to_string())
         .or_else(|| Some(app.config().identifier.clone()))
 }
-

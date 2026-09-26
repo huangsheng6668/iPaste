@@ -4,9 +4,7 @@
 //! category_items、不触碰剪贴板。会话编排在父模块 session.rs。
 
 use super::{emit, emit_clip_receive_failed, SessionCtx};
-use crate::clipboard::{
-    captured_item_from_payload, write_clipboard_image, write_clipboard_text,
-};
+use crate::clipboard::{captured_item_from_payload, write_clipboard_image, write_clipboard_text};
 use crate::events::{DeviceClipReceived, EVENT_DEVICE_CLIP_RECEIVED};
 use crate::models::AppendCopyState;
 use crate::store::Store;
@@ -100,7 +98,10 @@ pub(super) fn apply_received(
                         Ok(path) => path,
                         Err(reason) => {
                             if !silent {
-                                emit_clip_receive_failed(ctx, format!("保存图片文件失败：{reason}"));
+                                emit_clip_receive_failed(
+                                    ctx,
+                                    format!("保存图片文件失败：{reason}"),
+                                );
                             }
                             return false;
                         }
@@ -216,6 +217,10 @@ fn emit_clip_received(ctx: &SessionCtx, clip_type: String, category_name: Option
     emit(
         ctx,
         EVENT_DEVICE_CLIP_RECEIVED,
-        &DeviceClipReceived { node_id: ctx.peer_node_id.clone(), clip_type, category_name },
+        &DeviceClipReceived {
+            node_id: ctx.peer_node_id.clone(),
+            clip_type,
+            category_name,
+        },
     );
 }

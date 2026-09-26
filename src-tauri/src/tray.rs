@@ -10,10 +10,16 @@ use tauri::{
     Emitter,
 };
 
-use crate::events::{AppendCopyChanged, EVENT_APPEND_COPY_CHANGED, EVENT_LISTENING_CHANGED, ListeningChanged};
-use crate::models::{AppendCopyState, AppState, MainWindowActivation};
+use crate::events::{
+    AppendCopyChanged, ListeningChanged, EVENT_APPEND_COPY_CHANGED, EVENT_LISTENING_CHANGED,
+};
+use crate::models::{AppState, AppendCopyState, MainWindowActivation};
 use crate::window::show_settings_window;
-use crate::{util::{localized_text, new_id}, window::show_main_window, DEFAULT_LANGUAGE};
+use crate::{
+    util::{localized_text, new_id},
+    window::show_main_window,
+    DEFAULT_LANGUAGE,
+};
 pub(crate) fn update_pause_capture_menu_label(state: &AppState, is_listening: bool) {
     let language = state
         .store
@@ -38,7 +44,8 @@ pub(crate) fn set_append_copy_enabled_inner(
 ) -> Result<bool, String> {
     let (is_enabled, timer_session_id) = {
         let mut append_copy = state
-            .capture.append_copy_state
+            .capture
+            .append_copy_state
             .lock()
             .map_err(|error| error.to_string())?;
         let mut timer_session_id = None;
@@ -55,10 +62,7 @@ pub(crate) fn set_append_copy_enabled_inner(
     };
 
     update_append_copy_menu_label(state, is_enabled);
-    let _ = app.emit(
-        EVENT_APPEND_COPY_CHANGED,
-        AppendCopyChanged { is_enabled },
-    );
+    let _ = app.emit(EVENT_APPEND_COPY_CHANGED, AppendCopyChanged { is_enabled });
     if let Some(session_id) = timer_session_id {
         let settings = state.store.settings()?;
         let timeout = Duration::from_secs(settings.append_copy_timeout_minutes.max(1) as u64 * 60);
@@ -143,7 +147,15 @@ pub(crate) fn build_tray(
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
-        &[&show, &screenshot_ocr, &append_copy, &settings, &pause, &separator, &quit],
+        &[
+            &show,
+            &screenshot_ocr,
+            &append_copy,
+            &settings,
+            &pause,
+            &separator,
+            &quit,
+        ],
     )?;
 
     let mut tray = TrayIconBuilder::with_id("ipaste")
@@ -188,20 +200,25 @@ fn tray_icon() -> Option<tauri::image::Image<'static>> {
 
 pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
     let _ = state
-        .ui.show_menu_item
+        .ui
+        .show_menu_item
         .set_text(localized_text(language, "open_ipaste"));
     let _ = state
-        .ui.ocr_menu_item
+        .ui
+        .ocr_menu_item
         .set_text(localized_text(language, "screenshot_ocr"));
     let _ = state
-        .ui.settings_menu_item
+        .ui
+        .settings_menu_item
         .set_text(localized_text(language, "settings"));
     let _ = state
-        .ui.quit_menu_item
+        .ui
+        .quit_menu_item
         .set_text(localized_text(language, "quit_ipaste"));
 
     let is_append_copy_enabled = state
-        .capture.append_copy_state
+        .capture
+        .append_copy_state
         .lock()
         .map(|append_copy| append_copy.is_enabled)
         .unwrap_or(false);
@@ -238,7 +255,8 @@ pub(crate) fn handle_settings_menu(app: &tauri::AppHandle) {
 
 pub(crate) fn handle_append_copy_menu(app: &tauri::AppHandle, state: &AppState) {
     let enabled = state
-        .capture.append_copy_state
+        .capture
+        .append_copy_state
         .lock()
         .map(|value| !value.is_enabled)
         .unwrap_or(true);
@@ -259,4 +277,3 @@ pub(crate) fn handle_pause_capture_menu(app: &tauri::AppHandle, state: &AppState
         },
     );
 }
-

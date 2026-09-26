@@ -1,3 +1,13 @@
+// clippy 门禁（Task 38）：下列 lint 在存量代码上仍有告警，先显式豁免、后续逐条收敛；
+// 新增代码不应再引入这些模式。
+#![allow(clippy::too_many_arguments)] // 托盘菜单构建 / LAN 接收落库的入参已按域聚合，再拆反而降低可读性
+#![allow(clippy::collapsible_if)] // 会话分发的 if/match 层次是刻意保留的阅读顺序
+#![allow(clippy::collapsible_match)] // 同上：match 臂里的 if 保留显式分支说明
+#![allow(clippy::single_match)] // apply.rs 两处 match 与同段落其它分支对齐
+#![allow(clippy::while_let_loop)] // 读任务 loop+match 保留显式 break 语义
+#![allow(clippy::doc_lazy_continuation)] // paddle.rs 列表缩进属历史文档格式
+#![allow(clippy::type_complexity)] // store/secrets.rs 的 keyring 句柄类型偏长，拆 type 别名收益有限
+
 use std::{
     sync::{Arc, Mutex},
     thread,
@@ -32,11 +42,11 @@ impl crate::capture::ports::PeerPusher for LanPeerPusher {
         crate::lan_sync::fan_out_spawned(&self.app, clip);
     }
 }
+mod cloud;
+mod lan_sync;
 mod tray;
 mod util;
 mod window;
-mod cloud;
-mod lan_sync;
 
 use crate::capture::start_screenshot_ocr as run_screenshot_ocr_capture;
 use crate::capture::watcher::spawn_clipboard_watcher;
@@ -44,11 +54,11 @@ use crate::events::EVENT_SHORTCUT_OPENED;
 use crate::lan_sync::commands::{
     device_delete, device_disconnect, device_list, device_request_clip, device_revoke,
     device_send_category, device_send_clip, device_set_auto_sync, open_lan_sync,
-    pairing_cancel_invite, pairing_create_invite, pairing_join, pairing_pending,
-    pairing_respond, sync_transport_settings_get, sync_transport_settings_set,
-    sync_auto_push_settings_get, sync_auto_push_settings_set,
+    pairing_cancel_invite, pairing_create_invite, pairing_join, pairing_pending, pairing_respond,
+    sync_auto_push_settings_get, sync_auto_push_settings_set, sync_transport_settings_get,
+    sync_transport_settings_set,
 };
-use crate::models::{AppendCopyState, AppState, MainWindowActivation};
+use crate::models::{AppState, AppendCopyState, MainWindowActivation};
 use crate::paste::{current_main_window_activation, remember_target_app_for_paste};
 use crate::shortcut::{register_app_shortcut, shortcut_matches};
 use crate::store::Store;
@@ -122,12 +132,14 @@ pub fn run() {
                     };
                     let (active_shortcut, active_ocr_shortcut) = {
                         let panel = state
-                            .shortcuts.active_shortcut
+                            .shortcuts
+                            .active_shortcut
                             .lock()
                             .map(|value| value.clone())
                             .ok();
                         let ocr = state
-                            .shortcuts.active_ocr_shortcut
+                            .shortcuts
+                            .active_ocr_shortcut
                             .lock()
                             .map(|value| value.clone())
                             .ok();
@@ -392,9 +404,7 @@ pub fn run() {
                     }
                 }
                 Err(reason) => {
-                    eprintln!(
-                        "[lan-sync] 设备身份加载失败（应用继续运行，同步不可用）：{reason}"
-                    );
+                    eprintln!("[lan-sync] 设备身份加载失败（应用继续运行，同步不可用）：{reason}");
                 }
             }
 
@@ -457,7 +467,7 @@ pub fn run() {
                             return;
                         }
 
-                        let _ = hide_main_window(&app);
+                        let _ = hide_main_window(app);
                     });
                 }
             }

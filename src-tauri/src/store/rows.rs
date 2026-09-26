@@ -76,7 +76,9 @@ pub(crate) fn map_automation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Automa
     })
 }
 
-pub(crate) fn map_automation_run_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationRunSummary> {
+pub(crate) fn map_automation_run_summary(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<AutomationRunSummary> {
     Ok(AutomationRunSummary {
         id: row.get(0)?,
         status: row.get(1)?,
@@ -87,7 +89,9 @@ pub(crate) fn map_automation_run_summary(row: &rusqlite::Row<'_>) -> rusqlite::R
     })
 }
 
-pub(crate) fn map_automation_run_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<AutomationRunDetail> {
+pub(crate) fn map_automation_run_detail(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<AutomationRunDetail> {
     Ok(AutomationRunDetail {
         id: row.get(0)?,
         automation_id: row.get(1)?,

@@ -44,6 +44,7 @@ pub(crate) fn clamp_rect_to_image(mut rect: PhysicalRect, image: &RgbaImage) -> 
 }
 
 /// 触发侧整屏冻结帧捕获：在任何遮罩窗存在之前调用，硬件加速视频此时仍正常合成。
+// clippy 门禁豁免：当前由冻结帧路径外的调用方预留，暂无调用点。
 #[allow(dead_code)]
 pub(crate) fn capture_monitor_frame(monitor: &tauri::Monitor) -> Result<RgbaImage, String> {
     let mut frames = capture_all_monitor_frames(std::slice::from_ref(monitor))?;
@@ -53,7 +54,10 @@ pub(crate) fn capture_monitor_frame(monitor: &tauri::Monitor) -> Result<RgbaImag
 pub(crate) fn png_bytes(image: RgbaImage) -> Result<Vec<u8>, String> {
     let mut buffer = Vec::new();
     image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Png,
+        )
         .map_err(|error| format!("PNG 编码失败：{error}"))?;
     Ok(buffer)
 }
@@ -77,6 +81,8 @@ mod screen_capture {
     }
 }
 
+// clippy 门禁豁免：保留实现（macOS 权限预检入口），当前无调用方。
+#[allow(dead_code)]
 #[cfg(target_os = "macos")]
 pub(crate) fn has_screen_capture_permission() -> bool {
     if screen_capture::preflight() {
@@ -108,6 +114,8 @@ pub(crate) fn request_screen_capture_permission() -> bool {
     screen_capture::request()
 }
 
+// clippy 门禁豁免：保留实现（macOS 之外恒真的权限判定），当前无调用方。
+#[allow(dead_code)]
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn has_screen_capture_permission() -> bool {
     true
@@ -116,6 +124,8 @@ pub(crate) fn has_screen_capture_permission() -> bool {
 /// 真实截屏探测：preflight 可能因签名身份变化等场景误报 false，
 /// 以实际调用 CGDisplayCreateImage（xcap 内部）的结果为最终判据。
 /// 注意：权限无效时该调用不报错，而是返回全黑帧——必须校验像素内容。
+// clippy 门禁豁免：保留实现（截屏能力真实探测），当前无调用方。
+#[allow(dead_code)]
 #[cfg(target_os = "macos")]
 pub(crate) fn probe_capture_allowed() -> bool {
     let Ok(monitors) = Monitor::all() else {
@@ -149,6 +159,8 @@ pub(crate) fn probe_capture_allowed() -> bool {
 }
 
 /// 抽样判断帧是否几乎全黑（权限无效时系统返回黑帧而非错误）。
+// clippy 门禁豁免：保留实现（诊断/平台能力预留），当前无调用方。
+#[allow(dead_code)]
 fn is_frame_visibly_blank(frame: &RgbaImage) -> bool {
     const STEP: u32 = 7;
     const THRESHOLD: u8 = 2;
@@ -163,6 +175,8 @@ fn is_frame_visibly_blank(frame: &RgbaImage) -> bool {
     true
 }
 
+// clippy 门禁豁免：保留实现（macOS 之外恒真的截屏探测），当前无调用方。
+#[allow(dead_code)]
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn probe_capture_allowed() -> bool {
     true
@@ -199,12 +213,22 @@ mod tests {
     fn clamp_rect_to_image_bounds() {
         let image = RgbaImage::new(100, 100);
         let rect = clamp_rect_to_image(
-            PhysicalRect { x: 90, y: 90, width: 50, height: 50 },
+            PhysicalRect {
+                x: 90,
+                y: 90,
+                width: 50,
+                height: 50,
+            },
             &image,
         );
         assert_eq!(
             rect,
-            PhysicalRect { x: 90, y: 90, width: 10, height: 10 }
+            PhysicalRect {
+                x: 90,
+                y: 90,
+                width: 10,
+                height: 10
+            }
         );
     }
 
@@ -212,12 +236,22 @@ mod tests {
     fn clamp_rect_to_image_completely_outside() {
         let image = RgbaImage::new(100, 100);
         let rect = clamp_rect_to_image(
-            PhysicalRect { x: 120, y: 120, width: 50, height: 50 },
+            PhysicalRect {
+                x: 120,
+                y: 120,
+                width: 50,
+                height: 50,
+            },
             &image,
         );
         assert_eq!(
             rect,
-            PhysicalRect { x: 120, y: 120, width: 0, height: 0 }
+            PhysicalRect {
+                x: 120,
+                y: 120,
+                width: 0,
+                height: 0
+            }
         );
     }
 
@@ -228,10 +262,16 @@ mod tests {
             *pixel = Rgba([x as u8, y as u8, 7, 255]);
         }
         let rect = clamp_rect_to_image(
-            PhysicalRect { x: 2, y: 3, width: 4, height: 5 },
+            PhysicalRect {
+                x: 2,
+                y: 3,
+                width: 4,
+                height: 5,
+            },
             &image,
         );
-        let cropped = image::imageops::crop_imm(&image, rect.x, rect.y, rect.width, rect.height).to_image();
+        let cropped =
+            image::imageops::crop_imm(&image, rect.x, rect.y, rect.width, rect.height).to_image();
         let bytes = png_bytes(cropped).unwrap();
         let decoded = image::load_from_memory(&bytes).unwrap().to_rgba8();
         assert_eq!(decoded.dimensions(), (4, 5));

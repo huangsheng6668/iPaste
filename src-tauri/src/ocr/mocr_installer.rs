@@ -74,7 +74,9 @@ fn mocr_manifest_urls() -> Vec<String> {
             urls.push(url);
         }
     }
-    urls.push(format!("{MOCR_GITHUB_RELEASE_BASE_URL}ipaste-ocr-mocr-v1.json"));
+    urls.push(format!(
+        "{MOCR_GITHUB_RELEASE_BASE_URL}ipaste-ocr-mocr-v1.json"
+    ));
     urls
 }
 
@@ -92,17 +94,15 @@ fn read_mocr_manifest_cache(app: &tauri::AppHandle) -> Result<Option<OcrManifest
         return Ok(None);
     }
     let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let manifest = serde_json::from_str::<OcrManifest>(&content).map_err(|error| error.to_string())?;
+    let manifest =
+        serde_json::from_str::<OcrManifest>(&content).map_err(|error| error.to_string())?;
     if manifest.engine.id != MOCR_ENGINE_ID {
         return Ok(None);
     }
     Ok(Some(manifest))
 }
 
-fn write_mocr_manifest_cache(
-    app: &tauri::AppHandle,
-    manifest: &OcrManifest,
-) -> Result<(), String> {
+fn write_mocr_manifest_cache(app: &tauri::AppHandle, manifest: &OcrManifest) -> Result<(), String> {
     let path = mocr_manifest_cache_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -245,7 +245,10 @@ fn fetch_mocr_manifest() -> Result<OcrManifest, String> {
             }
         };
         if !response.status().is_success() {
-            errors.push(format!("{manifest_url}：HTTP {}", response.status().as_u16()));
+            errors.push(format!(
+                "{manifest_url}：HTTP {}",
+                response.status().as_u16()
+            ));
             continue;
         }
         match response.json::<OcrManifest>() {
@@ -257,10 +260,15 @@ fn fetch_mocr_manifest() -> Result<OcrManifest, String> {
         }
     }
 
-    Err(format!("无法获取 Manga-OCR 资源信息：{}", errors.join("；")))
+    Err(format!(
+        "无法获取 Manga-OCR 资源信息：{}",
+        errors.join("；")
+    ))
 }
 
-pub(crate) fn install_mocr_assets_inner(app: &tauri::AppHandle) -> Result<OcrInstallStatus, String> {
+pub(crate) fn install_mocr_assets_inner(
+    app: &tauri::AppHandle,
+) -> Result<OcrInstallStatus, String> {
     emit_mocr_progress(app, "fetchingManifest", None, 0, 0);
     let manifest = fetch_mocr_manifest()?;
 
@@ -313,11 +321,15 @@ pub(crate) fn install_mocr_assets_inner(app: &tauri::AppHandle) -> Result<OcrIns
         let mut file_bytes = 0_u64;
 
         loop {
-            let read = response.read(&mut buffer).map_err(|error| error.to_string())?;
+            let read = response
+                .read(&mut buffer)
+                .map_err(|error| error.to_string())?;
             if read == 0 {
                 break;
             }
-            output.write_all(&buffer[..read]).map_err(|error| error.to_string())?;
+            output
+                .write_all(&buffer[..read])
+                .map_err(|error| error.to_string())?;
             file_bytes = file_bytes.saturating_add(read as u64);
             emit_mocr_progress(
                 app,
@@ -405,13 +417,16 @@ mod tests {
     #[test]
     fn mocr_manifest_urls_prefer_r2_then_github() {
         let urls = mocr_manifest_urls();
-        assert!(urls.iter().all(|url| url.ends_with("ipaste-ocr-mocr-v1.json")));
+        assert!(urls
+            .iter()
+            .all(|url| url.ends_with("ipaste-ocr-mocr-v1.json")));
         assert_eq!(urls.last().unwrap(), "https://github.com/huangsheng6668/iPaste/releases/download/ipaste-ocr-mocr-v1/ipaste-ocr-mocr-v1.json");
     }
 
     #[test]
     fn mocr_manifest_validation_requires_mocr_engine_and_safe_paths() {
-        let manifest = |id: &str, path: &str| OcrManifest {            engine: crate::models::OcrManifestEngine {
+        let manifest = |id: &str, path: &str| OcrManifest {
+            engine: crate::models::OcrManifestEngine {
                 id: id.to_string(),
                 version: "1.0.0".to_string(),
                 platform: "any".to_string(),

@@ -4,17 +4,17 @@
 //! 迁移中移除；会话编排由 DeviceLinkRegistry（iroh 端点 + 连接登记）承担，
 //! 命令层见 commands.rs（lib.rs setup 构造并 manage registry）。
 
-pub(crate) mod protocol;
-pub(crate) mod session;    // v5 泛型明文会话循环（registry 接线）
-pub(crate) mod commands;   // Tauri 命令层：设备管理 + 票据配对 + 定向发送
-pub(crate) mod pair_guard; // 配对防爆破（registry 配对门消费）
-pub(crate) mod identity;   // 设备身份（iroh SecretKey）
-pub(crate) mod frame;      // 泛型帧编解码（iroh 无耦合）
-pub(crate) mod ticket;     // 配对票据 + 一次性邀请登记
-pub(crate) mod registry;   // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（命令层消费）
-pub(crate) mod autopush;   // 自动推送基座：类型过滤矩阵 + 回环抑制滑窗（Spec 2 Task 2/3 消费）
+pub(crate) mod autopush; // 自动推送基座：类型过滤矩阵 + 回环抑制滑窗（Spec 2 Task 2/3 消费）
+pub(crate) mod commands; // Tauri 命令层：设备管理 + 票据配对 + 定向发送
+pub(crate) mod frame; // 泛型帧编解码（iroh 无耦合）
+pub(crate) mod identity; // 设备身份（iroh SecretKey）
 #[cfg(test)]
-mod integration_tests; // 双 endpoint 全链路集成测试（QUIC 回环，Task 9）
+mod integration_tests;
+pub(crate) mod pair_guard; // 配对防爆破（registry 配对门消费）
+pub(crate) mod protocol;
+pub(crate) mod registry; // DeviceLinkRegistry：iroh 端点 + 每设备连接管理（命令层消费）
+pub(crate) mod session; // v5 泛型明文会话循环（registry 接线）
+pub(crate) mod ticket; // 配对票据 + 一次性邀请登记 // 双 endpoint 全链路集成测试（QUIC 回环，Task 9）
 
 pub use registry::DeviceLinkRegistry;
 
@@ -76,7 +76,9 @@ impl LanEventSink for NoopEventSink {
 #[ts(export)]
 pub(crate) enum ClipSource {
     Current,
-    Item { id: String },
+    Item {
+        id: String,
+    },
     /// 分组（category）条目：id 为 `category_items.id`，category_id 为其所属分组。
     /// 发送时会附带分组名/颜色，接收端按名称匹配或新建分组。
     CategoryItem {
@@ -140,14 +142,18 @@ mod tests {
     fn clip_source_deserializes_item() {
         let json = r#"{"kind":"item","id":"abc"}"#;
         let src: ClipSource = serde_json::from_str(json).unwrap();
-        match src { ClipSource::Item { id } => assert_eq!(id, "abc"), _ => panic!("wrong variant") }
+        match src {
+            ClipSource::Item { id } => assert_eq!(id, "abc"),
+            _ => panic!("wrong variant"),
+        }
     }
 
     #[test]
     fn clip_source_deserializes_category_item() {
         // 前端 ipasteApi 走 camelCase（与 TS 类型一致）。
         let json = r#"{"kind":"categoryItem","id":"i1","categoryId":"c1"}"#;
-        let src: ClipSource = serde_json::from_str(json).expect("camelCase variant must deserialize");
+        let src: ClipSource =
+            serde_json::from_str(json).expect("camelCase variant must deserialize");
         match src {
             ClipSource::CategoryItem { id, category_id } => {
                 assert_eq!(id, "i1");

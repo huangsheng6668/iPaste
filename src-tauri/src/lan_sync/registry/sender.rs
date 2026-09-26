@@ -13,7 +13,7 @@ use crate::lan_sync::protocol::LAN_MAX_PAYLOAD;
 use crate::lan_sync::ControlMsg;
 use crate::models::{AutoSyncMode, ClipItem, DeviceOnline};
 
-use super::{DeviceLinkRegistry, build_send_payload, hex_encode_32};
+use super::{build_send_payload, hex_encode_32, DeviceLinkRegistry};
 
 /// send_category 的单目标发送状态（流式逐条发送时的聚合账本）：
 /// `started=false`（BatchStart 未达）的目标不参与后续、不发汇总事件；
@@ -95,7 +95,10 @@ impl DeviceLinkRegistry {
     ) -> bool {
         let links = self.inner.links.lock().expect("links 锁中毒");
         if links.get(node_id).is_some_and(|handle| handle.batch_busy) {
-            count_auto_drop(&self.inner.auto_dropped, &format!("目标 {node_id} 整组发送进行中"));
+            count_auto_drop(
+                &self.inner.auto_dropped,
+                &format!("目标 {node_id} 整组发送进行中"),
+            );
             return false;
         }
         // 锁内 try_send 是同步非阻塞调用，不违反「无 await 持锁」纪律。
@@ -143,7 +146,10 @@ impl DeviceLinkRegistry {
     ) -> Result<(String, u32, u32), String> {
         let online = self.online_targets(target)?;
         let conn = self.inner.store.connect()?;
-        let category = self.inner.store.get_category_with_conn(&conn, category_id)?;
+        let category = self
+            .inner
+            .store
+            .get_category_with_conn(&conn, category_id)?;
         let items = self
             .inner
             .store
@@ -188,14 +194,15 @@ impl DeviceLinkRegistry {
                 failed: 0,
             });
         }
-        let mut build_failed: u32 = 0;
+        // 构建失败计数目前只用于日志聚合（诊断上报见计划 Task 42），先保留语义、静默告警。
+        let mut _build_failed: u32 = 0;
         let mut delivered_any_count: u32 = 0; // 至少送达 1 个目标的条数（跨目标聚合）
         for item in &items {
             let payload = match build_send_payload(&item.clip_type, &item.text) {
                 Ok(payload) => payload,
                 Err(reason) => {
                     eprintln!("[lan-sync] 整组发送跳过条目 {}：{reason}", item.id);
-                    build_failed += 1;
+                    _build_failed += 1;
                     for target in &mut targets {
                         target.failed += 1; // 构建失败对所有目标计失败
                     }
@@ -292,7 +299,10 @@ impl DeviceLinkRegistry {
                 .iter()
                 .filter(|(_, handle)| handle.status == DeviceOnline::Connected)
                 .filter_map(|(node, handle)| {
-                    handle.control_tx.as_ref().map(|tx| (node.clone(), tx.clone()))
+                    handle
+                        .control_tx
+                        .as_ref()
+                        .map(|tx| (node.clone(), tx.clone()))
                 })
                 .collect()
         };
@@ -326,8 +336,9 @@ impl DeviceLinkRegistry {
                 (node.clone(), mode)
             })
             .collect();
-        let allowed: HashSet<String> =
-            fan_out_targets(&modes, &clip.clip_type).into_iter().collect();
+        let allowed: HashSet<String> = fan_out_targets(&modes, &clip.clip_type)
+            .into_iter()
+            .collect();
         let my_id = hex_encode_32(self.inner.endpoint.id().as_bytes());
         for (node, tx) in candidates {
             if !allowed.contains(&node) {
@@ -373,4 +384,3 @@ pub(super) fn try_send_auto(
         }
     }
 }
-

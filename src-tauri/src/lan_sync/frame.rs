@@ -29,12 +29,16 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
             return Err("帧头超限".to_string());
         }
         let mut header = vec![0u8; header_len];
-        self.read.read_exact(&mut header).await.map_err(|e| e.to_string())?;
+        self.read
+            .read_exact(&mut header)
+            .await
+            .map_err(|e| e.to_string())?;
         let msg: LanMessage = serde_json::from_slice(&header).map_err(|e| e.to_string())?;
 
         let has_payload = matches!(
             &msg,
-            LanMessage::ClipPush { empty: false, .. } | LanMessage::ClipResponse { empty: false, .. }
+            LanMessage::ClipPush { empty: false, .. }
+                | LanMessage::ClipResponse { empty: false, .. }
         );
         if !has_payload {
             return Ok((msg, None));
@@ -44,13 +48,19 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
             return Err("payload 超限".to_string());
         }
         let mut payload = vec![0u8; payload_len];
-        self.read.read_exact(&mut payload).await.map_err(|e| e.to_string())?;
+        self.read
+            .read_exact(&mut payload)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok((msg, Some(payload)))
     }
 
     async fn read_u32(&mut self) -> Result<u32, String> {
         let mut buf = [0u8; 4];
-        self.read.read_exact(&mut buf).await.map_err(|e| e.to_string())?;
+        self.read
+            .read_exact(&mut buf)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(u32::from_le_bytes(buf))
     }
 }
@@ -79,13 +89,19 @@ impl<W: AsyncWrite + Unpin> FrameWriter<W> {
             .write_all(&(header.len() as u32).to_le_bytes())
             .await
             .map_err(|e| e.to_string())?;
-        self.write.write_all(&header).await.map_err(|e| e.to_string())?;
+        self.write
+            .write_all(&header)
+            .await
+            .map_err(|e| e.to_string())?;
         if let Some(data) = payload {
             self.write
                 .write_all(&(data.len() as u32).to_le_bytes())
                 .await
                 .map_err(|e| e.to_string())?;
-            self.write.write_all(data).await.map_err(|e| e.to_string())?;
+            self.write
+                .write_all(data)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         self.write.flush().await.map_err(|e| e.to_string())
     }
@@ -103,14 +119,18 @@ pub(crate) async fn read_message_with_raw<R: AsyncRead + Unpin>(
 ) -> Result<(LanMessage, Vec<u8>), String> {
     let mut raw: Vec<u8> = Vec::new();
     let mut len_buf = [0u8; 4];
-    read.read_exact(&mut len_buf).await.map_err(|e| e.to_string())?;
+    read.read_exact(&mut len_buf)
+        .await
+        .map_err(|e| e.to_string())?;
     raw.extend_from_slice(&len_buf);
     let header_len = u32::from_le_bytes(len_buf) as usize;
     if header_len > LAN_MAX_PAYLOAD {
         return Err("帧头超限".to_string());
     }
     let mut header = vec![0u8; header_len];
-    read.read_exact(&mut header).await.map_err(|e| e.to_string())?;
+    read.read_exact(&mut header)
+        .await
+        .map_err(|e| e.to_string())?;
     raw.extend_from_slice(&header);
     let msg: LanMessage = serde_json::from_slice(&header).map_err(|e| e.to_string())?;
     let has_payload = matches!(
@@ -128,7 +148,9 @@ pub(crate) async fn read_message_with_raw<R: AsyncRead + Unpin>(
             return Err("payload 超限".to_string());
         }
         let mut payload = vec![0u8; payload_len];
-        read.read_exact(&mut payload).await.map_err(|e| e.to_string())?;
+        read.read_exact(&mut payload)
+            .await
+            .map_err(|e| e.to_string())?;
         raw.extend_from_slice(&payload);
     }
     Ok((msg, raw))
@@ -146,7 +168,11 @@ pub(super) struct PrefixedFrame<R> {
 
 impl<R> PrefixedFrame<R> {
     pub(super) fn new(prefix: Vec<u8>, inner: R) -> Self {
-        Self { prefix, pos: 0, inner }
+        Self {
+            prefix,
+            pos: 0,
+            inner,
+        }
     }
 }
 
@@ -227,10 +253,7 @@ mod tests {
         let (a, b) = duplex(4096);
         let mut writer = FrameWriter::new(a);
         let mut reader = FrameReader::new(b);
-        writer
-            .write_message(&LanMessage::Ping, None)
-            .await
-            .unwrap();
+        writer.write_message(&LanMessage::Ping, None).await.unwrap();
         let (msg, payload) = reader.read_message().await.unwrap();
         assert_eq!(msg, LanMessage::Ping);
         assert_eq!(payload, None);

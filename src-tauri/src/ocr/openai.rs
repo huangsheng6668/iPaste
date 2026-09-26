@@ -140,7 +140,13 @@ fn transcribe_image(
     prompts: &[crate::models::CloudOcrPromptMessage],
 ) -> Result<String, String> {
     let bytes = std::fs::read(image_path).map_err(|error| format!("读取图片失败：{error}"))?;
-    let request = build_request(&bytes, image_mime_from_path(image_path), language, model, prompts);
+    let request = build_request(
+        &bytes,
+        image_mime_from_path(image_path),
+        language,
+        model,
+        prompts,
+    );
     let content = send_request(&chat_completions_url(base_url), api_key, &request)?;
     if content.trim().is_empty() {
         Ok(String::new())
@@ -186,7 +192,11 @@ fn build_request(
             });
         } else {
             messages.push(ChatMessage {
-                role: if msg.role == "system" { "system" } else { "user" },
+                role: if msg.role == "system" {
+                    "system"
+                } else {
+                    "user"
+                },
                 content: vec![ContentPart::Text { text }],
             });
         }
@@ -197,7 +207,9 @@ fn build_request(
             role: "user",
             content: vec![
                 ContentPart::Text {
-                    text: format!("Recognize all text in this image. Recognition language: {lang_name}."),
+                    text: format!(
+                        "Recognize all text in this image. Recognition language: {lang_name}."
+                    ),
                 },
                 ContentPart::ImageUrl {
                     image_url: ImageUrl { url: data_url },
@@ -213,11 +225,7 @@ fn build_request(
     }
 }
 
-fn send_request(
-    url: &str,
-    api_key: &str,
-    request: &ChatRequest,
-) -> Result<String, String> {
+fn send_request(url: &str, api_key: &str, request: &ChatRequest) -> Result<String, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(OPENAI_OCR_TIMEOUT)
         .build()
@@ -338,8 +346,15 @@ mod tests {
         assert_eq!(result.words[0].line_index, 0);
         assert_eq!(result.words[1].text, "second line");
         assert_eq!(result.words[1].line_index, 1);
-        assert!(result.words.iter().all(|w| w.width == 0.0 && w.height == 0.0));
-        assert_eq!(build_result("   ", None).language, "auto", "未传语言回填 auto");
+        assert!(result
+            .words
+            .iter()
+            .all(|w| w.width == 0.0 && w.height == 0.0));
+        assert_eq!(
+            build_result("   ", None).language,
+            "auto",
+            "未传语言回填 auto"
+        );
     }
 
     #[test]
@@ -355,7 +370,8 @@ mod tests {
 
     #[test]
     fn error_message_from_body_extracts_message() {
-        let body = r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}"#;
+        let body =
+            r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}"#;
         let error = error_message_from_body(401, body);
         assert!(error.contains("Incorrect API key"), "got: {error}");
     }
@@ -388,7 +404,13 @@ mod tests {
                 content: "Second user msg.".to_string(),
             },
         ];
-        let request = build_request(b"png-bytes", "image/png", Some("zh-Hans"), "glm-4v-flash", &prompts);
+        let request = build_request(
+            b"png-bytes",
+            "image/png",
+            Some("zh-Hans"),
+            "glm-4v-flash",
+            &prompts,
+        );
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(json["model"], "glm-4v-flash");
         assert_eq!(json["max_tokens"], 4096);
@@ -402,14 +424,20 @@ mod tests {
 
         // First user message has interpolated language and only text
         assert_eq!(messages[1]["role"], "user");
-        assert_eq!(messages[1]["content"][0]["text"], "First user msg for 简体中文.");
+        assert_eq!(
+            messages[1]["content"][0]["text"],
+            "First user msg for 简体中文."
+        );
         assert_eq!(messages[1]["content"].as_array().unwrap().len(), 1);
 
         // Second (last) user message has text AND image_url
         assert_eq!(messages[2]["role"], "user");
         assert_eq!(messages[2]["content"][0]["text"], "Second user msg.");
         assert_eq!(messages[2]["content"][1]["type"], "image_url");
-        assert!(messages[2]["content"][1]["image_url"]["url"].as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert!(messages[2]["content"][1]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
     }
 
     #[test]
@@ -423,7 +451,10 @@ mod tests {
         let messages = json["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 2, "系统提示 + 自动追加的 user 图像消息");
         assert_eq!(messages[0]["role"], "system");
-        assert_eq!(messages[0]["content"][0]["text"], "You are an OCR engine for 日语.");
+        assert_eq!(
+            messages[0]["content"][0]["text"],
+            "You are an OCR engine for 日语."
+        );
         assert_eq!(messages[1]["role"], "user");
         assert_eq!(messages[1]["content"][1]["type"], "image_url");
     }
@@ -435,9 +466,15 @@ mod tests {
         let messages = json["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 2, "默认 system + user 消息");
         assert_eq!(messages[0]["role"], "system");
-        assert!(messages[0]["content"][0]["text"].as_str().unwrap().contains("英语"));
+        assert!(messages[0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("英语"));
         assert_eq!(messages[1]["role"], "user");
-        assert!(messages[1]["content"][0]["text"].as_str().unwrap().contains("英语"));
+        assert!(messages[1]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("英语"));
         assert_eq!(messages[1]["content"][1]["type"], "image_url");
     }
 }

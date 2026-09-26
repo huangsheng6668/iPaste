@@ -144,7 +144,9 @@ mod tests {
         }
     }
 
-    fn setup(result: Result<Option<PersistOutcome>, &str>) -> (std::sync::Arc<Recorder>, FakeSink, FakeNotifier, FakePeers) {
+    fn setup(
+        result: Result<Option<PersistOutcome>, &str>,
+    ) -> (std::sync::Arc<Recorder>, FakeSink, FakeNotifier, FakePeers) {
         let recorder = std::sync::Arc::new(Recorder::default());
         let sink = FakeSink {
             recorder: recorder.clone(),
@@ -178,7 +180,10 @@ mod tests {
 
         handle_captured(item("c1"), &sink, &notifier, &peers);
 
-        assert_eq!(recorder.calls(), vec!["persist", "captured:c1", "fan_out:c1"]);
+        assert_eq!(
+            recorder.calls(),
+            vec!["persist", "captured:c1", "fan_out:c1"]
+        );
     }
 
     /// 不变量：非新建（重复内容被合并进已有条目）→ 广播但不扇出。

@@ -3,29 +3,28 @@
 //! 非 macOS 平台为同名 no-op 回退，window.rs 无条件调用。
 //! 本文件的 macOS 分支在 Windows 上不参与编译，以 CI macos-15 验证为准。
 
+use crate::models::MainWindowActivation;
+#[cfg(target_os = "macos")]
+use crate::models::{AppState, MainPanelState};
+#[cfg(target_os = "macos")]
+use crate::paste::run_on_main_thread_for_paste;
 #[cfg(target_os = "macos")]
 use objc2::{
-    define_class,
-    msg_send,
+    define_class, msg_send,
     rc::{autoreleasepool, Retained},
     runtime::{AnyClass, AnyObject, Bool},
     sel, ClassType, MainThreadOnly,
 };
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{
-    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSFloatingWindowLevel,
-    NSPanel, NSResponder, NSView, NSWindow, NSWindowAnimationBehavior,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSFloatingWindowLevel, NSPanel,
+    NSResponder, NSView, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
 };
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSPoint, NSObjectProtocol, NSRect};
+use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect};
 #[cfg(target_os = "macos")]
 use tauri::Manager;
-#[cfg(target_os = "macos")]
-use crate::models::{AppState, MainPanelState};
-#[cfg(target_os = "macos")]
-use crate::paste::run_on_main_thread_for_paste;
-use crate::models::MainWindowActivation;
 
 #[cfg(target_os = "macos")]
 define_class!(
@@ -124,8 +123,8 @@ pub(crate) fn show_main_window_with_native_panel(
 
 #[cfg(target_os = "macos")]
 fn create_native_main_panel(frame: NSRect) -> Result<MainPanelState, String> {
-    let mtm = objc2::MainThreadMarker::new()
-        .ok_or_else(|| "原生主面板必须在主线程创建".to_string())?;
+    let mtm =
+        objc2::MainThreadMarker::new().ok_or_else(|| "原生主面板必须在主线程创建".to_string())?;
     let _ = mtm;
     let style = NSWindowStyleMask::NonactivatingPanel
         | NSWindowStyleMask::UtilityWindow
@@ -198,8 +197,7 @@ fn fit_webview_to_content_view(webview_view: &NSView, content_view: &NSView) {
     let content_frame = content_view.frame();
     webview_view.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), content_frame.size));
     webview_view.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable
-            | NSAutoresizingMaskOptions::ViewHeightSizable,
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
 }
 

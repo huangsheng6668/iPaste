@@ -85,7 +85,9 @@ pub(crate) async fn pairing_create_invite(app: AppHandle) -> Result<String, AppE
 
 #[tauri::command]
 pub(crate) fn pairing_cancel_invite(app: AppHandle) -> Result<(), AppError> {
-    app.device_registry()?.cancel_invite().map_err(AppError::internal)
+    app.device_registry()?
+        .cancel_invite()
+        .map_err(AppError::internal)
 }
 
 /// 凭票据加入对方。`registry.join` 会内联 await 整个会话（拨号 + 对方用户
@@ -130,7 +132,13 @@ pub(crate) fn pairing_pending(app: AppHandle) -> Result<Option<PairRequested>, A
 /// 待发送条目（clip_type, payload, category_name, category_color, display_name）。
 /// category_name 为 None 表示历史/无分组条目；Some 表示分组条目（接收端按
 /// 名称匹配或新建同名分组）。
-type SendItem = (String, Vec<u8>, Option<String>, Option<String>, Option<String>);
+type SendItem = (
+    String,
+    Vec<u8>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 /// 发送单条剪贴板内容。`target = None` 广播到全部在线设备；payload 装配逻辑
 /// 从 v4 `lan_send_clip` 原样迁移。
@@ -146,16 +154,14 @@ pub(crate) async fn device_send_clip(
         ClipSource::Current => {
             let read = read_current_clipboard().map_err(AppError::internal)?;
             let opt = clipboard_read_to_payload(read).map_err(AppError::internal)?;
-            let (clip_type, payload) =
-                opt.ok_or_else(|| AppError::internal("当前剪贴板为空"))?;
+            let (clip_type, payload) = opt.ok_or_else(|| AppError::internal("当前剪贴板为空"))?;
             (clip_type, payload, None, None, None)
         }
         ClipSource::Item { id } => {
             build_item_send(&state.store, &id).map_err(AppError::internal)?
         }
         ClipSource::CategoryItem { id, category_id } => {
-            build_category_item_send(&state.store, &id, &category_id)
-                .map_err(AppError::internal)?
+            build_category_item_send(&state.store, &id, &category_id).map_err(AppError::internal)?
         }
     };
     registry
@@ -193,7 +199,11 @@ pub(crate) async fn device_send_category(
         .send_category(target.as_deref(), &category_id)
         .await
         .map_err(AppError::internal)?;
-    Ok(DeviceSendCategoryResult { category_name, sent, failed })
+    Ok(DeviceSendCategoryResult {
+        category_name,
+        sent,
+        failed,
+    })
 }
 
 /// 请求指定设备回推它当前的剪贴板内容。
@@ -305,7 +315,13 @@ fn build_item_send(store: &Store, id: &str) -> Result<SendItem, String> {
             Some(category) => (Some(category.name), Some(category.color)),
             None => (None, None),
         };
-    Ok((clip.clip_type, payload, category_name, category_color, clip.display_name))
+    Ok((
+        clip.clip_type,
+        payload,
+        category_name,
+        category_color,
+        clip.display_name,
+    ))
 }
 
 /// 从分组条目构造待发送的 `SendItem`（携带分组名/颜色 + 条目重命名）。

@@ -54,10 +54,15 @@ impl PairTicket {
         let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(body)
             .map_err(|_| "票据编码损坏")?;
-        let mut cursor = Cursor { bytes: &bytes, pos: 0 };
+        let mut cursor = Cursor {
+            bytes: &bytes,
+            pos: 0,
+        };
         let version = cursor.u8()?;
         if version != 1 {
-            return Err(format!("票据版本 {version} 不受支持，请双方升级到最新版 iPaste"));
+            return Err(format!(
+                "票据版本 {version} 不受支持，请双方升级到最新版 iPaste"
+            ));
         }
         let endpoint_id = cursor.array32()?;
         let relay_url = match cursor.u8()? {
@@ -74,7 +79,13 @@ impl PairTicket {
         if !cursor.is_empty() {
             return Err("票据包含多余数据".to_string());
         }
-        Ok(Self { version, endpoint_id, relay_url, direct_addrs, invite_secret })
+        Ok(Self {
+            version,
+            endpoint_id,
+            relay_url,
+            direct_addrs,
+            invite_secret,
+        })
     }
 }
 
@@ -96,14 +107,21 @@ impl<'a> Cursor<'a> {
         out.copy_from_slice(slice);
         Ok(out)
     }
-    fn array32(&mut self) -> Result<[u8; 32], String> { self.array::<32>() }
-    fn array16(&mut self) -> Result<[u8; 16], String> { self.array::<16>() }
+    fn array32(&mut self) -> Result<[u8; 32], String> {
+        self.array::<32>()
+    }
+    fn array16(&mut self) -> Result<[u8; 16], String> {
+        self.array::<16>()
+    }
     fn string(&mut self) -> Result<String, String> {
         let len = u16::from_le_bytes(self.array::<2>()?) as usize;
         if len > 512 {
             return Err("票据字段超长".to_string());
         }
-        let slice = self.bytes.get(self.pos..self.pos + len).ok_or("票据不完整")?;
+        let slice = self
+            .bytes
+            .get(self.pos..self.pos + len)
+            .ok_or("票据不完整")?;
         self.pos += len;
         String::from_utf8(slice.to_vec()).map_err(|_| "票据编码损坏".to_string())
     }
@@ -131,7 +149,10 @@ impl InviteRegistry {
     pub(crate) fn create(&mut self) -> [u8; 16] {
         let mut secret = [0u8; 16];
         getrandom::getrandom(&mut secret).expect("os rng unavailable");
-        self.active = Some(Invite { secret, expires_at: Instant::now() + INVITE_TTL });
+        self.active = Some(Invite {
+            secret,
+            expires_at: Instant::now() + INVITE_TTL,
+        });
         secret
     }
 
@@ -144,7 +165,9 @@ impl InviteRegistry {
     /// 即可烧掉全部邀请、阻断正常配对（DoS）。过期视为已死（不回填）。
     /// 常数时间比较，防时序侧信道。
     pub(crate) fn verify_and_consume(&mut self, secret_hex: &str) -> bool {
-        let Some(invite) = self.active.take() else { return false };
+        let Some(invite) = self.active.take() else {
+            return false;
+        };
         if Instant::now() > invite.expires_at {
             return false; // 已过期：邀请作废，无需回填
         }
@@ -272,7 +295,10 @@ mod tests {
         assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
         assert!(!reg.verify_and_consume("aabb"));
         // 正确密钥在一系列失败尝试后仍应核销成功
-        assert!(reg.verify_and_consume(&correct), "失败尝试后正确密钥应仍有效");
+        assert!(
+            reg.verify_and_consume(&correct),
+            "失败尝试后正确密钥应仍有效"
+        );
         // 成功即焚：一次性语义保持
         assert!(!reg.verify_and_consume(&correct), "核销成功后二次校验失败");
     }

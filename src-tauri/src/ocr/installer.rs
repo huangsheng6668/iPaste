@@ -1,8 +1,8 @@
 #![allow(unused_imports)]
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fs, time::Duration};
-use std::io::{Read, Write};
 
 use reqwest::blocking::Client;
 use tauri::Manager;
@@ -160,7 +160,6 @@ pub(crate) fn install_ocr_assets_inner(
     Ok(status)
 }
 
-
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use super::*;
@@ -218,15 +217,24 @@ mod tests {
     fn cached_manifest_with_wrong_engine_is_ignored() {
         // 缓存失效判定抽成纯函数后测试：
         // fn is_usable_cached_manifest(m: &OcrManifest) -> bool { m.engine.id == OCR_ENGINE_ID }
-        assert!(!is_usable_cached_manifest(&manifest_for("v1-engine", "det-model")));
-        assert!(is_usable_cached_manifest(&manifest_for("paddle", "det-model")));
+        assert!(!is_usable_cached_manifest(&manifest_for(
+            "v1-engine",
+            "det-model"
+        )));
+        assert!(is_usable_cached_manifest(&manifest_for(
+            "paddle",
+            "det-model"
+        )));
     }
 
     /// 测试用临时根目录：ensure_path_within 会按需创建目录，不能用 "/ocr"
     /// 这类宿主机盘符根路径（会在仓库外留垃圾，且依赖盘符根目录可写）。
     /// 每个测试独立 tag，避免并行测试互相清理对方目录。
     fn temp_test_root(tag: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("ipaste-installer-test-{tag}-{}", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "ipaste-installer-test-{tag}-{}",
+            std::process::id()
+        ))
     }
 
     #[test]

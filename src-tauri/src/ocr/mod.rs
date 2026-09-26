@@ -31,13 +31,13 @@ pub(crate) mod openai;
 
 /// Manga-OCR (mocr) 专用日漫推理桥接器。
 pub(crate) mod mocr;
-/// Manga-OCR 的 ONNX 本地推理引擎（无 Python 依赖，主路径）。
-pub(crate) mod mocr_onnx;
 /// Manga-OCR 模型安装器（设置页「日语 · 漫画」模型下载）。
 /// Windows 与 macOS（onnx sidecar 分发平台）；Intel Mac 亦可下载（引擎缺失
 /// 时识别走回退）。复用的 installer.rs 基础函数已全平台化。
 #[cfg(any(windows, target_os = "macos"))]
 pub(crate) mod mocr_installer;
+/// Manga-OCR 的 ONNX 本地推理引擎（无 Python 依赖，主路径）。
+pub(crate) mod mocr_onnx;
 
 fn ocr_platform() -> &'static str {
     #[cfg(target_os = "macos")]
@@ -91,9 +91,6 @@ pub(crate) fn macos_ocr_install_status() -> Result<OcrInstallStatus, String> {
         missing_files: Vec::new(),
     })
 }
-
-/// 供 commands.rs 使用的跨平台调度入口（原命令体内的 cfg 分支收编于此）。
-
 pub(crate) fn install_status(
     app: &tauri::AppHandle,
     store: &crate::store::Store,
@@ -301,13 +298,9 @@ pub(crate) async fn recognize_image(
             Some(store) => {
                 paddle::recognize_image_text_paddle(&app, store, image_path, profile, language)
             }
-            None => paddle::recognize_with_mode(
-                &app,
-                DEFAULT_OCR_MODE,
-                image_path,
-                profile,
-                language,
-            ),
+            None => {
+                paddle::recognize_with_mode(&app, DEFAULT_OCR_MODE, image_path, profile, language)
+            }
         })
         .await
         .map_err(|error| error.to_string())?

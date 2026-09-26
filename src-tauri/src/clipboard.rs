@@ -180,7 +180,8 @@ pub(crate) fn clear_system_clipboard_after_delete(
     deleted_hash: Option<&str>,
 ) {
     let current_hash = state
-        .capture.last_clipboard_hash
+        .capture
+        .last_clipboard_hash
         .lock()
         .map(|last| last.clone())
         .unwrap_or(None);

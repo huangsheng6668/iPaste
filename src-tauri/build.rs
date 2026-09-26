@@ -6,10 +6,7 @@ fn main() {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| derive_ocr_r2_base_url(&updater_r2_endpoint).unwrap_or_default());
-    println!(
-        "cargo:rustc-env=IPASTE_OCR_R2_BASE_URL={}",
-        ocr_r2_base_url
-    );
+    println!("cargo:rustc-env=IPASTE_OCR_R2_BASE_URL={}", ocr_r2_base_url);
     println!(
         "cargo:rustc-env=IPASTE_UPDATER_R2_ENDPOINT={}",
         updater_r2_endpoint
@@ -31,7 +28,11 @@ fn ensure_mocr_sidecar_placeholder() {
     if target.is_empty() {
         return;
     }
-    let ext = if target.contains("windows") { ".exe" } else { "" };
+    let ext = if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
     let path = std::path::Path::new("binaries").join(format!("mocr_engine-{target}{ext}"));
     if !path.exists() {
         let _ = std::fs::create_dir_all("binaries");

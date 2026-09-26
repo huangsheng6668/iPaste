@@ -15,8 +15,8 @@ use crate::lan_sync::session::{run_session_loop, SessionCtx};
 use crate::models::DeviceOnline;
 
 use super::{
-    DeviceLinkRegistry, LinkHandle, CONNECT_TIMEOUT, endpoint_id_from_hex, hex_encode_32,
-    send_stream_opener,
+    endpoint_id_from_hex, hex_encode_32, send_stream_opener, DeviceLinkRegistry, LinkHandle,
+    CONNECT_TIMEOUT,
 };
 
 /// 重拨退避序列：5s→10s→20s→40s→80s→160s，之后恒为 300s（spec §5）。
@@ -35,11 +35,13 @@ const INBOUND_SESSION_POLL: Duration = Duration::from_secs(5);
 
 /// 第 N 次连续失败后的退避时长（0 基）。纯函数，独立测试。
 pub(super) fn reconnect_backoff(attempt: usize) -> Duration {
-    RECONNECT_BACKOFF.get(attempt).copied().unwrap_or(RECONNECT_BACKOFF_CAP)
+    RECONNECT_BACKOFF
+        .get(attempt)
+        .copied()
+        .unwrap_or(RECONNECT_BACKOFF_CAP)
 }
 
 impl DeviceLinkRegistry {
-
     /// link_task 专属的状态写：仅当登记仍是认领时的代次（gen 相同）且无活跃
     /// 会话（control_tx 为 None）才写，否则 no-op。
     ///
@@ -51,7 +53,9 @@ impl DeviceLinkRegistry {
     pub(super) fn set_status_if_owner(&self, node_id: &str, gen: u64, status: DeviceOnline) {
         {
             let mut links = self.inner.links.lock().expect("links 锁中毒");
-            let Some(handle) = links.get_mut(node_id) else { return };
+            let Some(handle) = links.get_mut(node_id) else {
+                return;
+            };
             if handle.gen != gen || handle.control_tx.is_some() {
                 return; // 登记已易主（新会话收编）或有活跃会话：不覆写
             }
@@ -95,7 +99,9 @@ impl DeviceLinkRegistry {
     /// 拿它当在线判据会重新打开互踢震荡的口子。
     pub(super) fn has_live_session(&self, node_id: &str) -> bool {
         let links = self.inner.links.lock().expect("links 锁中毒");
-        links.get(node_id).is_some_and(|handle| handle.control_tx.is_some())
+        links
+            .get(node_id)
+            .is_some_and(|handle| handle.control_tx.is_some())
     }
 
     /// 每设备后台任务：循环「拨号 → 会话 → 断开 → 退避重拨」（spec §5）。
@@ -173,7 +179,11 @@ impl DeviceLinkRegistry {
             }
         }
         if remove {
-            self.inner.links.lock().expect("links 锁中毒").remove(&node_id);
+            self.inner
+                .links
+                .lock()
+                .expect("links 锁中毒")
+                .remove(&node_id);
             self.emit_device_list();
         }
     }
@@ -192,7 +202,11 @@ impl DeviceLinkRegistry {
         };
         let mut transports: Vec<TransportAddr> = addrs
             .iter()
-            .filter_map(|addr| addr.parse::<std::net::SocketAddr>().ok().map(TransportAddr::Ip))
+            .filter_map(|addr| {
+                addr.parse::<std::net::SocketAddr>()
+                    .ok()
+                    .map(TransportAddr::Ip)
+            })
             .collect();
         if let Some(relay) = relay {
             if let Ok(url) = relay.parse::<RelayUrl>() {
@@ -203,10 +217,13 @@ impl DeviceLinkRegistry {
             return Err("没有可用的连接地址".to_string());
         }
         let addr = EndpointAddr::from_parts(peer_id, transports);
-        let conn = tokio::time::timeout(CONNECT_TIMEOUT, self.inner.endpoint.connect(addr, IPASTE_ALPN))
-            .await
-            .map_err(|_| "连接超时".to_string())?
-            .map_err(|e| e.to_string())?;
+        let conn = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            self.inner.endpoint.connect(addr, IPASTE_ALPN),
+        )
+        .await
+        .map_err(|_| "连接超时".to_string())?
+        .map_err(|e| e.to_string())?;
         let (mut send, recv) = conn.open_bi().await.map_err(|e| e.to_string())?;
         // 拨号方首发帧：对端（已配对入站分支）的 accept_bi 才会解除挂起
         send_stream_opener(&mut send).await?;
@@ -318,10 +335,7 @@ impl DeviceLinkRegistry {
             if let Some(handle) = links.get_mut(&node_hex) {
                 if handle.gen == my_gen {
                     owned = true;
-                    let task_alive = handle
-                        .task
-                        .as_ref()
-                        .is_some_and(|task| !task.is_finished());
+                    let task_alive = handle.task.as_ref().is_some_and(|task| !task.is_finished());
                     if task_alive {
                         // 有重拨任务接管：登记保留，状态置 Offline，任务继续循环
                         handle.control_tx = None;
@@ -335,7 +349,10 @@ impl DeviceLinkRegistry {
         if remove_entry {
             let mut links = self.inner.links.lock().expect("links 锁中毒");
             // 复查 gen：两段锁之间可能已被新会话收编
-            if links.get(&node_hex).is_some_and(|handle| handle.gen == my_gen) {
+            if links
+                .get(&node_hex)
+                .is_some_and(|handle| handle.gen == my_gen)
+            {
                 links.remove(&node_hex);
             }
         }

@@ -12,8 +12,7 @@ pub(crate) fn ensure_path_within(root: &Path, path: &Path) -> Result<(), String>
     let root = root
         .canonicalize()
         .or_else(|_| {
-            fs::create_dir_all(root)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            fs::create_dir_all(root).map_err(std::io::Error::other)?;
             root.canonicalize()
         })
         .map_err(|error| error.to_string())?;
@@ -26,8 +25,7 @@ pub(crate) fn ensure_path_within(root: &Path, path: &Path) -> Result<(), String>
         let parent = parent
             .canonicalize()
             .or_else(|_| {
-                fs::create_dir_all(parent)
-                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+                fs::create_dir_all(parent).map_err(std::io::Error::other)?;
                 parent.canonicalize()
             })
             .map_err(|error| error.to_string())?;
@@ -102,4 +100,3 @@ pub(crate) fn legacy_ocr_paths(app: &tauri::AppHandle) -> Vec<PathBuf> {
         root.join(OCR_ASSET_DIR),
     ]
 }
-

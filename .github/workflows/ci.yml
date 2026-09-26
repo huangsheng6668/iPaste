@@ -67,6 +67,12 @@ jobs:
       - name: Check generated bindings freshness
         run: git diff --exit-code -- src/types/generated
 
+      - name: Rust format check
+        run: npm run fmt:rust:check
+
+      - name: Rust clippy (deny warnings)
+        run: npm run lint:rust
+
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 

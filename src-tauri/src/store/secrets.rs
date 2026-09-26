@@ -14,7 +14,9 @@ fn entry() -> Result<Entry, String> {
 }
 
 pub(crate) fn put_api_key(value: &str) -> Result<(), String> {
-    entry()?.set_password(value).map_err(|e| format!("写入系统凭据库失败：{e}"))
+    entry()?
+        .set_password(value)
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))
 }
 
 pub(crate) fn get_api_key() -> Result<Option<String>, String> {
@@ -39,7 +41,9 @@ fn device_entry() -> Result<Entry, String> {
 }
 
 pub(crate) fn put_device_secret(value: &str) -> Result<(), String> {
-    device_entry()?.set_password(value).map_err(|e| format!("写入系统凭据库失败：{e}"))
+    device_entry()?
+        .set_password(value)
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))
 }
 
 pub(crate) fn get_device_secret() -> Result<Option<String>, String> {
@@ -69,8 +73,7 @@ pub(crate) fn remove_legacy_bigmodel_api_key() {
 }
 
 fn openai_ocr_entry() -> Result<Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT_OPENAI_OCR)
-        .map_err(|e| format!("无法访问系统凭据库：{e}"))
+    keyring::Entry::new(SERVICE, ACCOUNT_OPENAI_OCR).map_err(|e| format!("无法访问系统凭据库：{e}"))
 }
 
 /// 通用 OpenAI 兼容接口的 API Key（与智谱 Key 分账户，切换引擎互不影响）。
@@ -169,11 +172,7 @@ mod mock_backend {
         }
 
         fn delete_credential(&self) -> Result<()> {
-            match store()
-                .lock()
-                .expect("mock 凭据库锁中毒")
-                .remove(&self.key)
-            {
+            match store().lock().expect("mock 凭据库锁中毒").remove(&self.key) {
                 Some(_) => Ok(()),
                 None => Err(keyring::Error::NoEntry),
             }

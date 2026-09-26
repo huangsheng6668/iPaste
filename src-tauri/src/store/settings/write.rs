@@ -3,8 +3,8 @@
 // store/settings/{read,write}.rs — 设置读写（Task 32 拆分）
 use rusqlite::{params, Connection};
 
-use super::registry;
 use super::super::Store;
+use super::registry;
 use crate::models::{AppSettings, AutoPushSettings, CloudOcrSettings, CloudSettings};
 use crate::util::{clean_append_copy_timeout_minutes, clean_retention_days};
 
@@ -60,7 +60,10 @@ impl Store {
         self.write_setting_value("append_copy_timeout_minutes", &minutes.to_string())
     }
 
-    pub(crate) fn update_panel_open_behavior(&self, behavior: String) -> Result<AppSettings, String> {
+    pub(crate) fn update_panel_open_behavior(
+        &self,
+        behavior: String,
+    ) -> Result<AppSettings, String> {
         self.write_string_setting(&registry::PANEL_OPEN_BEHAVIOR, behavior)
     }
 
@@ -80,7 +83,10 @@ impl Store {
         self.write_string_setting(&registry::LANGUAGE, language)
     }
 
-    pub(crate) fn cloud_settings_with_conn(&self, conn: &Connection) -> Result<CloudSettings, String> {
+    pub(crate) fn cloud_settings_with_conn(
+        &self,
+        conn: &Connection,
+    ) -> Result<CloudSettings, String> {
         let api_address = self
             .setting_value_with_conn(conn, "cloud_api_address")?
             .unwrap_or_default();
@@ -169,8 +175,8 @@ impl Store {
     ) -> Result<AppSettings, String> {
         let base_url = crate::util::clean_openai_base_url(base_url)?;
         let model = crate::util::clean_openai_model(model)?;
-        let api_key = crate::util::clean_api_key(api_key)
-            .map_err(|_| "请输入 API Key".to_string())?;
+        let api_key =
+            crate::util::clean_api_key(api_key).map_err(|_| "请输入 API Key".to_string())?;
         super::super::secrets::put_openai_ocr_api_key(&api_key)?;
         let conn = self.connect()?;
         for (key, value) in [
@@ -227,7 +233,10 @@ impl Store {
     /// iroh 拒连/降级）；None/空白清除（恢复 n0 默认）。写入前 trim，
     /// 返回落库后的规范化值（空白归一为 None）。变更需重启应用才生效——
     /// endpoint 在启动时读取该设置绑定，命令层据此返回提示文案。
-    pub(crate) fn update_sync_relay_url(&self, url: Option<&str>) -> Result<Option<String>, String> {
+    pub(crate) fn update_sync_relay_url(
+        &self,
+        url: Option<&str>,
+    ) -> Result<Option<String>, String> {
         let cleaned = url
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
@@ -259,7 +268,10 @@ impl Store {
         notify: bool,
     ) -> Result<AutoPushSettings, String> {
         let conn = self.connect()?;
-        for (key, value) in [("sync_auto_push_master", master), ("sync_auto_push_notify", notify)] {
+        for (key, value) in [
+            ("sync_auto_push_master", master),
+            ("sync_auto_push_notify", notify),
+        ] {
             conn.execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",

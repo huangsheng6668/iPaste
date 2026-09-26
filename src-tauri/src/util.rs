@@ -362,7 +362,10 @@ mod tests {
 
     #[test]
     fn percent_encode_keeps_unreserved_and_encodes_rest() {
-        assert_eq!(percent_encode_component("clip-viewer-abc123_-.~"), "clip-viewer-abc123_-.~");
+        assert_eq!(
+            percent_encode_component("clip-viewer-abc123_-.~"),
+            "clip-viewer-abc123_-.~"
+        );
         assert_eq!(percent_encode_component("a b&c=d"), "a%20b%26c%3Dd");
         assert_eq!(percent_encode_component("中"), "%E4%B8%AD");
         assert_eq!(percent_encode_component(""), "");
@@ -371,8 +374,14 @@ mod tests {
 
     #[test]
     fn clean_ocr_language_normalizes_to_none() {
-        assert_eq!(clean_ocr_language(Some("ja".to_string())), Some("ja".to_string()));
-        assert_eq!(clean_ocr_language(Some("zh-Hant".to_string())), Some("zh-Hant".to_string()));
+        assert_eq!(
+            clean_ocr_language(Some("ja".to_string())),
+            Some("ja".to_string())
+        );
+        assert_eq!(
+            clean_ocr_language(Some("zh-Hant".to_string())),
+            Some("zh-Hant".to_string())
+        );
         // auto 与非法值归一为 None（等价自动检测）
         assert_eq!(clean_ocr_language(Some("auto".to_string())), None);
         assert_eq!(clean_ocr_language(Some("korean".to_string())), None);

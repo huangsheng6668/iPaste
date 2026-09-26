@@ -124,7 +124,11 @@ mod tests {
             last_hash: Some("old".into()),
         };
 
-        let decision = decide_capture(&mut cursor, sample(Some(7), Some(8), "new", true), NO_APPEND);
+        let decision = decide_capture(
+            &mut cursor,
+            sample(Some(7), Some(8), "new", true),
+            NO_APPEND,
+        );
 
         assert_eq!(decision, CaptureDecision::UnstableChangeId);
         assert_eq!(cursor.last_change_id, Some(1));
@@ -139,7 +143,11 @@ mod tests {
             last_hash: Some("same".into()),
         };
 
-        let decision = decide_capture(&mut cursor, sample(Some(5), Some(5), "same", true), NO_APPEND);
+        let decision = decide_capture(
+            &mut cursor,
+            sample(Some(5), Some(5), "same", true),
+            NO_APPEND,
+        );
 
         assert_eq!(decision, CaptureDecision::AlreadyCaptured);
         assert_eq!(cursor.last_change_id, Some(5));
@@ -153,7 +161,11 @@ mod tests {
             last_hash: Some("old".into()),
         };
 
-        let decision = decide_capture(&mut cursor, sample(Some(5), Some(5), "new", true), NO_APPEND);
+        let decision = decide_capture(
+            &mut cursor,
+            sample(Some(5), Some(5), "new", true),
+            NO_APPEND,
+        );
 
         assert_eq!(decision, CaptureDecision::Insert);
         assert_eq!(cursor.last_hash.as_deref(), Some("new"));
@@ -221,7 +233,11 @@ mod tests {
 
         // 图片 / 空文本：不允许合并
         assert_eq!(
-            decide_capture(&mut cursor, sample(Some(3), Some(3), "c", false), enabled_with_session),
+            decide_capture(
+                &mut cursor,
+                sample(Some(3), Some(3), "c", false),
+                enabled_with_session
+            ),
             CaptureDecision::Insert
         );
     }

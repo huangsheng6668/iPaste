@@ -35,6 +35,8 @@ pub(crate) fn command_program() -> (&'static str, Vec<String>) {
     }
 }
 
+// clippy 门禁豁免：保留实现（诊断/平台能力预留），当前无调用方。
+#[allow(dead_code)]
 pub(crate) fn truncate_log(text: &str, limit: usize) -> (String, bool) {
     if text.chars().count() <= limit {
         return (text.to_string(), false);
@@ -100,11 +102,19 @@ pub(crate) async fn execute_automation(
         stderr,
     ));
 
-    let (status, exit_code) = match tokio::time::timeout(Duration::from_secs(AUTOMATION_TIMEOUT_SECS), child.wait()).await {
+    let (status, exit_code) = match tokio::time::timeout(
+        Duration::from_secs(AUTOMATION_TIMEOUT_SECS),
+        child.wait(),
+    )
+    .await
+    {
         Ok(result) => {
             let exit = result.map_err(|e| format!("等待命令失败: {e}"))?;
             let code = exit.code();
-            (if code == Some(0) { "success" } else { "failed" }, code.map(|c| c as i64))
+            (
+                if code == Some(0) { "success" } else { "failed" },
+                code.map(|c| c as i64),
+            )
         }
         Err(_) => {
             let _ = child.kill().await;

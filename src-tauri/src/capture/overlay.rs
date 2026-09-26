@@ -2,8 +2,8 @@
 
 use tauri::{utils::config::Color, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::window::OCR_OVERLAY_WINDOW_PREFIX;
 use crate::window::positioning::point_in_monitor;
+use crate::window::OCR_OVERLAY_WINDOW_PREFIX;
 
 /// 构造单个显示器的遮罩覆盖窗口（无边框、置顶、透明、初始化隐藏）。
 fn build_overlay_window(
@@ -35,7 +35,9 @@ fn build_overlay_window(
 
 /// 在后台预热创建遮罩窗口池（遍历当前所有可用显示器，静默建窗并保持隐藏）。
 pub(crate) fn prewarm_overlay_windows(app: &tauri::AppHandle) -> Result<(), String> {
-    let monitors = app.available_monitors().map_err(|error| error.to_string())?;
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
     for (index, monitor) in monitors.iter().enumerate() {
         let label = format!("{OCR_OVERLAY_WINDOW_PREFIX}{index}");
         if app.get_webview_window(&label).is_none() {
@@ -95,7 +97,9 @@ pub(crate) fn show_overlay_windows(
     for label in labels {
         if let Some(window) = app.get_webview_window(label) {
             window.show().map_err(|error| error.to_string())?;
-            window.set_always_on_top(true).map_err(|error| error.to_string())?;
+            window
+                .set_always_on_top(true)
+                .map_err(|error| error.to_string())?;
         }
     }
 
@@ -128,7 +132,9 @@ pub(crate) fn create_overlay_windows(
     app: &tauri::AppHandle,
     _frame_paths: &[String],
 ) -> Result<Vec<String>, String> {
-    let monitors = app.available_monitors().map_err(|error| error.to_string())?;
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
     let labels = sync_overlay_windows(app, &monitors)?;
     show_overlay_windows(app, &labels)?;
     Ok(labels)

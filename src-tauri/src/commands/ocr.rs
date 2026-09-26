@@ -123,7 +123,8 @@ pub(crate) fn get_ocr_result_payload(
     token: String,
 ) -> Result<OcrResultPayload, AppError> {
     state
-        .ocr.ocr_result_payloads
+        .ocr
+        .ocr_result_payloads
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .remove(&token)

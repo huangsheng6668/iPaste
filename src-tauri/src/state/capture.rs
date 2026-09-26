@@ -39,10 +39,7 @@ impl CaptureState {
 
     /// 读监听开关，锁中毒时按"仍在监听"兜底（托盘文案的原语义）。
     pub(crate) fn is_listening_or_default(&self) -> bool {
-        self.is_listening
-            .lock()
-            .map(|value| *value)
-            .unwrap_or(true)
+        self.is_listening.lock().map(|value| *value).unwrap_or(true)
     }
 
     /// 翻转监听开关并返回新值；锁中毒时返回 None（托盘菜单点击的原语义：静默放弃）。

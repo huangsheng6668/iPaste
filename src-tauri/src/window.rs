@@ -4,12 +4,9 @@
 pub(crate) mod macos_panel;
 pub(crate) mod positioning;
 
-use tauri::{
-    utils::config::Color,
-    Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::{utils::config::Color, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::events::{EVENT_PANEL_VISIBILITY_CHANGED, PanelVisibilityChanged};
+use crate::events::{PanelVisibilityChanged, EVENT_PANEL_VISIBILITY_CHANGED};
 use crate::models::{AppState, MainWindowActivation, WindowGeometry};
 use crate::util::{localized_text, percent_encode_component};
 use crate::{
@@ -56,7 +53,10 @@ fn main_window_geometry_for_layout(layout: &str) -> WindowGeometry {
     }
 }
 
-pub(crate) fn apply_main_window_layout_geometry(app: &tauri::AppHandle, layout: &str) -> Result<(), String> {
+pub(crate) fn apply_main_window_layout_geometry(
+    app: &tauri::AppHandle,
+    layout: &str,
+) -> Result<(), String> {
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return Ok(());
     };
@@ -137,7 +137,9 @@ pub(crate) fn show_main_window(
                     window.set_focus().map_err(|error| error.to_string())?;
                 }
                 Err(error) => {
-                    eprintln!("failed to show native main panel, falling back to activation: {error}");
+                    eprintln!(
+                        "failed to show native main panel, falling back to activation: {error}"
+                    );
                     effective_activation = MainWindowActivation::Activate;
                     remember_main_window_activation(app, MainWindowActivation::Activate)?;
                     restore_main_webview_to_host_window(app, &window)?;
@@ -167,8 +169,8 @@ pub(crate) fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
         .get_webview_window(MAIN_WINDOW)
         .ok_or_else(|| "未找到主面板".to_string())?;
     let activation = current_main_window_activation(app);
-    let native_panel = activation == MainWindowActivation::PreserveCurrentApp
-        && is_native_main_panel_visible(app);
+    let native_panel =
+        activation == MainWindowActivation::PreserveCurrentApp && is_native_main_panel_visible(app);
     let _ = app.emit(
         EVENT_PANEL_VISIBILITY_CHANGED,
         PanelVisibilityChanged {
@@ -327,7 +329,11 @@ pub(crate) fn show_clip_viewer_window(
     let url = format!(
         "index.html?window=clip-viewer&label={}{}",
         percent_encode_component(&label),
-        if auto_recognize { "&auto-recognize=1" } else { "" }
+        if auto_recognize {
+            "&auto-recognize=1"
+        } else {
+            ""
+        }
     );
     show_auxiliary_window(
         app,

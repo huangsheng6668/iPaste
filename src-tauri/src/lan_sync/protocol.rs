@@ -38,7 +38,10 @@ pub(crate) enum LanMessage {
         device_name: String,
         fingerprint: String,
     },
-    PairReject { #[serde(default)] reason: PairRejectReason },
+    PairReject {
+        #[serde(default)]
+        reason: PairRejectReason,
+    },
     Ping,
     Pong,
     ClipPush {
@@ -57,7 +60,11 @@ pub(crate) enum LanMessage {
         #[serde(default)]
         origin_node_id: Option<String>,
     },
-    CategoryBatchStart { category_name: String, category_color: Option<String>, item_count: u32 },
+    CategoryBatchStart {
+        category_name: String,
+        category_color: Option<String>,
+        item_count: u32,
+    },
     CategoryBatchEnd,
     ClipRequest,
     ClipResponse {
@@ -111,7 +118,11 @@ mod tests {
         let json = r#"{"kind":"clipPush","clip_type":"text","empty":false}"#;
         let msg: LanMessage = serde_json::from_str(json).unwrap();
         match msg {
-            LanMessage::ClipPush { auto, origin_node_id, .. } => {
+            LanMessage::ClipPush {
+                auto,
+                origin_node_id,
+                ..
+            } => {
                 assert!(!auto);
                 assert_eq!(origin_node_id, None);
             }

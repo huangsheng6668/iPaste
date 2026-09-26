@@ -27,8 +27,12 @@ fn decode_hex_32(input: &str) -> Result<[u8; 32], String> {
     }
     let mut out = [0u8; 32];
     for (i, chunk) in input.as_bytes().chunks(2).enumerate() {
-        let hi = (chunk[0] as char).to_digit(16).ok_or("设备私钥存储格式损坏")?;
-        let lo = (chunk[1] as char).to_digit(16).ok_or("设备私钥存储格式损坏")?;
+        let hi = (chunk[0] as char)
+            .to_digit(16)
+            .ok_or("设备私钥存储格式损坏")?;
+        let lo = (chunk[1] as char)
+            .to_digit(16)
+            .ok_or("设备私钥存储格式损坏")?;
         out[i] = (hi * 16 + lo) as u8;
     }
     Ok(out)
@@ -61,6 +65,9 @@ mod tests {
         let _store = temp_store();
         delete_device_secret().unwrap();
         put_device_secret("zzzz").unwrap();
-        assert!(load_or_create_device_secret().is_err(), "损坏的私钥必须报错而非静默换新");
+        assert!(
+            load_or_create_device_secret().is_err(),
+            "损坏的私钥必须报错而非静默换新"
+        );
     }
 }

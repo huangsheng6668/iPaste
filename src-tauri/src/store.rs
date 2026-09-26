@@ -2,15 +2,15 @@ use std::{fs, path::PathBuf};
 
 use rusqlite::Connection;
 
-mod migrations;
-mod settings;
-mod clips;
-mod categories;
-mod sync;
 mod automations;
-pub(crate) mod secrets; // lan_sync::identity 读写设备身份私钥
+mod categories;
+mod clips;
 pub(crate) mod devices; // lan_sync 读写已配对设备（信任表）
+mod migrations;
 pub(crate) mod rows;
+pub(crate) mod secrets; // lan_sync::identity 读写设备身份私钥
+mod settings;
+mod sync;
 
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -49,7 +49,6 @@ impl Store {
             .map_err(|error| error.to_string())?;
         Ok(conn)
     }
-
 }
 
 #[cfg(test)]
@@ -64,10 +63,8 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
             .unwrap();
         assert_eq!(
-            count,
-            0,
+            count, 0,
             "temp_store() should yield a clean database with no seeded clips"
         );
     }
 }
-

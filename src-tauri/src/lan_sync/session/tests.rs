@@ -5,8 +5,8 @@
 use super::apply::apply_received;
 use super::dispatch::{handle_frame, validate_category_meta};
 
-use super::*;
 use super::apply::append_session_active;
+use super::*;
 use crate::events::{EVENT_DEVICE_CATEGORY_RECEIVED, EVENT_DEVICE_CLIP_RECEIVED};
 use crate::lan_sync::autopush::RecentReceived;
 use crate::lan_sync::NoopEventSink;
@@ -87,7 +87,9 @@ fn clips_with_hash(store: &Store, hash: &str) -> i64 {
 /// 返回值、库行与 recent。
 #[test]
 fn apply_received_auto_history_inserts_and_registers_recent() {
-    let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+    let sink = Arc::new(CapturingSink {
+        events: Mutex::new(Vec::new()),
+    });
     let store = temp_store();
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
@@ -99,7 +101,10 @@ fn apply_received_auto_history_inserts_and_registers_recent() {
     assert!(ok, "auto 接收：落库成功即算同步成功");
     let hash = hash_text("auto sync hello");
     assert_eq!(clips_with_hash(&store, &hash), 1, "条目应已落入 clips");
-    assert!(recent.contains(&hash), "auto 路径必须登记 recent（供发送侧防回推）");
+    assert!(
+        recent.contains(&hash),
+        "auto 路径必须登记 recent（供发送侧防回推）"
+    );
 }
 
 /// 2) 手动历史条目：落库 + 接收事件；不登记 recent。
@@ -108,7 +113,9 @@ fn apply_received_auto_history_inserts_and_registers_recent() {
 /// 以「事件已发 + 落库成功」证明该路径不依赖剪贴板。
 #[test]
 fn apply_received_manual_history_skips_recent_and_notifies() {
-    let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+    let sink = Arc::new(CapturingSink {
+        events: Mutex::new(Vec::new()),
+    });
     let store = temp_store();
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
@@ -132,7 +139,9 @@ fn apply_received_manual_history_skips_recent_and_notifies() {
 ///（无行、无 recent、无任何事件）。
 #[test]
 fn apply_received_origin_loop_guard_drops_own_push() {
-    let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+    let sink = Arc::new(CapturingSink {
+        events: Mutex::new(Vec::new()),
+    });
     let store = temp_store();
     let recent = Arc::new(RecentReceived::new());
     let local = "aa".repeat(32);
@@ -140,7 +149,17 @@ fn apply_received_origin_loop_guard_drops_own_push() {
 
     let payload = b"my own echo".to_vec();
     let ok = apply_received(
-        &ctx, &store, "text", &payload, None, None, None, None, false, true, Some(&local),
+        &ctx,
+        &store,
+        "text",
+        &payload,
+        None,
+        None,
+        None,
+        None,
+        false,
+        true,
+        Some(&local),
     );
     assert!(!ok, "自环内容应被拒收");
     let hash = hash_text("my own echo");
@@ -155,7 +174,9 @@ fn apply_received_origin_loop_guard_drops_own_push() {
 /// 4) 分组条目（auto 与否）：行为不变——落 category_items、不登记 recent。
 #[test]
 fn apply_received_category_items_bypass_auto_and_recent() {
-    let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+    let sink = Arc::new(CapturingSink {
+        events: Mutex::new(Vec::new()),
+    });
     let store = temp_store();
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
@@ -163,9 +184,17 @@ fn apply_received_category_items_bypass_auto_and_recent() {
     for (content, auto) in [("grouped auto", true), ("grouped manual", false)] {
         let payload = content.as_bytes().to_vec();
         let ok = apply_received(
-            &ctx, &store, "text", &payload,
-            Some("分组".to_string()), Some("#0D9488".to_string()),
-            None, None, false, auto, None,
+            &ctx,
+            &store,
+            "text",
+            &payload,
+            Some("分组".to_string()),
+            Some("#0D9488".to_string()),
+            None,
+            None,
+            false,
+            auto,
+            None,
         );
         assert!(ok, "分组条目（auto={auto}）应落库成功");
         let hash = hash_text(content);
@@ -195,7 +224,9 @@ fn apply_received_category_items_bypass_auto_and_recent() {
 /// 分组里只有手动帧的内容。
 #[tokio::test]
 async fn auto_frame_mid_batch_never_joins_category_batch() {
-    let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+    let sink = Arc::new(CapturingSink {
+        events: Mutex::new(Vec::new()),
+    });
     let store = temp_store();
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
@@ -238,17 +269,44 @@ async fn auto_frame_mid_batch_never_joins_category_batch() {
     assert!(batch.is_some(), "BatchStart 应进入批量态");
 
     // 2) 批量中段混入 auto 帧（发送侧忙标记漏防的兜底场景）
-    assert!(handle_frame(clip_push(true, b"auto leak".to_vec()), &ctx, &writer, &mut batch).await);
+    assert!(
+        handle_frame(
+            clip_push(true, b"auto leak".to_vec()),
+            &ctx,
+            &writer,
+            &mut batch
+        )
+        .await
+    );
     // 3) 正常的批量成员（手动帧）
-    assert!(handle_frame(clip_push(false, b"batch member".to_vec()), &ctx, &writer, &mut batch).await);
+    assert!(
+        handle_frame(
+            clip_push(false, b"batch member".to_vec()),
+            &ctx,
+            &writer,
+            &mut batch
+        )
+        .await
+    );
     // 4) 结束批量
-    assert!(handle_frame((LanMessage::CategoryBatchEnd, None), &ctx, &writer, &mut batch).await);
+    assert!(
+        handle_frame(
+            (LanMessage::CategoryBatchEnd, None),
+            &ctx,
+            &writer,
+            &mut batch
+        )
+        .await
+    );
     assert!(batch.is_none(), "BatchEnd 应退出批量态");
 
     // auto 帧落历史（clips），绝不进分组
     let auto_hash = hash_text("auto leak");
     assert_eq!(clips_with_hash(&store, &auto_hash), 1, "auto 帧必须落历史");
-    assert!(recent.contains(&auto_hash), "auto 帧照常登记 recent（防回推）");
+    assert!(
+        recent.contains(&auto_hash),
+        "auto 帧照常登记 recent（防回推）"
+    );
 
     // 批量计数正确：只收到 1 条（手动帧），0 失败
     let category_events: Vec<serde_json::Value> = sink
@@ -261,7 +319,11 @@ async fn auto_frame_mid_batch_never_joins_category_batch() {
         .collect();
     assert_eq!(category_events.len(), 1, "BatchEnd 应 emit 一次汇总");
     assert_eq!(category_events[0]["categoryName"].as_str(), Some("工作"));
-    assert_eq!(category_events[0]["count"].as_u64(), Some(1), "auto 帧不计入批量");
+    assert_eq!(
+        category_events[0]["count"].as_u64(),
+        Some(1),
+        "auto 帧不计入批量"
+    );
     assert_eq!(category_events[0]["failed"].as_u64(), Some(0));
 
     // 分组里只有手动帧：auto 帧的内容绝不在 category_items
@@ -299,7 +361,10 @@ fn append_session_active_requires_enabled_and_session() {
     state.session_id = Some("s1".into());
     assert!(append_session_active(&state), "开启且有 session：活跃");
     state.is_enabled = false;
-    assert!(!append_session_active(&state), "有 session 但已关闭：不活跃");
+    assert!(
+        !append_session_active(&state),
+        "有 session 但已关闭：不活跃"
+    );
 }
 
 /// 7) 追加会话活跃期间的 auto 接收（Important）：跳过剪贴板写决策已生效
@@ -307,7 +372,9 @@ fn append_session_active_requires_enabled_and_session() {
 /// 照常落历史 + recent，本地追加缓冲不被对端内容污染。
 #[test]
 fn apply_received_auto_skips_clipboard_write_during_append_session() {
-    let sink = Arc::new(CapturingSink { events: Mutex::new(Vec::new()) });
+    let sink = Arc::new(CapturingSink {
+        events: Mutex::new(Vec::new()),
+    });
     let store = temp_store();
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
@@ -341,7 +408,7 @@ fn apply_received_auto_skips_clipboard_write_during_append_session() {
 async fn ping_frame_replies_pong() {
     // duplex 一侧模拟对端（读回 Pong），另一侧拆成读/写两半喂 handle_frame。
     let (client, server) = duplex(4096);
-    let (read_half, write_half) = tokio::io::split(server);
+    let (_read_half, write_half) = tokio::io::split(server);
     let writer = Arc::new(tokio::sync::Mutex::new(FrameWriter::new(write_half)));
 
     let ctx = test_ctx();
@@ -358,7 +425,7 @@ async fn ping_frame_replies_pong() {
 /// 会话期收到 PairRequest：忽略（会话继续），不回写任何帧。
 #[tokio::test]
 async fn pair_request_in_session_is_ignored() {
-    let (client, server) = duplex(4096);
+    let (_client, server) = duplex(4096);
     let (_read_half, write_half) = tokio::io::split(server);
     let writer = Arc::new(tokio::sync::Mutex::new(FrameWriter::new(write_half)));
 
@@ -428,25 +495,25 @@ async fn session_loop_exits_on_peer_eof() {
 
 #[cfg(test)]
 mod category_meta_tests {
-use super::validate_category_meta;
+    use super::validate_category_meta;
 
-#[test]
-fn validate_category_meta_accepts_within_bounds() {
-    assert!(validate_category_meta(None, None).is_ok());
-    assert!(validate_category_meta(Some("工作"), Some("#0D9488")).is_ok());
-    let name_80: String = "a".repeat(80);
-    let color_32: String = "c".repeat(32);
-    assert!(validate_category_meta(Some(&name_80), Some(&color_32)).is_ok());
-}
+    #[test]
+    fn validate_category_meta_accepts_within_bounds() {
+        assert!(validate_category_meta(None, None).is_ok());
+        assert!(validate_category_meta(Some("工作"), Some("#0D9488")).is_ok());
+        let name_80: String = "a".repeat(80);
+        let color_32: String = "c".repeat(32);
+        assert!(validate_category_meta(Some(&name_80), Some(&color_32)).is_ok());
+    }
 
-#[test]
-fn validate_category_meta_rejects_oversized() {
-    let name_81: String = "a".repeat(81);
-    let color_33: String = "c".repeat(33);
-    assert!(validate_category_meta(Some(&name_81), None).is_err());
-    assert!(validate_category_meta(None, Some(&color_33)).is_err());
-    // 多字节字符按字符数计
-    let wide: String = "中".repeat(81);
-    assert!(validate_category_meta(Some(&wide), None).is_err());
-}
+    #[test]
+    fn validate_category_meta_rejects_oversized() {
+        let name_81: String = "a".repeat(81);
+        let color_33: String = "c".repeat(33);
+        assert!(validate_category_meta(Some(&name_81), None).is_err());
+        assert!(validate_category_meta(None, Some(&color_33)).is_err());
+        // 多字节字符按字符数计
+        let wide: String = "中".repeat(81);
+        assert!(validate_category_meta(Some(&wide), None).is_err());
+    }
 }

@@ -59,7 +59,7 @@ impl Store {
                     .map_err(|error| error.to_string())?;
                 let now = now();
                 let color = category_color
-                    .map(|c| clean_color(c))
+                    .map(clean_color)
                     .unwrap_or_else(|| "#9CA3AF".to_string());
                 let cat = Category {
                     id: new_id(),

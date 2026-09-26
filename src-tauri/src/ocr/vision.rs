@@ -13,7 +13,6 @@ use objc2_foundation::{NSArray, NSError, NSRange, NSString, NSURL};
 use super::tokens::{char_index_to_utf16, split_line_tokens};
 use crate::models::{ImageOcrResult, ImageOcrWord};
 
-
 #[cfg(target_os = "macos")]
 pub(crate) const MACOS_OCR_ENGINE_ID: &str = "apple-vision";
 #[cfg(target_os = "macos")]
@@ -36,7 +35,12 @@ pub(crate) fn recognize_image_text_macos(
     }
 
     autoreleasepool(|_| {
-        recognize_image_text_macos_inner(&image_path, image_width, image_height, language.as_deref())
+        recognize_image_text_macos_inner(
+            &image_path,
+            image_width,
+            image_height,
+            language.as_deref(),
+        )
     })
 }
 

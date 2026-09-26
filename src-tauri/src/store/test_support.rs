@@ -21,7 +21,8 @@ pub(crate) fn temp_store() -> Store {
     conn.execute("DELETE FROM clips", []).expect("clear clips");
     conn.execute("DELETE FROM automation_runs", [])
         .expect("clear automation_runs");
-    conn.execute("DELETE FROM automations", []).expect("clear automations");
+    conn.execute("DELETE FROM automations", [])
+        .expect("clear automations");
     store
 }
 

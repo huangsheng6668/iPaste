@@ -31,7 +31,9 @@ pub(crate) struct PairGuard {
 
 impl PairGuard {
     pub(crate) fn new() -> Self {
-        Self { states: Mutex::new(HashMap::new()) }
+        Self {
+            states: Mutex::new(HashMap::new()),
+        }
     }
 
     /// 该 node_id 当前是否处于封禁期。
@@ -48,11 +50,13 @@ impl PairGuard {
     /// （调用方应直接拒绝连接）。
     pub(crate) fn record_failure(&self, node_id: &str, now: Instant) -> Duration {
         let mut states = self.states.lock().expect("pair guard poisoned");
-        let state = states.entry(node_id.to_string()).or_insert_with(|| AttemptState {
-            failures: 0,
-            blocked_until: None,
-            last_activity: now,
-        });
+        let state = states
+            .entry(node_id.to_string())
+            .or_insert_with(|| AttemptState {
+                failures: 0,
+                blocked_until: None,
+                last_activity: now,
+            });
         state.failures += 1;
         state.last_activity = now;
         if state.failures >= BLOCK_FAILURES {
@@ -68,7 +72,10 @@ impl PairGuard {
 
     /// 配对成功，清除该 node_id 的失败记录。
     pub(crate) fn record_success(&self, node_id: &str) {
-        self.states.lock().expect("pair guard poisoned").remove(node_id);
+        self.states
+            .lock()
+            .expect("pair guard poisoned")
+            .remove(node_id);
     }
 
     /// 清理过期条目：仅保留「封禁仍在生效」或「`STALE_AFTER` 内有活动」的 node_id。
@@ -76,10 +83,13 @@ impl PairGuard {
     /// 永久留在内存里（攻击者可借此线性堆积条目）。持续攻击者的
     /// `last_activity` 会不断刷新，其条目不会因此被提前清理。
     pub(crate) fn prune(&self, now: Instant) {
-        self.states.lock().expect("pair guard poisoned").retain(|_, s| {
-            s.blocked_until.map(|until| now < until).unwrap_or(false)
-                || now.duration_since(s.last_activity) < STALE_AFTER
-        });
+        self.states
+            .lock()
+            .expect("pair guard poisoned")
+            .retain(|_, s| {
+                s.blocked_until.map(|until| now < until).unwrap_or(false)
+                    || now.duration_since(s.last_activity) < STALE_AFTER
+            });
     }
 }
 
@@ -87,8 +97,12 @@ impl PairGuard {
 mod tests {
     use super::*;
 
-    fn node() -> &'static str { "a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8" }
-    fn t0() -> Instant { Instant::now() }
+    fn node() -> &'static str {
+        "a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8"
+    }
+    fn t0() -> Instant {
+        Instant::now()
+    }
 
     #[test]
     fn no_delay_before_threshold_and_block_after_many_failures() {
@@ -141,7 +155,10 @@ mod tests {
         let node2 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
         let _ = g.record_failure(node2, t);
         g.prune(t + STALE_AFTER + Duration::from_secs(1));
-        assert_eq!(g.record_failure(node2, t + STALE_AFTER + Duration::from_secs(2)), Duration::ZERO);
+        assert_eq!(
+            g.record_failure(node2, t + STALE_AFTER + Duration::from_secs(2)),
+            Duration::ZERO
+        );
     }
 
     #[test]

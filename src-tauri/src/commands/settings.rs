@@ -73,7 +73,10 @@ pub(crate) fn update_shortcut(
     shortcut: String,
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
-    let active_ocr_shortcut = state.shortcuts.active_ocr_shortcut().map_err(AppError::internal)?;
+    let active_ocr_shortcut = state
+        .shortcuts
+        .active_ocr_shortcut()
+        .map_err(AppError::internal)?;
     crate::shortcut::ensure_shortcut_not_conflicting(&shortcut, &active_ocr_shortcut)
         .map_err(AppError::from)?;
     update_registered_app_shortcut(&app, &state, &shortcut)?;
@@ -87,7 +90,10 @@ pub(crate) fn update_ocr_shortcut(
     shortcut: String,
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
-    let active_panel_shortcut = state.shortcuts.active_shortcut().map_err(AppError::internal)?;
+    let active_panel_shortcut = state
+        .shortcuts
+        .active_shortcut()
+        .map_err(AppError::internal)?;
     crate::shortcut::ensure_shortcut_not_conflicting(&shortcut, &active_panel_shortcut)
         .map_err(AppError::from)?;
     crate::shortcut::update_registered_ocr_shortcut(&app, &state, &shortcut)?;

@@ -10,17 +10,16 @@ use iroh::{EndpointAddr, EndpointId, RelayUrl, TransportAddr};
 use tokio::sync::oneshot;
 
 use crate::events::{
-    PairInviteState, PairJoinFailed, PairRequested, EVENT_PAIR_INVITE_STATE,
-    EVENT_PAIR_JOIN_FAILED,
+    PairInviteState, PairJoinFailed, PairRequested, EVENT_PAIR_INVITE_STATE, EVENT_PAIR_JOIN_FAILED,
 };
+use crate::lan_sync::device_name;
 use crate::lan_sync::frame::{FrameReader, FrameWriter};
 use crate::lan_sync::protocol::{LanMessage, PairRejectReason, IPASTE_ALPN, LAN_PROTOCOL_VERSION};
 use crate::lan_sync::session::fingerprint_hex;
 use crate::lan_sync::ticket::{PairTicket, INVITE_TTL};
-use crate::lan_sync::device_name;
 
 use super::{
-    send_stream_opener, DeviceLinkRegistry, CONNECT_TIMEOUT, endpoint_id_from_hex, hex_encode_32,
+    endpoint_id_from_hex, hex_encode_32, send_stream_opener, DeviceLinkRegistry, CONNECT_TIMEOUT,
 };
 
 /// create_invite 等待中继连接（endpoint.online()）的上限；超时非致命，
@@ -55,16 +54,15 @@ impl DeviceLinkRegistry {
     /// 中继禁用（测试）时无从等待，直接跳过。
     pub(crate) async fn create_invite(&self) -> Result<String, String> {
         if !self.inner.relay_disabled {
-            let _ = tokio::time::timeout(
-                INVITE_ONLINE_WAIT,
-                self.inner.endpoint.online(),
-            )
-            .await;
+            let _ = tokio::time::timeout(INVITE_ONLINE_WAIT, self.inner.endpoint.online()).await;
         }
         let endpoint_addr = self.inner.endpoint.addr();
         let relay = endpoint_addr.relay_urls().next().map(|url| url.to_string());
-        let direct_addrs: Vec<String> =
-            endpoint_addr.ip_addrs().take(8).map(|addr| addr.to_string()).collect();
+        let direct_addrs: Vec<String> = endpoint_addr
+            .ip_addrs()
+            .take(8)
+            .map(|addr| addr.to_string())
+            .collect();
         let secret = self.inner.invites.lock().expect("invites 锁中毒").create();
         let ticket = PairTicket {
             version: 1,
@@ -81,7 +79,10 @@ impl DeviceLinkRegistry {
             + INVITE_TTL.as_millis() as u64;
         self.emit(
             EVENT_PAIR_INVITE_STATE,
-            &PairInviteState { ticket: Some(encoded.clone()), expires_at: Some(expires_at) },
+            &PairInviteState {
+                ticket: Some(encoded.clone()),
+                expires_at: Some(expires_at),
+            },
         );
         Ok(encoded)
     }
@@ -91,14 +92,22 @@ impl DeviceLinkRegistry {
         self.inner.invites.lock().expect("invites 锁中毒").cancel();
         self.emit(
             EVENT_PAIR_INVITE_STATE,
-            &PairInviteState { ticket: None, expires_at: None },
+            &PairInviteState {
+                ticket: None,
+                expires_at: None,
+            },
         );
         Ok(())
     }
 
     /// 用户对 pending 配对请求的决定。无 pending 时报错。
     pub(crate) fn respond_pair(&self, accept: bool) -> Result<(), String> {
-        let pending = self.inner.pending_pair.lock().expect("pending 锁中毒").take();
+        let pending = self
+            .inner
+            .pending_pair
+            .lock()
+            .expect("pending 锁中毒")
+            .take();
         match pending {
             Some(pending) => {
                 // Err（接收方已不在）只可能是流程竞态，忽略——连接侧按拒绝处理
@@ -134,7 +143,12 @@ impl DeviceLinkRegistry {
     pub(crate) async fn join(self: &Arc<Self>, ticket_str: &str) -> Result<(), String> {
         let ticket = PairTicket::decode(ticket_str)?;
         let fail = |reason: String| -> Result<(), String> {
-            self.emit(EVENT_PAIR_JOIN_FAILED, &PairJoinFailed { reason: reason.clone() });
+            self.emit(
+                EVENT_PAIR_JOIN_FAILED,
+                &PairJoinFailed {
+                    reason: reason.clone(),
+                },
+            );
             Err(reason)
         };
         // 目标是本地已撤销的设备：直接失败，不拨号（spec §3 撤销即失联——
@@ -146,7 +160,11 @@ impl DeviceLinkRegistry {
         let mut addrs: Vec<TransportAddr> = ticket
             .direct_addrs
             .iter()
-            .filter_map(|addr| addr.parse::<std::net::SocketAddr>().ok().map(TransportAddr::Ip))
+            .filter_map(|addr| {
+                addr.parse::<std::net::SocketAddr>()
+                    .ok()
+                    .map(TransportAddr::Ip)
+            })
             .collect();
         if let Some(relay) = &ticket.relay_url {
             if let Ok(url) = relay.parse::<RelayUrl>() {
@@ -175,7 +193,11 @@ impl DeviceLinkRegistry {
             Ok(pair) => pair,
             Err(e) => return fail(format!("对方已断开：{e}")),
         };
-        let secret_hex: String = ticket.invite_secret.iter().map(|b| format!("{b:02x}")).collect();
+        let secret_hex: String = ticket
+            .invite_secret
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let mut writer = FrameWriter::new(&mut send);
         if let Err(e) = writer
             .write_message(
@@ -199,7 +221,10 @@ impl DeviceLinkRegistry {
         };
         let node_hex = hex_encode_32(conn.remote_id().as_bytes());
         match reply {
-            LanMessage::PairAccept { device_name: host_name, .. } => {
+            LanMessage::PairAccept {
+                device_name: host_name,
+                ..
+            } => {
                 // 记录对端元数据（地址线索来自票据）
                 if let Err(reason) = self.inner.store.upsert_paired_device(
                     &node_hex,
@@ -217,7 +242,7 @@ impl DeviceLinkRegistry {
                 // 重新配对成功：解除此前的「显式断开」标记
                 self.clear_disconnected(&node_hex);
                 drop((send, recv)); // 关配对流（FIN），随后开第二条（会话）流
-                // 拨号方开第二条流（会话流），并立即发首发帧让对端 accept_bi 解除挂起
+                                    // 拨号方开第二条流（会话流），并立即发首发帧让对端 accept_bi 解除挂起
                 let (mut session_send, session_recv) = match conn.open_bi().await {
                     Ok(pair) => pair,
                     Err(e) => return fail(format!("对方已断开：{e}")),
@@ -227,7 +252,13 @@ impl DeviceLinkRegistry {
                 }
                 let dead_rx = Self::watch_conn_death(conn.clone());
                 self.clone()
-                    .run_session(Some(conn.clone()), node_hex, session_recv, session_send, dead_rx)
+                    .run_session(
+                        Some(conn.clone()),
+                        node_hex,
+                        session_recv,
+                        session_send,
+                        dead_rx,
+                    )
                     .await;
                 conn.close(VarInt::from_u32(0), b"session-end");
                 Ok(())

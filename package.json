@@ -13,8 +13,11 @@
     "release": "node scripts/bump-version.mjs",
     "test": "vitest run",
     "gen:types": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "fmt:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "fmt:rust:check": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "build:mocr-engine": "node scripts/build-mocr-engine.mjs"
   },
   "dependencies": {

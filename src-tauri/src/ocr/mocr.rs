@@ -127,9 +127,10 @@ enum MocrEngine {
 /// 引擎解析：onnx 三件套 + 同目录 sidecar 就绪 → OnnxSidecar；否则退回 Python 发现。
 fn resolve_engine(app: Option<&tauri::AppHandle>) -> Option<MocrEngine> {
     if let Some(app) = app {
-        if let (Some(sidecar), Some(models_dir)) =
-            (super::mocr_onnx::sidecar_path(), super::mocr_onnx::installed_model_dir(app))
-        {
+        if let (Some(sidecar), Some(models_dir)) = (
+            super::mocr_onnx::sidecar_path(),
+            super::mocr_onnx::installed_model_dir(app),
+        ) {
             return Some(MocrEngine::OnnxSidecar(sidecar, models_dir));
         }
     }
@@ -205,7 +206,10 @@ fn finish_from_server_line(stdout_line: &str) -> Result<ImageOcrResult, String> 
 }
 
 /// 序列化后的请求体按行写入服务进程并等待一行响应。
-async fn send_request(server: &mut MocrServer, payload: &serde_json::Value) -> Result<String, String> {
+async fn send_request(
+    server: &mut MocrServer,
+    payload: &serde_json::Value,
+) -> Result<String, String> {
     let line = serde_json::to_string(payload)
         .map_err(|error| format!("构造 Manga-OCR 请求失败：{error}"))?;
     server
@@ -225,10 +229,13 @@ async fn send_request(server: &mut MocrServer, payload: &serde_json::Value) -> R
         .map_err(|error| format!("刷新 Manga-OCR 请求失败：{error}"))?;
 
     let mut response = String::new();
-    let read = tokio::time::timeout(MOCR_RESPONSE_TIMEOUT, server.stdout.read_line(&mut response))
-        .await
-        .map_err(|_| "Manga-OCR 响应超时".to_string())?
-        .map_err(|error| format!("读取 Manga-OCR 响应失败：{error}"))?;
+    let read = tokio::time::timeout(
+        MOCR_RESPONSE_TIMEOUT,
+        server.stdout.read_line(&mut response),
+    )
+    .await
+    .map_err(|_| "Manga-OCR 响应超时".to_string())?
+    .map_err(|error| format!("读取 Manga-OCR 响应失败：{error}"))?;
     if read == 0 {
         return Err("Manga-OCR 进程已退出".to_string());
     }
@@ -246,7 +253,8 @@ pub(crate) async fn prewarm_server(app: &tauri::AppHandle) {
     let Some(engine) = resolve_engine(Some(app)) else {
         return;
     };
-    if matches!(engine, MocrEngine::Python(ref python_bin) if is_standalone_executable(python_bin)) {
+    if matches!(engine, MocrEngine::Python(ref python_bin) if is_standalone_executable(python_bin))
+    {
         return; // 独立引擎无行协议，无可预热
     }
     let Ok(mut server) = spawn_server(&engine).await else {
@@ -524,9 +532,7 @@ pub(crate) fn find_python_executable(app_handle: Option<&tauri::AppHandle>) -> O
         candidates.push(PathBuf::from(
             r"E:\github_project\manga-translator-ui\venv\Scripts\python.exe",
         ));
-        candidates.push(PathBuf::from(
-            r"E:\miniconda3\envs\manga-env\python.exe",
-        ));
+        candidates.push(PathBuf::from(r"E:\miniconda3\envs\manga-env\python.exe"));
     }
 
     for p in candidates {

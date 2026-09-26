@@ -1,7 +1,7 @@
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-use crate::events::{EVENT_SETTINGS_CHANGED, SettingsChanged};
+use crate::events::{SettingsChanged, EVENT_SETTINGS_CHANGED};
 use crate::models::{AppSettings, AppState};
 
 pub(crate) fn shortcut_matches(shortcut: &Shortcut, shortcut_spec: &str) -> bool {
@@ -85,7 +85,8 @@ pub(crate) fn update_registered_app_shortcut(
             register_app_shortcut(app, shortcut)?;
         }
         state
-            .ui.show_menu_item
+            .ui
+            .show_menu_item
             .set_accelerator(Some(shortcut))
             .map_err(|error| error.to_string())?;
         return Ok(());
@@ -125,7 +126,8 @@ pub(crate) fn update_registered_ocr_shortcut(
             register_app_shortcut(app, shortcut)?;
         }
         state
-            .ui.ocr_menu_item
+            .ui
+            .ocr_menu_item
             .set_accelerator(Some(shortcut))
             .map_err(|error| error.to_string())?;
         return Ok(());
@@ -187,7 +189,11 @@ mod tests {
         let (panel_alias, ocr_alias) = ("Ctrl+Shift+V", "Ctrl+Shift+O");
         assert!(ensure_shortcut_not_conflicting(panel_alias, "CommandOrControl+Shift+V").is_err());
         assert!(ensure_shortcut_not_conflicting(ocr_alias, "CommandOrControl+Shift+O").is_err());
-        assert!(ensure_shortcut_not_conflicting("CommandOrControl+Shift+V", "CommandOrControl+Shift+O").is_ok());
+        assert!(ensure_shortcut_not_conflicting(
+            "CommandOrControl+Shift+V",
+            "CommandOrControl+Shift+O"
+        )
+        .is_ok());
         assert!(ensure_shortcut_not_conflicting("Alt+S", "Alt+D").is_ok());
     }
 }

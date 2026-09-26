@@ -24,10 +24,11 @@ pub(super) struct BatchState {
     received: u32,
     failed: u32,
 }
-
-/// 读当前剪贴板，返回 (clip_type, payload_bytes)；空返回 None
-
-pub(super) fn validate_category_meta(name: Option<&str>, color: Option<&str>) -> Result<(), String> {
+/// 校验对端发来的分组元数据；Err(原因) 表示该帧应拒收（会话不断开）。
+pub(super) fn validate_category_meta(
+    name: Option<&str>,
+    color: Option<&str>,
+) -> Result<(), String> {
     if let Some(n) = name {
         if n.chars().count() > MAX_CATEGORY_NAME_LEN {
             return Err(format!("分组名不能超过 {MAX_CATEGORY_NAME_LEN} 个字符"));
@@ -45,11 +46,6 @@ pub(super) fn validate_category_meta(name: Option<&str>, color: Option<&str>) ->
 ///
 /// 由会话的**读任务**逐条调用（读到即原地处理）；`write_half` 是与主循环共享的
 /// 写半（仅回 `ClipResponse`/`Pong` 时短暂加锁）。
-
-/// 处理一条入站帧。返回 `false` 表示该帧要求结束会话（对端 Disconnect / 回写失败）。
-///
-/// 由会话的**读任务**逐条调用（读到即原地处理）；`write_half` 是与主循环共享的
-/// 写半（仅回 `ClipResponse`/`Pong` 时短暂加锁）。
 pub(super) async fn handle_frame<W>(
     frame: (LanMessage, Option<Vec<u8>>),
     ctx: &SessionCtx,
@@ -60,8 +56,17 @@ where
     W: AsyncWrite + Unpin,
 {
     match frame {
-        (LanMessage::CategoryBatchStart { category_name, category_color, item_count }, _) => {
-            if let Err(reason) = validate_category_meta(Some(&category_name), category_color.as_deref()) {
+        (
+            LanMessage::CategoryBatchStart {
+                category_name,
+                category_color,
+                item_count,
+            },
+            _,
+        ) => {
+            if let Err(reason) =
+                validate_category_meta(Some(&category_name), category_color.as_deref())
+            {
                 emit_clip_receive_failed(ctx, reason);
                 // 拒收该 BatchStart：不进入新的批量态（已存在的旧批量态保持不变——其元数据
                 // 已在各自的 BatchStart 处通过校验）；后续逐条帧若无批量态则走单条路径并被再次校验。
@@ -69,7 +74,10 @@ where
             }
             // 预排 sort_order：新条目整体插到现有条目之上，且按发送顺序排列。
             // item_count 由对端提供，封顶 LAN_BATCH_MAX_ITEMS 防偏移被放大。
-            let min_order = ctx.store.category_min_sort_order(&category_name).unwrap_or(0);
+            let min_order = ctx
+                .store
+                .category_min_sort_order(&category_name)
+                .unwrap_or(0);
             let cap = i64::from(item_count.min(LAN_BATCH_MAX_ITEMS));
             *batch = Some(BatchState {
                 category_name,
@@ -85,9 +93,22 @@ where
                 emit_category_received(ctx, b.category_name, b.received, b.failed);
             }
         }
-        (LanMessage::ClipPush { clip_type, empty, category_name, category_color, display_name, auto, origin_node_id }, payload) => {
+        (
+            LanMessage::ClipPush {
+                clip_type,
+                empty,
+                category_name,
+                category_color,
+                display_name,
+                auto,
+                origin_node_id,
+            },
+            payload,
+        ) => {
             if !empty {
-                if let Err(reason) = validate_category_meta(category_name.as_deref(), category_color.as_deref()) {
+                if let Err(reason) =
+                    validate_category_meta(category_name.as_deref(), category_color.as_deref())
+                {
                     emit_clip_receive_failed(ctx, reason);
                     return true; // 拒收该帧，会话继续
                 }
@@ -103,63 +124,101 @@ where
                             let order = Some(b.base_order + b.next_index);
                             b.next_index += 1;
                             let ok = apply_received(
-                                ctx, &ctx.store, &clip_type, &data,
-                                Some(b.category_name.clone()), b.category_color.clone(),
-                                display_name, order, true, false, None,
+                                ctx,
+                                &ctx.store,
+                                &clip_type,
+                                &data,
+                                Some(b.category_name.clone()),
+                                b.category_color.clone(),
+                                display_name,
+                                order,
+                                true,
+                                false,
+                                None,
                             );
-                            if ok { b.received += 1 } else { b.failed += 1 }
+                            if ok {
+                                b.received += 1
+                            } else {
+                                b.failed += 1
+                            }
                         }
                         _ => {
                             apply_received(
-                                ctx, &ctx.store, &clip_type, &data,
-                                category_name, category_color, display_name, None, false,
-                                auto, origin_node_id.as_deref(),
+                                ctx,
+                                &ctx.store,
+                                &clip_type,
+                                &data,
+                                category_name,
+                                category_color,
+                                display_name,
+                                None,
+                                false,
+                                auto,
+                                origin_node_id.as_deref(),
                             );
                         }
                     }
                 }
             }
         }
-        (LanMessage::ClipRequest, _) => {
-            match read_current_payload() {
-                Ok(Some((ct, data))) => {
-                    let empty = false;
-                    let msg = LanMessage::ClipResponse {
-                        clip_type: ct,
-                        empty,
-                        category_name: None,
-                        category_color: None,
-                        display_name: None,
-                    };
-                    let mut wh = write_half.lock().await;
-                    if wh.write_message(&msg, Some(&data)).await.is_err() {
-                        return false;
-                    }
-                }
-                Ok(None) | Err(_) => {
-                    let msg = LanMessage::ClipResponse {
-                        clip_type: "text".into(),
-                        empty: true,
-                        category_name: None,
-                        category_color: None,
-                        display_name: None,
-                    };
-                    let mut wh = write_half.lock().await;
-                    let _ = wh.write_message(&msg, None).await;
+        (LanMessage::ClipRequest, _) => match read_current_payload() {
+            Ok(Some((ct, data))) => {
+                let empty = false;
+                let msg = LanMessage::ClipResponse {
+                    clip_type: ct,
+                    empty,
+                    category_name: None,
+                    category_color: None,
+                    display_name: None,
+                };
+                let mut wh = write_half.lock().await;
+                if wh.write_message(&msg, Some(&data)).await.is_err() {
+                    return false;
                 }
             }
-        }
-        (LanMessage::ClipResponse { clip_type, empty, category_name, category_color, display_name }, payload) => {
+            Ok(None) | Err(_) => {
+                let msg = LanMessage::ClipResponse {
+                    clip_type: "text".into(),
+                    empty: true,
+                    category_name: None,
+                    category_color: None,
+                    display_name: None,
+                };
+                let mut wh = write_half.lock().await;
+                let _ = wh.write_message(&msg, None).await;
+            }
+        },
+        (
+            LanMessage::ClipResponse {
+                clip_type,
+                empty,
+                category_name,
+                category_color,
+                display_name,
+            },
+            payload,
+        ) => {
             if !empty {
-                if let Err(reason) = validate_category_meta(category_name.as_deref(), category_color.as_deref()) {
+                if let Err(reason) =
+                    validate_category_meta(category_name.as_deref(), category_color.as_deref())
+                {
                     emit_clip_receive_failed(ctx, reason);
                     return true; // 拒收该帧，会话继续
                 }
                 if let Some(data) = payload {
                     // ClipResponse（对端应答「请求剪贴板」）恒手动路径：auto=false、无 origin。
                     apply_received(
-                        ctx, &ctx.store, &clip_type, &data,
-                        category_name, category_color, display_name, None, false, false, None,
+                        ctx,
+                        &ctx.store,
+                        &clip_type,
+                        &data,
+                        category_name,
+                        category_color,
+                        display_name,
+                        None,
+                        false,
+                        false,
+                        None,
                     );
                 }
             }

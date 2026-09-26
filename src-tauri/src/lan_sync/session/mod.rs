@@ -23,7 +23,6 @@ use crate::lan_sync::{ControlMsg, LanEventSink};
 use crate::models::{AppendCopyState, ClipboardRead};
 use crate::store::Store;
 
-
 mod apply;
 mod dispatch;
 #[cfg(test)]
@@ -62,7 +61,11 @@ fn emit<E: serde::Serialize>(ctx: &SessionCtx, event: &str, payload: E) {
 /// EndpointId 前 4 字节 hex —— UI 指纹短码（非安全锚点，仅展示核对用）。
 /// registry 的配对流程消费；纯函数独立测试。
 pub(crate) fn fingerprint_hex(endpoint_id: &[u8; 32]) -> String {
-    endpoint_id.iter().take(4).map(|b| format!("{b:02x}")).collect()
+    endpoint_id
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// 接收侧解析/落库失败：emit 诊断事件 + 打印日志，避免静默丢弃。
@@ -71,7 +74,10 @@ fn emit_clip_receive_failed(ctx: &SessionCtx, reason: String) {
     emit(
         ctx,
         EVENT_DEVICE_CLIP_RECEIVE_FAILED,
-        &DeviceClipReceiveFailed { node_id: ctx.peer_node_id.clone(), reason },
+        &DeviceClipReceiveFailed {
+            node_id: ctx.peer_node_id.clone(),
+            reason,
+        },
     );
 }
 
@@ -80,13 +86,16 @@ fn emit_category_received(ctx: &SessionCtx, category_name: String, count: u32, f
     emit(
         ctx,
         EVENT_DEVICE_CATEGORY_RECEIVED,
-        &DeviceCategoryReceived { node_id: ctx.peer_node_id.clone(), category_name, count, failed },
+        &DeviceCategoryReceived {
+            node_id: ctx.peer_node_id.clone(),
+            category_name,
+            count,
+            failed,
+        },
     );
 }
 
-/// 接收侧整组传输的中间状态：`CategoryBatchStart` 与 `CategoryBatchEnd` 之间
-/// 收到的条目静默落库，结束时统一 emit 汇总事件。
-
+/// 读取当前剪贴板并转换为 LAN 协议要发的 `(clip_type, payload_bytes)`。
 fn read_current_payload() -> Result<Option<(String, Vec<u8>)>, String> {
     match read_current_clipboard()? {
         ClipboardRead::Item(item) => {
@@ -113,9 +122,6 @@ fn image_data_url(bytes: &Option<Vec<u8>>) -> Result<String, String> {
 /// 防已配对对端灌超长字符串污染本地 DB 与 UI 事件流。
 pub(crate) const MAX_CATEGORY_NAME_LEN: usize = 80;
 pub(crate) const MAX_CATEGORY_COLOR_LEN: usize = 32;
-
-/// 校验对端发来的分组元数据；Err(原因) 表示该帧应拒收（会话不断开）。
-
 /// 会话主循环：在「控制指令」「读任务结束信号」「连接死亡」「心跳」之间 `select!`。
 ///
 /// **架构**：两条并行路径共享同一连接——
@@ -251,4 +257,3 @@ pub(crate) async fn run_session_loop<R, W>(
     read_task.abort();
     eprintln!("[lan-sync] 会话结束：{peer_label}");
 }
-

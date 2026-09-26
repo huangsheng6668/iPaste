@@ -10,7 +10,9 @@ fn search_all_category_items_groups_by_category() {
     seed_category_item(&conn, &cat_a, "text", "beta token", "beta token");
     seed_category_item(&conn, &cat_b, "text", "alpha other", "alpha other");
 
-    let groups = store.search_all_category_items_with_conn(&conn, "alpha").unwrap();
+    let groups = store
+        .search_all_category_items_with_conn(&conn, "alpha")
+        .unwrap();
     assert_eq!(groups.len(), 2, "two categories have alpha hits");
     assert_eq!(groups[0].category.name, "A", "lower sort_order first");
     assert_eq!(groups[0].items.len(), 1);
@@ -24,7 +26,9 @@ fn search_all_category_items_empty_query_returns_empty() {
     let conn = store.connect().unwrap();
     let cat = create_category(&conn, "A", "#f00", 0);
     seed_category_item(&conn, &cat, "text", "x", "x");
-    let groups = store.search_all_category_items_with_conn(&conn, "").unwrap();
+    let groups = store
+        .search_all_category_items_with_conn(&conn, "")
+        .unwrap();
     assert!(groups.is_empty());
 }
 
@@ -36,7 +40,9 @@ fn reorder_categories_persists_sort_order() {
     let b = create_category(&conn, "B", "#0f0", 1);
     let c = create_category(&conn, "C", "#00f", 2);
 
-    let reordered = store.reorder_categories(vec![c.clone(), b.clone(), a.clone()]).unwrap();
+    let reordered = store
+        .reorder_categories(vec![c.clone(), b.clone(), a.clone()])
+        .unwrap();
     assert_eq!(reordered.len(), 3);
     assert_eq!(reordered[0].id, c);
     assert_eq!(reordered[1].id, b);
@@ -134,7 +140,10 @@ fn insert_received_category_item_reuses_existing_category() {
         )
         .unwrap();
 
-    assert_eq!(item.category_id, existing_id, "should reuse existing category");
+    assert_eq!(
+        item.category_id, existing_id,
+        "should reuse existing category"
+    );
     // 仍是单分组，且颜色不变
     let cat_count: i64 = conn
         .query_row(
@@ -151,7 +160,10 @@ fn insert_received_category_item_reuses_existing_category() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(color, "#ff0000", "existing category color must be preserved");
+    assert_eq!(
+        color, "#ff0000",
+        "existing category color must be preserved"
+    );
 }
 
 /// 同分组同内容幂等：重复同步不产生副本。
@@ -186,7 +198,10 @@ fn insert_received_category_item_is_idempotent() {
         )
         .unwrap();
 
-    assert_eq!(first.id, second.id, "duplicate sync should return existing item");
+    assert_eq!(
+        first.id, second.id,
+        "duplicate sync should return existing item"
+    );
     let conn = store.connect().unwrap();
     let count: i64 = conn
         .query_row(
@@ -239,7 +254,11 @@ fn insert_received_category_item_stores_and_fills_display_name() {
             None,
         )
         .unwrap();
-    assert_eq!(second.display_name.as_deref(), Some("登录口令"), "本地未重命名时应补齐");
+    assert_eq!(
+        second.display_name.as_deref(),
+        Some("登录口令"),
+        "本地未重命名时应补齐"
+    );
 
     // 本地已有自己的重命名 → 不被对端值覆盖。
     let third = store
@@ -254,7 +273,11 @@ fn insert_received_category_item_stores_and_fills_display_name() {
             None,
         )
         .unwrap();
-    assert_eq!(third.display_name.as_deref(), Some("登录口令"), "本地重命名优先");
+    assert_eq!(
+        third.display_name.as_deref(),
+        Some("登录口令"),
+        "本地重命名优先"
+    );
 }
 
 /// 批量接收时显式 sort_order 被采用（保持发送顺序），而非插到分组顶部。
@@ -304,7 +327,11 @@ fn insert_received_category_item_respects_explicit_sort_order() {
         .list_category_items_for_category_with_conn(&conn, &cat_id)
         .unwrap();
     let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
-    assert_eq!(&ids[..2], [a.id.as_str(), b.id.as_str()], "新条目按预排顺序位于顶部");
+    assert_eq!(
+        &ids[..2],
+        [a.id.as_str(), b.id.as_str()],
+        "新条目按预排顺序位于顶部"
+    );
     assert_eq!(items.len(), 3, "旧条目仍在列表中");
 }
 
@@ -353,7 +380,10 @@ fn insert_received_category_item_creates_backing_clip_row() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(clip_count, 1, "clip_snapshot_id must reference a real clips row");
+    assert_eq!(
+        clip_count, 1,
+        "clip_snapshot_id must reference a real clips row"
+    );
 }
 
 /// 历史表已有同内容时，复用已有 clips.id 作 snapshot 引用，不新建占位行。
@@ -387,11 +417,17 @@ fn insert_received_category_item_reuses_existing_clip_row() {
         )
         .unwrap();
 
-    assert_eq!(item.clip_snapshot_id, existing_clip_id, "should reuse existing clips.id");
+    assert_eq!(
+        item.clip_snapshot_id, existing_clip_id,
+        "should reuse existing clips.id"
+    );
     let clips_after: i64 = conn
         .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(clips_after, clips_before, "no new clips row should be created");
+    assert_eq!(
+        clips_after, clips_before,
+        "no new clips row should be created"
+    );
 }
 
 /// get_category_with_conn 能按 id 取到分组。
@@ -459,7 +495,11 @@ fn get_category_for_clip_returns_none_when_not_joined() {
         .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
         .unwrap();
     let hash: String = conn
-        .query_row("SELECT content_hash FROM clips WHERE id = ?1", [clip_id], |row| row.get(0))
+        .query_row(
+            "SELECT content_hash FROM clips WHERE id = ?1",
+            [clip_id],
+            |row| row.get(0),
+        )
         .unwrap();
 
     let found = store.get_category_for_clip_with_conn(&conn, &hash).unwrap();

@@ -24,7 +24,9 @@ const emit = defineEmits<{
 <template>
   <!-- 邀请设备（host 侧） -->
   <section class="lan-section">
-    <h2 class="lan-section-title">{{ t("deviceSync.invite.title") }}</h2>
+    <h2 class="lan-section-title">
+      {{ t("deviceSync.invite.title") }}
+    </h2>
     <template v-if="ticket">
       <div class="lan-ticket-row">
         <input

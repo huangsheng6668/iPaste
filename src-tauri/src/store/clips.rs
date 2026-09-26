@@ -8,8 +8,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::Store;
 use crate::models::{CapturedClipboardItem, ClipItem, ClipPage, ClipUpdate, SearchResult};
 use crate::{
-    clipboard::image_bytes_from_data_url, store::rows::{collect_rows, map_clip},
-    util::{clean_display_name, hash_text, new_id, now, preview, safe_filename}, IMAGE_DIR,
+    clipboard::image_bytes_from_data_url,
+    store::rows::{collect_rows, map_clip},
+    util::{clean_display_name, hash_text, new_id, now, preview, safe_filename},
+    IMAGE_DIR,
 };
 
 impl Store {
@@ -309,7 +311,11 @@ impl Store {
         }
     }
 
-    pub(crate) fn save_image_bytes(&self, content_hash: &str, bytes: &[u8]) -> Result<String, String> {
+    pub(crate) fn save_image_bytes(
+        &self,
+        content_hash: &str,
+        bytes: &[u8],
+    ) -> Result<String, String> {
         let dir = self.image_dir()?;
         let filename = format!("{}.png", safe_filename(content_hash));
         let path = dir.join(filename);
@@ -535,7 +541,11 @@ impl Store {
         self.touch_clip_captured_with_conn(&conn, id)
     }
 
-    pub(crate) fn touch_clip_captured_with_conn(&self, conn: &Connection, id: &str) -> Result<(), String> {
+    pub(crate) fn touch_clip_captured_with_conn(
+        &self,
+        conn: &Connection,
+        id: &str,
+    ) -> Result<(), String> {
         conn.execute(
             "UPDATE clips SET last_captured_at = ?1 WHERE id = ?2",
             params![now(), id],
@@ -578,13 +588,21 @@ mod tests {
             .query_row("SELECT id FROM clips LIMIT 1", [], |row| row.get(0))
             .unwrap();
         let before: String = conn
-            .query_row("SELECT last_captured_at FROM clips WHERE id = ?1", params![&id], |row| row.get(0))
+            .query_row(
+                "SELECT last_captured_at FROM clips WHERE id = ?1",
+                params![&id],
+                |row| row.get(0),
+            )
             .unwrap();
         // now() 为秒级精度（SecondsFormat::Secs），必须跨过秒边界才能观测变化。
         std::thread::sleep(std::time::Duration::from_millis(1100));
         store.touch_clip_captured_with_conn(&conn, &id).unwrap();
         let after: String = conn
-            .query_row("SELECT last_captured_at FROM clips WHERE id = ?1", params![&id], |row| row.get(0))
+            .query_row(
+                "SELECT last_captured_at FROM clips WHERE id = ?1",
+                params![&id],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_ne!(before, after, "touch 应更新 last_captured_at");
     }
@@ -595,9 +613,19 @@ mod tests {
         let conn = store.connect().unwrap();
         seed_clip(&conn, "text", "hello world", "hello world");
         seed_clip(&conn, "text", "rust lang", "rust lang");
-        assert_eq!(store.count_clips_matching_with_conn(&conn, "hello").unwrap(), 1);
+        assert_eq!(
+            store
+                .count_clips_matching_with_conn(&conn, "hello")
+                .unwrap(),
+            1
+        );
         assert_eq!(store.count_clips_matching_with_conn(&conn, "").unwrap(), 2);
-        assert_eq!(store.count_clips_matching_with_conn(&conn, "nomatch").unwrap(), 0);
+        assert_eq!(
+            store
+                .count_clips_matching_with_conn(&conn, "nomatch")
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -618,7 +646,13 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
         let cat = crate::store::test_support::create_category(&conn, "A", "#f00", 0);
-        crate::store::test_support::seed_category_item(&conn, &cat, "text", "secret token", "secret token");
+        crate::store::test_support::seed_category_item(
+            &conn,
+            &cat,
+            "text",
+            "secret token",
+            "secret token",
+        );
         let res = store.search_with_fallback(0, 20, "secret").unwrap();
         match res {
             SearchResult::CategoryHits { groups } => {

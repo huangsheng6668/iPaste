@@ -20,7 +20,11 @@ pub(crate) const VOCAB_FILE: &str = "vocab.txt";
 pub(crate) fn sidecar_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let name = if cfg!(windows) { "mocr_engine.exe" } else { "mocr_engine" };
+    let name = if cfg!(windows) {
+        "mocr_engine.exe"
+    } else {
+        "mocr_engine"
+    };
     let path = dir.join(name);
     path.is_file().then_some(path)
 }

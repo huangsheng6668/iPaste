@@ -18,14 +18,19 @@ impl Store {
         self.list_automations_with_conn(&conn)
     }
 
-    fn list_automations_with_conn(&self, conn: &Connection) -> Result<Vec<AutomationAction>, String> {
+    fn list_automations_with_conn(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<AutomationAction>, String> {
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, command, cwd, run_mode, confirm_before_run, close_panel_on_success, sort_order, created_at, updated_at
                  FROM automations ORDER BY sort_order, created_at",
             )
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], map_automation).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], map_automation)
+            .map_err(|e| e.to_string())?;
         let mut actions = Vec::new();
         for row in rows {
             let mut action = row.map_err(|e| e.to_string())?;
@@ -35,13 +40,20 @@ impl Store {
         Ok(actions)
     }
 
-    pub(crate) fn create_automation(&self, input: AutomationInput) -> Result<AutomationAction, String> {
+    pub(crate) fn create_automation(
+        &self,
+        input: AutomationInput,
+    ) -> Result<AutomationAction, String> {
         validate_automation_input(&input)?;
         let conn = self.connect()?;
         let id = new_id();
         let created_at = crate::util::now();
         let sort_order: i64 = conn
-            .query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM automations", [], |row| row.get(0))
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM automations",
+                [],
+                |row| row.get(0),
+            )
             .map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO automations (id, name, command, cwd, run_mode, confirm_before_run, close_panel_on_success, sort_order, created_at, updated_at)
@@ -61,7 +73,11 @@ impl Store {
         self.get_automation_with_conn(&conn, &id)
     }
 
-    pub(crate) fn update_automation(&self, id: &str, input: AutomationInput) -> Result<AutomationAction, String> {
+    pub(crate) fn update_automation(
+        &self,
+        id: &str,
+        input: AutomationInput,
+    ) -> Result<AutomationAction, String> {
         validate_automation_input(&input)?;
         let conn = self.connect()?;
         let updated_at = crate::util::now();
@@ -92,7 +108,11 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn get_automation_with_conn(&self, conn: &Connection, id: &str) -> Result<AutomationAction, String> {
+    pub(crate) fn get_automation_with_conn(
+        &self,
+        conn: &Connection,
+        id: &str,
+    ) -> Result<AutomationAction, String> {
         let mut action: AutomationAction = conn
             .query_row(
                 "SELECT id, name, command, cwd, run_mode, confirm_before_run, close_panel_on_success, sort_order, created_at, updated_at
@@ -107,7 +127,11 @@ impl Store {
         Ok(action)
     }
 
-    pub(crate) fn insert_automation_run(&self, conn: &Connection, automation_id: &str) -> Result<String, String> {
+    pub(crate) fn insert_automation_run(
+        &self,
+        conn: &Connection,
+        automation_id: &str,
+    ) -> Result<String, String> {
         let id = new_id();
         let started_at = crate::util::now();
         conn.execute(
@@ -119,8 +143,18 @@ impl Store {
         Ok(id)
     }
 
-    pub(crate) fn append_automation_run_output(&self, conn: &Connection, run_id: &str, stream: &str, chunk: &str) -> Result<(), String> {
-        let column = if stream == "stderr" { "stderr" } else { "stdout" };
+    pub(crate) fn append_automation_run_output(
+        &self,
+        conn: &Connection,
+        run_id: &str,
+        stream: &str,
+        chunk: &str,
+    ) -> Result<(), String> {
+        let column = if stream == "stderr" {
+            "stderr"
+        } else {
+            "stdout"
+        };
         let current: String = conn
             .query_row(
                 &format!("SELECT {column} FROM automation_runs WHERE id = ?1"),
@@ -140,10 +174,20 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn finish_automation_run(&self, conn: &Connection, run_id: &str, status: &str, exit_code: Option<i64>) -> Result<(), String> {
+    pub(crate) fn finish_automation_run(
+        &self,
+        conn: &Connection,
+        run_id: &str,
+        status: &str,
+        exit_code: Option<i64>,
+    ) -> Result<(), String> {
         let finished_at = crate::util::now();
         let started_at: String = conn
-            .query_row("SELECT started_at FROM automation_runs WHERE id = ?1", params![run_id], |row| row.get(0))
+            .query_row(
+                "SELECT started_at FROM automation_runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
             .map_err(|e| e.to_string())?;
         let duration_ms = chrono::DateTime::parse_from_rfc3339(&finished_at)
             .ok()
@@ -157,7 +201,11 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn get_latest_automation_run(&self, conn: &Connection, automation_id: &str) -> Result<Option<AutomationRunSummary>, String> {
+    pub(crate) fn get_latest_automation_run(
+        &self,
+        conn: &Connection,
+        automation_id: &str,
+    ) -> Result<Option<AutomationRunSummary>, String> {
         conn.query_row(
             "SELECT id, status, exit_code, started_at, finished_at, duration_ms
              FROM automation_runs WHERE automation_id = ?1 ORDER BY started_at DESC LIMIT 1",
@@ -168,7 +216,11 @@ impl Store {
         .map_err(|e| e.to_string())
     }
 
-    pub(crate) fn get_automation_run_detail(&self, conn: &Connection, run_id: &str) -> Result<AutomationRunDetail, String> {
+    pub(crate) fn get_automation_run_detail(
+        &self,
+        conn: &Connection,
+        run_id: &str,
+    ) -> Result<AutomationRunDetail, String> {
         conn.query_row(
             "SELECT id, automation_id, status, exit_code, stdout, stderr,
                     length(stdout) >= ?1 AS stdout_truncated,
@@ -181,7 +233,11 @@ impl Store {
         .map_err(|e| e.to_string())
     }
 
-    pub(crate) fn has_running_automation_run(&self, conn: &Connection, automation_id: &str) -> Result<bool, String> {
+    pub(crate) fn has_running_automation_run(
+        &self,
+        conn: &Connection,
+        automation_id: &str,
+    ) -> Result<bool, String> {
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM automation_runs WHERE automation_id = ?1 AND status = 'running'",
@@ -250,7 +306,9 @@ mod tests {
     fn update_and_delete_automation() {
         let store = temp_store();
         let created = store.create_automation(input("a", "echo 1")).unwrap();
-        let updated = store.update_automation(&created.id, input("b", "echo 2")).unwrap();
+        let updated = store
+            .update_automation(&created.id, input("b", "echo 2"))
+            .unwrap();
         assert_eq!(updated.name, "b");
         assert_eq!(updated.command, "echo 2");
         store.delete_automation(&created.id).unwrap();
@@ -267,8 +325,13 @@ mod tests {
         store
             .append_automation_run_output(&conn, &run_id, "stdout", &big)
             .unwrap();
-        store.finish_automation_run(&conn, &run_id, "success", Some(0)).unwrap();
-        let latest = store.get_latest_automation_run(&conn, &action.id).unwrap().unwrap();
+        store
+            .finish_automation_run(&conn, &run_id, "success", Some(0))
+            .unwrap();
+        let latest = store
+            .get_latest_automation_run(&conn, &action.id)
+            .unwrap()
+            .unwrap();
         assert_eq!(latest.status, "success");
         assert_eq!(latest.exit_code, Some(0));
         let detail = store.get_automation_run_detail(&conn, &run_id).unwrap();
@@ -283,7 +346,9 @@ mod tests {
         let conn = store.connect().unwrap();
         let run_id = store.insert_automation_run(&conn, &action.id).unwrap();
         assert!(store.has_running_automation_run(&conn, &action.id).unwrap());
-        store.finish_automation_run(&conn, &run_id, "success", Some(0)).unwrap();
+        store
+            .finish_automation_run(&conn, &run_id, "success", Some(0))
+            .unwrap();
         assert!(!store.has_running_automation_run(&conn, &action.id).unwrap());
     }
 
@@ -296,6 +361,9 @@ mod tests {
         let all = store.list_automations().unwrap();
         let elapsed = start.elapsed();
         assert_eq!(all.len(), 500);
-        assert!(elapsed.as_millis() < 250, "list_automations 500 took {elapsed:?}");
+        assert!(
+            elapsed.as_millis() < 250,
+            "list_automations 500 took {elapsed:?}"
+        );
     }
 }

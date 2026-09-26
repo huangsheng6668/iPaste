@@ -53,7 +53,9 @@ function onAutoSyncChange(entry: DeviceInfo, event: Event) {
 <template>
   <!-- 设备列表 -->
   <section class="lan-section">
-    <h2 class="lan-section-title">{{ t("deviceSync.list.title") }}</h2>
+    <h2 class="lan-section-title">
+      {{ t("deviceSync.list.title") }}
+    </h2>
     <p
       v-if="loadError"
       class="lan-error"

@@ -16,7 +16,9 @@ const emit = defineEmits<{
 <template>
   <!-- 加入设备（guest 侧） -->
   <section class="lan-section">
-    <h2 class="lan-section-title">{{ t("deviceSync.join.title") }}</h2>
+    <h2 class="lan-section-title">
+      {{ t("deviceSync.join.title") }}
+    </h2>
     <label
       class="lan-label"
       for="lan-join-input"

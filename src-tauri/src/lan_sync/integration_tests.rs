@@ -43,7 +43,9 @@ impl LanEventSink for CapturingEventSink {
 }
 
 fn sink() -> Arc<CapturingEventSink> {
-    Arc::new(CapturingEventSink { events: Mutex::new(Vec::new()) })
+    Arc::new(CapturingEventSink {
+        events: Mutex::new(Vec::new()),
+    })
 }
 
 /// 某事件已 emit 的次数。
@@ -186,7 +188,9 @@ async fn pair_send_disconnect_revoke_full_chain() {
     .await
     .expect("发送文本");
     assert!(
-        wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED) >= 1).await,
+        wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED)
+            >= 1)
+        .await,
         "B 应收到条目事件；B 事件：{:?}",
         event_names(&sink_b)
     );
@@ -303,7 +307,9 @@ async fn connection_stays_connected_without_oscillation_after_pairing() {
     let status_after = status_events_for(&sink_a, &node_b);
 
     assert!(
-        samples.iter().all(|sample| *sample == Some(DeviceOnline::Connected)),
+        samples
+            .iter()
+            .all(|sample| *sample == Some(DeviceOnline::Connected)),
         "6s 采样窗口内 B 应恒为 Connected，实测序列：{samples:?}"
     );
     assert_eq!(
@@ -373,7 +379,11 @@ async fn send_category_delivers_batch_to_paired_device() {
     assert_eq!(failed, 0);
 
     assert!(
-        wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CATEGORY_RECEIVED) >= 1).await,
+        wait_until(WAIT, || count_events(
+            &sink_b,
+            EVENT_DEVICE_CATEGORY_RECEIVED
+        ) >= 1)
+        .await,
         "B 应收到整组接收事件；B 事件：{:?}",
         event_names(&sink_b)
     );
@@ -488,8 +498,9 @@ async fn rejoin_still_trusted_host_completes_via_first_frame_routing() {
 
     // 首帧路由进配对门：A 弹出（第二次）配对请求
     assert!(
-        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST) == pair_requests_before + 1)
-            .await,
+        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST)
+            == pair_requests_before + 1)
+        .await,
         "仍信任的对端持 PairRequest 拨入应进配对门；A 事件：{:?}",
         event_names(&sink_a)
     );
@@ -559,8 +570,9 @@ async fn disconnected_device_rejoins_via_fresh_invite_and_redial_connects() {
     // 后台 join（与命令层同构）：会话存活期间不返回，任务随测试结束回收
     tokio::spawn(async move { joiner.join(&join_ticket).await });
     assert!(
-        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST) == pair_requests_before + 1)
-            .await,
+        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST)
+            == pair_requests_before + 1)
+        .await,
         "被显式断开的对端持有效邀请拨入应进配对门；A 事件：{:?}",
         event_names(&sink_a)
     );
@@ -620,7 +632,9 @@ async fn disconnected_device_rejoins_via_fresh_invite_and_redial_connects() {
     .await
     .expect("重配对后发送");
     assert!(
-        wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED) >= 1).await,
+        wait_until(WAIT, || count_events(&sink_b, EVENT_DEVICE_CLIP_RECEIVED)
+            >= 1)
+        .await,
         "B 应沿修复后的链路收到条目；B 事件：{:?}",
         event_names(&sink_b)
     );
@@ -697,9 +711,11 @@ fn tiny_png_bytes() -> Vec<u8> {
 /// 重编码出新哈希——text/clip_type 才是两端一致的稳定观测面。
 fn clip_rows_with_text(store: &Store, text: &str) -> i64 {
     let conn = store.connect().expect("库连接");
-    conn.query_row("SELECT COUNT(*) FROM clips WHERE text = ?1", [text], |row| {
-        row.get(0)
-    })
+    conn.query_row(
+        "SELECT COUNT(*) FROM clips WHERE text = ?1",
+        [text],
+        |row| row.get(0),
+    )
     .expect("查询 clips 表")
 }
 
@@ -761,7 +777,9 @@ async fn autopush_full_chain() {
     // 7) 环断言：B 对同一条目回扇出必须被自己的 recent 命中短路（never sent），
     //    A 的 clips 表在等待窗内不出现该原文。A 侧的捕获是 watcher 行为、
     //    不参与本测试——B 的 recent 短路 + A 无行共同佐证回环被抑制。
-    b.fan_out_auto(&auto_clip).await.expect("B 回扇出（应静默短路）");
+    b.fan_out_auto(&auto_clip)
+        .await
+        .expect("B 回扇出（应静默短路）");
     assert!(
         b.recent_contains(&auto_hash),
         "短路前提：recent 命中在等待窗内仍有效（TTL 60s）"
@@ -777,7 +795,9 @@ async fn autopush_full_chain() {
     a.set_auto_sync(&node_b, AutoSyncMode::Off);
     const OFF_TEXT: &str = "auto-off-never-arrives";
     let off_clip = text_clip(OFF_TEXT);
-    a.fan_out_auto(&off_clip).await.expect("A 扇出（应被偏好过滤）");
+    a.fan_out_auto(&off_clip)
+        .await
+        .expect("A 扇出（应被偏好过滤）");
     tokio::time::sleep(NEGATIVE_WINDOW).await;
     assert_eq!(
         clip_rows_with_text(&store_b, OFF_TEXT),
@@ -790,7 +810,9 @@ async fn autopush_full_chain() {
     a.set_auto_sync(&node_b, AutoSyncMode::All);
     let png = tiny_png_bytes();
     let png_hash = hash_bytes(&png);
-    let png_path = store_a.save_image_bytes(&png_hash, &png).expect("A 落盘图片");
+    let png_path = store_a
+        .save_image_bytes(&png_hash, &png)
+        .expect("A 落盘图片");
     let clip_image = image_clip(&png_path, &png_hash);
     a.fan_out_auto(&clip_image).await.expect("A 扇出图片");
     assert!(

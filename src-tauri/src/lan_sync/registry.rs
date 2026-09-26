@@ -242,7 +242,10 @@ impl DeviceLinkRegistry {
     fn emit_status(&self, node_id: &str, status: DeviceOnline) {
         self.emit(
             EVENT_DEVICE_STATUS_CHANGED,
-            &DeviceStatusChanged { node_id: node_id.to_string(), status },
+            &DeviceStatusChanged {
+                node_id: node_id.to_string(),
+                status,
+            },
         );
     }
 
@@ -260,7 +263,9 @@ impl DeviceLinkRegistry {
     async fn accept_loop(self: Arc<Self>) {
         // accept() 在 endpoint 关闭时返回 None → 循环自然结束
         while let Some(incoming) = self.inner.endpoint.accept().await {
-            let Ok(accepting) = incoming.accept() else { continue };
+            let Ok(accepting) = incoming.accept() else {
+                continue;
+            };
             let registry = self.clone();
             tokio::spawn(async move {
                 let Ok(conn) = accepting.await else { return };
@@ -341,12 +346,17 @@ impl DeviceLinkRegistry {
             conn.close(VarInt::from_u32(0), b"pair-preauth-timeout");
             return; // 静默拒绝：超时/坏帧/连接死亡
         };
-        let LanMessage::PairRequest { version, device_name: peer_name, invite_secret } = msg
+        let LanMessage::PairRequest {
+            version,
+            device_name: peer_name,
+            invite_secret,
+        } = msg
         else {
             // —— 会话路径（首帧非 PairRequest）——
             let dead_rx = Self::watch_conn_death(conn.clone());
             let reader = PrefixedFrame::new(raw, recv);
-            self.run_session(Some(conn.clone()), node_hex, reader, send, dead_rx).await;
+            self.run_session(Some(conn.clone()), node_hex, reader, send, dead_rx)
+                .await;
             conn.close(VarInt::from_u32(0), b"session-end");
             return;
         };
@@ -375,7 +385,10 @@ impl DeviceLinkRegistry {
             .expect("invites 锁中毒")
             .verify_and_consume(&invite_secret);
         if !verified {
-            let delay = self.inner.guard.record_failure(&node_hex, std::time::Instant::now());
+            let delay = self
+                .inner
+                .guard
+                .record_failure(&node_hex, std::time::Instant::now());
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
             }
@@ -392,7 +405,10 @@ impl DeviceLinkRegistry {
         let fingerprint = fingerprint_hex(remote.as_bytes());
         self.emit(
             EVENT_PAIR_REQUEST,
-            &PairRequested { device_name: peer_name.clone(), fingerprint },
+            &PairRequested {
+                device_name: peer_name.clone(),
+                fingerprint,
+            },
         );
         // Ok(false) = 用户拒绝；Err = pending 槽被新请求覆盖（旧请求按拒绝处理，
         // 但不动槽——槽现在属于新请求）
@@ -421,8 +437,10 @@ impl DeviceLinkRegistry {
         // 仍会停留在屏幕上，直到用户点击（点击时若 pending 已清空，
         // respond_pair 报「当前没有待确认的配对请求」）——配对本身已被拒。
         // 接受：互写信任表 + PairAccept + 会话流（本端为被拨方 → accept_bi）
-        if let Err(reason) =
-            self.inner.store.upsert_paired_device(&node_hex, &peer_name, None, &[])
+        if let Err(reason) = self
+            .inner
+            .store
+            .upsert_paired_device(&node_hex, &peer_name, None, &[])
         {
             eprintln!("[lan-sync] 配对落库失败：{reason}");
             reply_reject(&mut send, PairRejectReason::Unknown).await;
@@ -450,11 +468,19 @@ impl DeviceLinkRegistry {
         }
         drop(send); // 关配对流（FIN），拨号方随即开第二条（会话）流
         drop(recv); // 配对流的读半至此不再消费（首帧 PairRequest 已处理完毕）
-        // 等拨号方开第二条（会话）流（拨号方开流即发首发帧，见 send_stream_opener）
-        let Ok((session_send, session_recv)) = conn.accept_bi().await else { return };
+                    // 等拨号方开第二条（会话）流（拨号方开流即发首发帧，见 send_stream_opener）
+        let Ok((session_send, session_recv)) = conn.accept_bi().await else {
+            return;
+        };
         let dead_rx = Self::watch_conn_death(conn.clone());
-        self.run_session(Some(conn.clone()), node_hex, session_recv, session_send, dead_rx)
-            .await;
+        self.run_session(
+            Some(conn.clone()),
+            node_hex,
+            session_recv,
+            session_send,
+            dead_rx,
+        )
+        .await;
         conn.close(VarInt::from_u32(0), b"session-end");
     }
 
@@ -539,4 +565,3 @@ pub(crate) fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>,
         Ok(text.as_bytes().to_vec())
     }
 }
-
