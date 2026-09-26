@@ -356,10 +356,51 @@ pub(crate) fn new_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+/// 互斥锁中毒自愈（Task 42）。
+///
+/// `Mutex` 的持有者一旦 panic，锁就永久中毒：此后每一次 `expect`
+/// 都会再 panic 一次，于是一个后台任务的偶发崩溃会把整块状态永久锁死
+/// （LAN 同步尤其明显——registry 中毒后设备列表、配对、推送全部不可用，
+/// 而用户只看到一连串与现场无关的 panic）。
+///
+/// 这里统一改成「取回内部值 + 打一条 warn」：panic 已经发生，拒绝访问并不能恢复任何东西；
+/// 这些锁保护的都是 HashMap / Vec / Option，单次 panic 不会让容器处于撕裂状态，
+/// 继续运行比从此瘫痪更可取。`name` 用于在日志里指明是哪把锁。
+pub(crate) trait LockRecover<T> {
+    fn lock_recover(&self, name: &str) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockRecover<T> for std::sync::Mutex<T> {
+    fn lock_recover(&self, name: &str) -> std::sync::MutexGuard<'_, T> {
+        match self.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("[lock] {name} 互斥锁中毒，已取回内部值继续运行");
+                poisoned.into_inner()
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn lock_recover_heals_a_poisoned_mutex() {
+        let mutex = std::sync::Arc::new(std::sync::Mutex::new(vec![1, 2]));
+        let poisoner = std::sync::Arc::clone(&mutex);
+        // 另一个线程持锁时 panic，锁进入中毒状态
+        let joined = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+        assert!(joined.is_err(), "子线程应当 panic");
+        // 对照：原生 lock 此时只会继续 Err（即 expect 会二次 panic）
+        assert!(mutex.lock().is_err(), "锁应当已中毒");
+        // 自愈：取回内部值继续，而不是再 panic 一次
+        assert_eq!(*mutex.lock_recover("测试"), vec![1, 2]);
+    }
     #[test]
     fn percent_encode_keeps_unreserved_and_encodes_rest() {
         assert_eq!(

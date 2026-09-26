@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::models::AutoSyncMode;
+use crate::util::LockRecover;
 
 pub(crate) const RECENT_TTL: Duration = Duration::from_secs(60);
 pub(crate) const RECENT_CAP: usize = 100;
@@ -60,7 +61,7 @@ impl RecentReceived {
 
     pub(crate) fn insert(&self, hash: &str) {
         let now = Instant::now();
-        let mut entries = self.entries.lock().expect("recent 锁中毒");
+        let mut entries = self.entries.lock_recover("autopush recent");
         self.prune(&mut entries, now);
         entries.retain(|(h, _)| h != hash);
         entries.push_back((hash.to_string(), now));
@@ -71,7 +72,7 @@ impl RecentReceived {
 
     pub(crate) fn contains(&self, hash: &str) -> bool {
         let now = Instant::now();
-        let mut entries = self.entries.lock().expect("recent 锁中毒");
+        let mut entries = self.entries.lock_recover("autopush recent");
         self.prune(&mut entries, now);
         entries.iter().any(|(h, _)| h == hash)
     }
