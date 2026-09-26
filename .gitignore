@@ -33,6 +33,7 @@ key/*.key
 # Local AI agent/tooling state (never commit)
 .reasonix/
 .zcode/
+.zcodeignore
 .codegraph/
 .mimosa/
 
