@@ -18,6 +18,7 @@ mod models;
 mod ocr;
 mod paste;
 mod shortcut;
+mod state;
 mod store;
 mod tray;
 mod util;
@@ -294,15 +295,17 @@ pub fn run() {
             )?;
             let state = AppState {
                 store: store.clone(),
-                is_listening: Arc::new(Mutex::new(true)),
+                capture: crate::state::CaptureState {
+                    is_listening: Arc::new(Mutex::new(true)),
+                    append_copy_state: Arc::new(Mutex::new(AppendCopyState::default())),
+                    last_clipboard_change_id: Arc::new(Mutex::new(None)),
+                    last_clipboard_hash: Arc::new(Mutex::new(None)),
+                },
                 show_menu_item: show_menu_item.clone(),
                 append_copy_menu_item: append_copy_menu_item.clone(),
                 pause_capture_menu_item: pause_capture_menu_item.clone(),
                 settings_menu_item: settings_menu_item.clone(),
                 quit_menu_item: quit_menu_item.clone(),
-                append_copy_state: Arc::new(Mutex::new(AppendCopyState::default())),
-                last_clipboard_change_id: Arc::new(Mutex::new(None)),
-                last_clipboard_hash: Arc::new(Mutex::new(None)),
                 is_dragging_main_window: Arc::new(Mutex::new(false)),
                 target_app_bundle_id: Arc::new(Mutex::new(None)),
                 main_window_activation: Arc::new(Mutex::new(MainWindowActivation::Activate)),
@@ -346,7 +349,7 @@ pub fn run() {
                     let sync_store = store.clone();
                     // 追加复制会话状态与 watcher 共享同一实例：活跃期间 auto 接收
                     // 跳过剪贴板写（防对端内容被 merge 进本地追加缓冲）。
-                    let append_state = state.append_copy_state.clone();
+                    let append_state = state.capture.append_copy_state.clone();
                     let registry = tauri::async_runtime::block_on(async move {
                         lan_sync::DeviceLinkRegistry::start(
                             secret,
@@ -379,10 +382,10 @@ pub fn run() {
             spawn_clipboard_watcher(
                 app_handle.clone(),
                 store,
-                state.is_listening.clone(),
-                state.append_copy_state.clone(),
-                state.last_clipboard_change_id.clone(),
-                state.last_clipboard_hash.clone(),
+                state.capture.is_listening.clone(),
+                state.capture.append_copy_state.clone(),
+                state.capture.last_clipboard_change_id.clone(),
+                state.capture.last_clipboard_hash.clone(),
             );
 
             app.manage(state);

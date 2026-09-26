@@ -26,7 +26,7 @@ pub(crate) fn set_listening(
     enabled: bool,
 ) -> Result<bool, AppError> {
     *state
-        .is_listening
+        .capture.is_listening
         .lock()
         .map_err(|error| error.to_string())? = enabled;
     let _ = app.emit(

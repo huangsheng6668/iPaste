@@ -378,7 +378,7 @@ pub(crate) fn clear_system_clipboard_after_delete(
     deleted_hash: Option<&str>,
 ) {
     let current_hash = state
-        .last_clipboard_hash
+        .capture.last_clipboard_hash
         .lock()
         .map(|last| last.clone())
         .unwrap_or(None);
@@ -391,8 +391,8 @@ pub(crate) fn clear_system_clipboard_after_delete(
         .map_err(|error| error.to_string());
     match clear_result {
         Ok(()) => forget_current_clipboard_marker(
-            &state.last_clipboard_change_id,
-            &state.last_clipboard_hash,
+            &state.capture.last_clipboard_change_id,
+            &state.capture.last_clipboard_hash,
         ),
         Err(error) => {
             let _ = app.emit(EVENT_CAPTURE_ERROR, error);
@@ -414,8 +414,8 @@ pub(crate) fn write_clipboard_and_mark(
         write_clipboard_text(text)?;
     }
     remember_current_clipboard_marker(
-        &state.last_clipboard_change_id,
-        &state.last_clipboard_hash,
+        &state.capture.last_clipboard_change_id,
+        &state.capture.last_clipboard_hash,
         captured_item.as_ref().map(|item| item.content_hash.clone()),
     );
     Ok(captured_item)

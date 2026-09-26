@@ -38,11 +38,11 @@ pub(crate) fn build_app_snapshot(
     let (clip_page, categories, category_items) = state.store.snapshot()?;
     let settings = state.store.settings()?;
     let is_listening = *state
-        .is_listening
+        .capture.is_listening
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?;
     let is_append_copy_enabled = state
-        .append_copy_state
+        .capture.append_copy_state
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .is_enabled;

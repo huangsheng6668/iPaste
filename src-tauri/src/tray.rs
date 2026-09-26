@@ -38,7 +38,7 @@ pub(crate) fn set_append_copy_enabled_inner(
 ) -> Result<bool, String> {
     let (is_enabled, timer_session_id) = {
         let mut append_copy = state
-            .append_copy_state
+            .capture.append_copy_state
             .lock()
             .map_err(|error| error.to_string())?;
         let mut timer_session_id = None;
@@ -64,7 +64,7 @@ pub(crate) fn set_append_copy_enabled_inner(
         let timeout = Duration::from_secs(settings.append_copy_timeout_minutes.max(1) as u64 * 60);
         spawn_append_copy_timeout(
             app.clone(),
-            state.append_copy_state.clone(),
+            state.capture.append_copy_state.clone(),
             state.append_copy_menu_item.clone(),
             session_id,
             timeout,
@@ -201,7 +201,7 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
         .set_text(localized_text(language, "quit_ipaste"));
 
     let is_append_copy_enabled = state
-        .append_copy_state
+        .capture.append_copy_state
         .lock()
         .map(|append_copy| append_copy.is_enabled)
         .unwrap_or(false);
@@ -215,7 +215,7 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
     ));
 
     let is_listening = state
-        .is_listening
+        .capture.is_listening
         .lock()
         .map(|listening| *listening)
         .unwrap_or(true);
@@ -242,7 +242,7 @@ pub(crate) fn handle_settings_menu(app: &tauri::AppHandle) {
 
 pub(crate) fn handle_append_copy_menu(app: &tauri::AppHandle, state: &AppState) {
     let enabled = state
-        .append_copy_state
+        .capture.append_copy_state
         .lock()
         .map(|value| !value.is_enabled)
         .unwrap_or(true);
@@ -253,7 +253,7 @@ pub(crate) fn handle_pause_capture_menu(app: &tauri::AppHandle, state: &AppState
     // 锁只覆盖状态翻转：菜单文案（SQLite + FFI）与事件 emit 都可能阻塞，
     // 不能连带卡住 clipboard watcher 等等待 is_listening 的线程
     let listening = {
-        let Ok(mut listening) = state.is_listening.lock() else {
+        let Ok(mut listening) = state.capture.is_listening.lock() else {
             return;
         };
         *listening = !*listening;

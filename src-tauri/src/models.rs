@@ -409,15 +409,13 @@ pub(crate) struct MainPanelState {
 
 pub struct AppState {
     pub store: Store,
-    pub is_listening: Arc<Mutex<bool>>,
+    /// 剪贴板捕获域（Task 27 聚合：监听开关 / 追加复制会话 / 去重光标）。
+    pub capture: crate::state::CaptureState,
     pub show_menu_item: MenuItem<Wry>,
     pub append_copy_menu_item: MenuItem<Wry>,
     pub pause_capture_menu_item: MenuItem<Wry>,
     pub settings_menu_item: MenuItem<Wry>,
     pub quit_menu_item: MenuItem<Wry>,
-    pub append_copy_state: Arc<Mutex<AppendCopyState>>,
-    pub last_clipboard_change_id: Arc<Mutex<Option<u64>>>,
-    pub last_clipboard_hash: Arc<Mutex<Option<String>>>,
     pub is_dragging_main_window: Arc<Mutex<bool>>,
     pub target_app_bundle_id: Arc<Mutex<Option<String>>>,
     pub main_window_activation: Arc<Mutex<MainWindowActivation>>,
