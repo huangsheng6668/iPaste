@@ -44,6 +44,7 @@ use crate::lan_sync::ticket::InviteRegistry;
 use crate::lan_sync::{device_name, ControlMsg, LanEventSink};
 use crate::models::{AppendCopyState, DeviceOnline};
 use crate::store::Store;
+use crate::util::LockRecover;
 
 mod device_admin;
 mod link;
@@ -210,11 +211,7 @@ impl DeviceLinkRegistry {
         // 入站分流循环
         let accept_registry = registry.clone();
         let accept_task = tokio::spawn(async move { accept_registry.accept_loop().await });
-        *registry
-            .inner
-            .accept_task
-            .lock()
-            .expect("accept_task 锁中毒") = Some(accept_task);
+        *registry.inner.accept_task.lock_recover("accept_task") = Some(accept_task);
         // 已配对且未撤销的设备各起一条重拨任务
         let devices = match registry.inner.store.list_paired_devices() {
             Ok(devices) => devices,
@@ -286,8 +283,7 @@ impl DeviceLinkRegistry {
         if self
             .inner
             .disconnected
-            .lock()
-            .expect("disconnected 锁中毒")
+            .lock_recover("disconnected")
             .contains(node_hex)
         {
             return Some(b"disconnected");
@@ -312,8 +308,7 @@ impl DeviceLinkRegistry {
     fn clear_disconnected(&self, node_id: &str) {
         self.inner
             .disconnected
-            .lock()
-            .expect("disconnected 锁中毒")
+            .lock_recover("disconnected")
             .remove(node_id);
     }
 
@@ -381,8 +376,7 @@ impl DeviceLinkRegistry {
         let verified = self
             .inner
             .invites
-            .lock()
-            .expect("invites 锁中毒")
+            .lock_recover("invites")
             .verify_and_consume(&invite_secret);
         if !verified {
             let delay = self
@@ -397,7 +391,7 @@ impl DeviceLinkRegistry {
         self.inner.guard.record_success(&node_hex);
         // 用户确认（oneshot + 事件）
         let (decision_tx, decision_rx) = oneshot::channel();
-        *self.inner.pending_pair.lock().expect("pending 锁中毒") = Some(pairing::PendingPair {
+        *self.inner.pending_pair.lock_recover("pending") = Some(pairing::PendingPair {
             device_name: peer_name.clone(),
             node_id: node_hex.clone(),
             decision_tx,
@@ -419,7 +413,7 @@ impl DeviceLinkRegistry {
                 // 只在槽仍是本请求时清理——本请求的 decision_rx 已随超时 drop，
                 // 槽内 decision_tx 呈 closed 态即为本请求残留；若已被新请求
                 // 覆盖（tx 存活）则不动。
-                let mut pending = self.inner.pending_pair.lock().expect("pending 锁中毒");
+                let mut pending = self.inner.pending_pair.lock_recover("pending");
                 if pending
                     .as_ref()
                     .is_some_and(|slot| slot.decision_tx.is_closed())
