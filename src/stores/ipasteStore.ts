@@ -14,6 +14,7 @@ import {
 import { clampIndex, indexForKey, moveIndex } from "./lib/selection";
 import { showError } from "./uiStore";
 import { useSettingsStore } from "./settingsStore";
+import { useCloudSyncStore } from "./cloudSyncStore";
 import type {
   AppSnapshot,
   AutomationAction,
@@ -32,6 +33,10 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const settings = useSettingsStore();
   // 保留天变更后的全量重载回调（原 updateRetentionDays 直接 await load()，行为保持）。
   settings.registerRetentionReloader(() => load());
+
+  const sync = useCloudSyncStore();
+  // 云端快照落地（hydrate + clampSelection）留在本 store，经注册注入同步执行器。
+  sync.registerSnapshotApplier(() => applyCloudSnapshot());
 
   const clips = ref<ClipItem[]>([]);
   const categories = ref<Category[]>([]);
@@ -53,7 +58,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const clipTotalCount = ref(0);
   const visibleHistoryTotalCount = ref(0);
   const error = ref<string | null>(null);
-  let backgroundSyncTimer: number | null = null;
   let clipRequestId = 0;
 
   const activeCategory = computed(() =>
@@ -250,7 +254,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     const color = CATEGORY_COLORS[categories.value.length % CATEGORY_COLORS.length];
     const category = await ipasteApi.createCategory(name, color);
     categories.value = [...categories.value, category].sort(compareSortOrder);
-    syncCloudInBackground();
+    sync.syncCloudInBackground();
     if (options.select ?? true) {
       selectedCategoryId.value = category.id;
       selectedIndex.value = 0;
@@ -266,7 +270,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clips.value = clips.value.map((clip) =>
       clip.id === clipId ? { ...clip, favoriteCount: clip.favoriteCount + 1 } : clip,
     );
-    syncCloudInBackground();
+    sync.syncCloudInBackground();
     if (options.select ?? true) {
       selectedCategoryId.value = category.id;
       selectedIndex.value = 0;
@@ -278,13 +282,13 @@ export const useIpasteStore = defineStore("ipaste", () => {
   async function renameCategory(category: Category, name: string) {
     const next = await ipasteApi.updateCategory(category.id, name, category.color);
     categories.value = categories.value.map((item) => (item.id === next.id ? next : item));
-    syncCloudInBackground();
+    sync.syncCloudInBackground();
   }
 
   async function updateCategoryColor(category: Category, color: string) {
     const next = await ipasteApi.updateCategory(category.id, category.name, color);
     categories.value = categories.value.map((item) => (item.id === next.id ? next : item));
-    syncCloudInBackground();
+    sync.syncCloudInBackground();
   }
 
   async function deleteCategory(id: string) {
@@ -294,7 +298,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     selectedCategoryId.value = "history";
     selectedIndex.value = 0;
     fallbackGroups.value = [];
-    syncCloudInBackground();
+    sync.syncCloudInBackground();
   }
 
   async function addToCategory(clipId: string, categoryId: string) {
@@ -305,7 +309,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       clips.value = clips.value.map((clip) =>
         clip.id === clipId ? { ...clip, favoriteCount: clip.favoriteCount + 1 } : clip,
       );
-      syncCloudInBackground();
+      sync.syncCloudInBackground();
     }
   }
 
@@ -313,7 +317,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     await ipasteApi.removeCategoryItem(id);
     categoryItems.value = categoryItems.value.filter((item) => item.id !== id);
     clampSelection();
-    syncCloudInBackground();
+    sync.syncCloudInBackground();
   }
 
   async function reorderCategories(categoryIds: string[]) {
@@ -324,7 +328,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
     try {
       categories.value = await ipasteApi.reorderCategories(categoryIds);
-      syncCloudInBackground();
+      sync.syncCloudInBackground();
     } catch (unknownError) {
       categories.value = previous;
       showError(unknownError);
@@ -344,7 +348,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     try {
       categoryItems.value = await ipasteApi.reorderCategoryItems(categoryId, itemIds);
       restoreCategorySelection(selectedItemKey);
-      syncCloudInBackground();
+      sync.syncCloudInBackground();
     } catch (unknownError) {
       categoryItems.value = previous;
       restoreCategorySelection(selectedItemKey);
@@ -361,7 +365,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (!next) return;
     patchItem(item.collection, next);
     if (item.collection === "category") {
-      syncCloudInBackground();
+      sync.syncCloudInBackground();
     }
   }
 
@@ -371,7 +375,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (!next) return next;
     patchItem(item.collection, next);
     if (item.collection === "category") {
-      syncCloudInBackground();
+      sync.syncCloudInBackground();
     }
     return next;
   }
@@ -439,56 +443,12 @@ export const useIpasteStore = defineStore("ipaste", () => {
     );
   }
 
-  // —— 云同步 ——
-
-  async function saveCloudSettings(apiAddress: string, apiKey: string) {
-    const next = await ipasteApi.updateCloudSettings(apiAddress, apiKey);
-    settings.applySettings(next);
-    await syncCloudNow();
-  }
-
-  async function disableCloudSync() {
-    const next = await ipasteApi.disableCloudSync();
-    settings.applySettings(next);
-  }
-
-  async function testCloudSettings(apiAddress: string, apiKey: string) {
-    return ipasteApi.testCloudSettings(apiAddress, apiKey);
-  }
-
-  async function syncCloudNow() {
-    if (!settings.cloud.enabled) return;
-
-    try {
-      clearBackgroundSyncTimer();
-      await applyCloudSnapshot();
-    } catch (unknownError) {
-      showError(unknownError);
-      throw unknownError;
-    }
-  }
-
-  function syncCloudInBackground() {
-    if (!settings.cloud.enabled) return;
-    clearBackgroundSyncTimer();
-    backgroundSyncTimer = window.setTimeout(() => {
-      backgroundSyncTimer = null;
-      void ipasteApi.syncCloudInBackground().catch((unknownError) => {
-        showError(unknownError);
-      });
-    }, 600);
-  }
+  // —— 云同步 ——（执行与计时器在 cloudSyncStore；快照落地留在本 store）
 
   async function applyCloudSnapshot() {
     const snapshot = await ipasteApi.syncCloudNow();
     hydrateFromSnapshot(snapshot);
     clampSelection();
-  }
-
-  function clearBackgroundSyncTimer() {
-    if (backgroundSyncTimer === null) return;
-    window.clearTimeout(backgroundSyncTimer);
-    backgroundSyncTimer = null;
   }
 
   // —— 选择与导航 ——
@@ -611,11 +571,6 @@ export const useIpasteStore = defineStore("ipaste", () => {
     toggleAppendCopy,
     hidePanel,
     showSettings,
-    saveCloudSettings,
-    disableCloudSync,
-    testCloudSettings,
-    syncCloudNow,
-    syncCloudInBackground,
     selectCategory,
     clearSearch,
     activatePanelDefault,
@@ -667,5 +622,10 @@ export const useIpasteStore = defineStore("ipaste", () => {
     saveOpenaiOcrConfig: settings.saveOpenaiOcrConfig,
     clearOpenaiOcrConfig: settings.clearOpenaiOcrConfig,
     testOpenaiOcr: settings.testOpenaiOcr,
+    saveCloudSettings: sync.saveCloudSettings,
+    disableCloudSync: sync.disableCloudSync,
+    testCloudSettings: sync.testCloudSettings,
+    syncCloudNow: sync.syncCloudNow,
+    syncCloudInBackground: sync.syncCloudInBackground,
   };
 });
