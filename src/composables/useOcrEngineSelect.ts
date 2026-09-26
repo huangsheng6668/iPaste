@@ -3,6 +3,7 @@ import { subscribe } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrEngine, SettingsChangedEvent } from "../types";
 
@@ -20,7 +21,8 @@ export type OcrEngineOption = {
  * 保证「先开着 OCR 窗口、再去设置页保存 Key」时选项能即时解锁，
  * 而不是停留在窗口打开时的旧配置快照。 */
 export function useOcrEngineSelect() {
-  const store = useIpasteStore();
+  const store = useIpasteStore(); // 仅剩 load()（防陈旧兜底重载）
+  const settings = useSettingsStore();
 
   const ocrEngineOptions = computed<OcrEngineOption[]>(() => [
     { value: "local", label: t("settings.bigmodel.engineLocal"), ready: true },
@@ -28,7 +30,7 @@ export function useOcrEngineSelect() {
       value: "openai",
       label: t("settings.openai.engineOpenai"),
       ready: Boolean(
-        store.cloudOcr.openaiBaseUrl && store.cloudOcr.openaiModel && store.cloudOcr.openaiApiKey,
+        settings.cloudOcr.openaiBaseUrl && settings.cloudOcr.openaiModel && settings.cloudOcr.openaiApiKey,
       ),
     },
   ]);
@@ -38,7 +40,7 @@ export function useOcrEngineSelect() {
     // onUnmounted 必须在 setup 同步阶段注册；subscribe 异步完成后若组件已卸载则立即注销
     let disposed = false;
     void subscribe<SettingsChangedEvent>(IPASTE_EVENTS.settingsChanged, (changed) => {
-      store.applySettings(changed.settings);
+      settings.applySettings(changed.settings);
     }).then((unlisten) => {
       if (disposed) {
         unlisten();
@@ -62,7 +64,7 @@ export function useOcrEngineSelect() {
     }
     if (!option || !option.ready) return null;
     try {
-      await store.updateOcrEngine(option.value);
+      await settings.updateOcrEngine(option.value);
       return option.value;
     } catch {
       return null;

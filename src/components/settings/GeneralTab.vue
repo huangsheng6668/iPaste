@@ -5,12 +5,12 @@ import LanguageSelect from "../LanguageSelect.vue";
 import { languageOptions, t } from "../../i18n";
 import { isTauri } from "../../lib/env";
 import { setThemePreference, themePreference, type ThemePreference } from "../../lib/theme";
-import { useIpasteStore } from "../../stores/ipasteStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useClearHistory } from "../../composables/useClearHistory";
 import { useAutostart } from "../../composables/useAutostart";
 import type { Language, PanelLayout, PanelOpenBehavior } from "../../types";
 
-const store = useIpasteStore();
+const settings = useSettingsStore();
 const {
   isClearingHistory,
   confirmingClearHistory,
@@ -53,28 +53,28 @@ const themeOptions = computed<Array<{ label: string; value: ThemePreference; ico
 ]);
 
 const retentionText = computed(() => {
-  return retentionOptions.value.find((option) => option.value === store.retentionDays)?.label ?? t("settings.retention.30");
+  return retentionOptions.value.find((option) => option.value === settings.retentionDays)?.label ?? t("settings.retention.30");
 });
 
 const appendCopyTimeoutText = computed(() => {
-  const label = appendCopyTimeoutOptions.find((option) => option.value === store.appendCopyTimeoutMinutes)?.label ?? "1";
+  const label = appendCopyTimeoutOptions.find((option) => option.value === settings.appendCopyTimeoutMinutes)?.label ?? "1";
   return t("common.minutes", { value: label });
 });
 
 async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
-  await store.updatePanelOpenBehavior(behavior);
+  await settings.updatePanelOpenBehavior(behavior);
 }
 
 async function updatePanelLayout(layout: PanelLayout) {
-  await store.updatePanelLayout(layout);
+  await settings.updatePanelLayout(layout);
 }
 
 async function updateAppendCopyTimeout(minutes: number) {
-  await store.updateAppendCopyTimeout(minutes);
+  await settings.updateAppendCopyTimeout(minutes);
 }
 
 async function updateLanguage(language: Language) {
-  await store.updateLanguage(language);
+  await settings.updateLanguage(language);
 }
 </script>
 
@@ -96,7 +96,7 @@ async function updateLanguage(language: Language) {
 
       <LanguageSelect
         class="settings-language-select"
-        :model-value="store.language"
+        :model-value="settings.language"
         :options="languageOptions"
         :label="t('settings.language.title')"
         @update:model-value="updateLanguage"
@@ -195,7 +195,7 @@ async function updateLanguage(language: Language) {
           :key="option.value"
           type="button"
           class="segmented-option segmented-option-with-icon"
-          :class="{ 'segmented-option-active': store.panelOpenBehavior === option.value }"
+          :class="{ 'segmented-option-active': settings.panelOpenBehavior === option.value }"
           @click="updatePanelOpenBehavior(option.value)"
         >
           <component
@@ -228,8 +228,8 @@ async function updateLanguage(language: Language) {
           :key="option.value"
           type="button"
           class="layout-option-button"
-          :class="{ 'layout-option-button-active': store.panelLayout === option.value }"
-          :aria-pressed="store.panelLayout === option.value"
+          :class="{ 'layout-option-button-active': settings.panelLayout === option.value }"
+          :aria-pressed="settings.panelLayout === option.value"
           @click="updatePanelLayout(option.value)"
         >
           <span
@@ -274,7 +274,7 @@ async function updateLanguage(language: Language) {
           :key="option.value"
           type="button"
           class="segmented-option"
-          :class="{ 'segmented-option-active': store.appendCopyTimeoutMinutes === option.value }"
+          :class="{ 'segmented-option-active': settings.appendCopyTimeoutMinutes === option.value }"
           @click="updateAppendCopyTimeout(option.value)"
         >
           {{ option.label }}
@@ -303,8 +303,8 @@ async function updateLanguage(language: Language) {
           :key="option.value"
           type="button"
           class="segmented-option"
-          :class="{ 'segmented-option-active': store.retentionDays === option.value }"
-          @click="store.updateRetentionDays(option.value)"
+          :class="{ 'segmented-option-active': settings.retentionDays === option.value }"
+          @click="settings.updateRetentionDays(option.value)"
         >
           {{ option.label }}
         </button>

@@ -5,6 +5,7 @@ import { IPASTE_EVENTS } from "../types/generated/events";
 import { t } from "../i18n";
 import type { I18nKey } from "../i18n";
 import { useUiStore } from "../stores/uiStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type {
   AppendCopyChangedEvent,
@@ -32,6 +33,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   if (!isTauri) return;
 
   const ui = useUiStore();
+  const settings = useSettingsStore();
 
   await subscribe<CapturedEvent>(IPASTE_EVENTS.clipboardCaptured, (payload) => {
     store.applyCaptured(payload);
@@ -50,7 +52,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   });
 
   await subscribe<SettingsChangedEvent>(IPASTE_EVENTS.settingsChanged, (payload) => {
-    store.applySettings(payload.settings);
+    settings.applySettings(payload.settings);
   });
 
   await subscribe<{ visible: boolean }>(IPASTE_EVENTS.panelVisibilityChanged, (payload) => {

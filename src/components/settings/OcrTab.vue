@@ -18,13 +18,13 @@ import {
 import { t } from "../../i18n";
 import { isMacOs } from "../../lib/env";
 import { formatBytes } from "../../lib/format";
-import { useIpasteStore } from "../../stores/ipasteStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useOpenaiOcr } from "../../composables/useOpenaiOcr";
 import { useMocrInstaller } from "../../composables/useMocrInstaller";
 import { useOcrInstaller } from "../../composables/useOcrInstaller";
 import type { OcrEngine } from "../../types";
 
-const store = useIpasteStore();
+const settings = useSettingsStore();
 const {
   openaiBaseUrl,
   openaiModel,
@@ -60,16 +60,16 @@ const ocrEngineOptions: Array<{ value: OcrEngine; label: string; description: st
 ];
 
 function updateOcrEngine(value: OcrEngine) {
-  void store.updateOcrEngine(value);
+  void settings.updateOcrEngine(value);
 }
 
 function engineBadgeLabel(): string {
-  if (store.ocrEngine === "openai") return t("settings.openai.engineOpenai");
+  if (settings.ocrEngine === "openai") return t("settings.openai.engineOpenai");
   return t("settings.bigmodel.engineLocal");
 }
 
 function engineReady(): boolean {
-  if (store.ocrEngine === "openai") return openaiConfigured.value;
+  if (settings.ocrEngine === "openai") return openaiConfigured.value;
   return true;
 }
 
@@ -137,8 +137,8 @@ const {
           :key="option.value"
           type="button"
           class="ocr-mode-option"
-          :class="{ 'ocr-mode-option-active': store.ocrEngine === option.value }"
-          :aria-pressed="store.ocrEngine === option.value"
+          :class="{ 'ocr-mode-option-active': settings.ocrEngine === option.value }"
+          :aria-pressed="settings.ocrEngine === option.value"
           @click="updateOcrEngine(option.value)"
         >
           <span class="ocr-mode-option-header">
@@ -390,8 +390,8 @@ const {
           :key="option.value"
           type="button"
           class="ocr-mode-option"
-          :class="{ 'ocr-mode-option-active': store.ocrMode === option.value }"
-          :aria-pressed="store.ocrMode === option.value"
+          :class="{ 'ocr-mode-option-active': settings.ocrMode === option.value }"
+          :aria-pressed="settings.ocrMode === option.value"
           :disabled="isInstallingOcr || isRemovingOcr"
           @click="updateOcrMode(option.value)"
         >

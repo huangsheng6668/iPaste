@@ -1,19 +1,19 @@
 import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
 import { errorMessage } from "../lib/appError";
-import { useIpasteStore } from "../stores/ipasteStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { DEFAULT_OPENAI_OCR_PROMPTS } from "../stores/lib/settings";
 import type { CloudOcrPromptMessage } from "../types";
 
 /** OpenAI 兼容接口（通用云 OCR）配置表单：Base URL + 模型 + API Key + 自定义 Prompt 列表。 */
 export function useOpenaiOcr() {
-  const store = useIpasteStore();
-  const openaiBaseUrl = ref(store.cloudOcr.openaiBaseUrl);
-  const openaiModel = ref(store.cloudOcr.openaiModel);
-  const openaiApiKey = ref(store.cloudOcr.openaiApiKey);
+  const settings = useSettingsStore();
+  const openaiBaseUrl = ref(settings.cloudOcr.openaiBaseUrl);
+  const openaiModel = ref(settings.cloudOcr.openaiModel);
+  const openaiApiKey = ref(settings.cloudOcr.openaiApiKey);
   const openaiPrompts = ref<CloudOcrPromptMessage[]>(
-    store.cloudOcr.openaiPrompts && store.cloudOcr.openaiPrompts.length > 0
-      ? store.cloudOcr.openaiPrompts.map((item) => ({ ...item }))
+    settings.cloudOcr.openaiPrompts && settings.cloudOcr.openaiPrompts.length > 0
+      ? settings.cloudOcr.openaiPrompts.map((item) => ({ ...item }))
       : DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
   );
   const isPromptsExpanded = ref(false);
@@ -23,7 +23,7 @@ export function useOpenaiOcr() {
   const isSavingOpenai = ref(false);
 
   const openaiConfigured = computed(() =>
-    Boolean(store.cloudOcr.openaiBaseUrl && store.cloudOcr.openaiModel && store.cloudOcr.openaiApiKey),
+    Boolean(settings.cloudOcr.openaiBaseUrl && settings.cloudOcr.openaiModel && settings.cloudOcr.openaiApiKey),
   );
 
   const openaiStatusText = computed(() =>
@@ -31,12 +31,12 @@ export function useOpenaiOcr() {
   );
 
   function syncFormFromStore() {
-    openaiBaseUrl.value = store.cloudOcr.openaiBaseUrl;
-    openaiModel.value = store.cloudOcr.openaiModel;
-    openaiApiKey.value = store.cloudOcr.openaiApiKey;
+    openaiBaseUrl.value = settings.cloudOcr.openaiBaseUrl;
+    openaiModel.value = settings.cloudOcr.openaiModel;
+    openaiApiKey.value = settings.cloudOcr.openaiApiKey;
     openaiPrompts.value =
-      store.cloudOcr.openaiPrompts && store.cloudOcr.openaiPrompts.length > 0
-        ? store.cloudOcr.openaiPrompts.map((item) => ({ ...item }))
+      settings.cloudOcr.openaiPrompts && settings.cloudOcr.openaiPrompts.length > 0
+        ? settings.cloudOcr.openaiPrompts.map((item) => ({ ...item }))
         : DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }));
   }
 
@@ -46,9 +46,9 @@ export function useOpenaiOcr() {
     openaiError.value = null;
   }
 
-  // store.load() 在父组件 onMounted 完成；watch 让表单跟随已加载的 store.cloudOcr，
-  // 加上 immediate: true 确保在子组件（tab）挂载在 store.load() 之后时也能立即读入已保存配置。
-  watch(() => store.cloudOcr, () => syncFormFromStore(), { deep: true, immediate: true });
+  // 快照在父组件 onMounted 装载；watch 让表单跟随已加载的 settings.cloudOcr，
+  // 加上 immediate: true 确保在子组件（tab）晚于装载挂载时也能立即读入已保存配置。
+  watch(() => settings.cloudOcr, () => syncFormFromStore(), { deep: true, immediate: true });
 
   const formComplete = computed(() =>
     Boolean(openaiBaseUrl.value.trim() && openaiModel.value.trim() && openaiApiKey.value.trim()),
@@ -72,7 +72,7 @@ export function useOpenaiOcr() {
     openaiError.value = null;
     isTestingOpenai.value = true;
     try {
-      await store.testOpenaiOcr(
+      await settings.testOpenaiOcr(
         openaiBaseUrl.value,
         openaiModel.value,
         openaiApiKey.value,
@@ -91,7 +91,7 @@ export function useOpenaiOcr() {
     openaiError.value = null;
     isSavingOpenai.value = true;
     try {
-      await store.saveOpenaiOcrConfig(
+      await settings.saveOpenaiOcrConfig(
         openaiBaseUrl.value,
         openaiModel.value,
         openaiApiKey.value,
@@ -110,7 +110,7 @@ export function useOpenaiOcr() {
     openaiError.value = null;
     isSavingOpenai.value = true;
     try {
-      await store.clearOpenaiOcrConfig();
+      await settings.clearOpenaiOcrConfig();
       resetOpenaiForm();
       openaiMessage.value = t("settings.openai.cleared");
     } catch (unknownError) {

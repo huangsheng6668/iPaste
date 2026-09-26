@@ -5,6 +5,7 @@ import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
 import { useWindowDrag } from "../composables/useWindowDrag";
 import {
@@ -28,7 +29,8 @@ let copiedTimer: number | null = null;
 
 // 独立窗口不走 App.vue 的 store.load（见 App.vue 早退分支），这里自行加载，
 // 供顶栏引擎切换读取当前引擎与云 OCR 配置状态
-const store = useIpasteStore();
+const store = useIpasteStore(); // 窗口快照自举
+const settings = useSettingsStore();
 
 const charCount = computed(() => text.value.length);
 const canCopy = computed(() => status.value === "ready" && text.value.trim().length > 0);
@@ -181,7 +183,7 @@ async function openImage() {
         </button>
       </div>
       <OcrEngineSelect
-        :engine="store.ocrEngine"
+        :engine="settings.ocrEngine"
         :disabled="status === 'loading'"
         @rerun="runRecognition(selectedProfile)"
       />

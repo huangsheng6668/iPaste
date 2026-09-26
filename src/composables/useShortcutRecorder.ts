@@ -4,7 +4,7 @@ import { ipasteApi } from "../lib/ipasteApi";
 import { formatShortcut } from "../lib/format";
 import { errorMessage } from "../lib/appError";
 import { isMacOs } from "../lib/env";
-import { useIpasteStore } from "../stores/ipasteStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export type ShortcutKind = "panel" | "ocr";
 
@@ -14,9 +14,9 @@ const DEFAULT_SHORTCUTS: Record<ShortcutKind, string> = {
 };
 
 export function useShortcutRecorder(kind: ShortcutKind = "panel") {
-  const store = useIpasteStore();
+  const settings = useSettingsStore();
   const defaultShortcut = () => DEFAULT_SHORTCUTS[kind];
-  const currentShortcut = () => (kind === "panel" ? store.shortcut : store.ocrShortcut) || defaultShortcut();
+  const currentShortcut = () => (kind === "panel" ? settings.shortcut : settings.ocrShortcut) || defaultShortcut();
   const shortcutDraft = ref(currentShortcut());
   const shortcutRecording = ref(false);
   const shortcutMessage = ref<string | null>(null);
@@ -24,10 +24,10 @@ export function useShortcutRecorder(kind: ShortcutKind = "panel") {
   const isSavingShortcut = ref(false);
   let shouldRestoreAppShortcutAfterRecording = false;
 
-  // store.load() 在父组件 onMounted 完成；用 watch 让 draft 跟随已加载的 store.shortcut，
+  // 快照在父组件 onMounted 装载；用 watch 让 draft 跟随已加载的 settings.shortcut，
   // 替代原先在 onMounted 里手动调用的 resetShortcutForm()，规避子父挂载时序。
   watch(
-    () => (kind === "panel" ? store.shortcut : store.ocrShortcut),
+    () => (kind === "panel" ? settings.shortcut : settings.ocrShortcut),
     (value) => {
       shortcutDraft.value = value || defaultShortcut();
     },
@@ -175,9 +175,9 @@ export function useShortcutRecorder(kind: ShortcutKind = "panel") {
     isSavingShortcut.value = true;
     try {
       if (kind === "panel") {
-        await store.updateShortcut(shortcutDraft.value);
+        await settings.updateShortcut(shortcutDraft.value);
       } else {
-        await store.updateOcrShortcut(shortcutDraft.value);
+        await settings.updateOcrShortcut(shortcutDraft.value);
       }
       shortcutDraft.value = currentShortcut();
       shortcutMessage.value = t("settings.shortcuts.saved");

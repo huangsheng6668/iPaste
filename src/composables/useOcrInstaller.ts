@@ -6,12 +6,12 @@ import { ipasteApi } from "../lib/ipasteApi";
 import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/appError";
 import { isMacOs, isTauri } from "../lib/env";
-import { useIpasteStore } from "../stores/ipasteStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrInstallProgress, OcrInstallStatus, OcrMode } from "../types";
 
 export function useOcrInstaller() {
-  const store = useIpasteStore();
+  const settings = useSettingsStore();
   const ocrStatus = ref<OcrInstallStatus | null>(null);
   const ocrProgress = ref<OcrInstallProgress | null>(null);
   const ocrMessage = ref<string | null>(null);
@@ -37,7 +37,7 @@ export function useOcrInstaller() {
   ]);
 
   const selectedOcrModeOption = computed(() => {
-    return ocrModeOptions.value.find((option) => option.value === store.ocrMode) ?? ocrModeOptions.value[0];
+    return ocrModeOptions.value.find((option) => option.value === settings.ocrMode) ?? ocrModeOptions.value[0];
   });
   const ocrStatusText = computed(() => {
     if (!ocrStatus.value) return t("ocr.status.checking");
@@ -47,7 +47,7 @@ export function useOcrInstaller() {
     if (ocrStatus.value.installed) {
       return t("ocr.status.installed");
     }
-    if (lastInstalledOcrMode.value && lastInstalledOcrMode.value !== store.ocrMode) {
+    if (lastInstalledOcrMode.value && lastInstalledOcrMode.value !== settings.ocrMode) {
       return t("ocr.status.modeNotDownloaded");
     }
     return t("ocr.status.readyToDownload");
@@ -70,7 +70,7 @@ export function useOcrInstaller() {
     if (ocrStatus.value?.installed) {
       return t("ocr.install.repair");
     }
-    if (lastInstalledOcrMode.value && lastInstalledOcrMode.value !== store.ocrMode) {
+    if (lastInstalledOcrMode.value && lastInstalledOcrMode.value !== settings.ocrMode) {
       return t("ocr.install.switchAndDownload");
     }
     return t("ocr.install.download");
@@ -90,12 +90,12 @@ export function useOcrInstaller() {
   }
 
   async function updateOcrMode(mode: OcrMode) {
-    if (mode === store.ocrMode || isInstallingOcr.value || isRemovingOcr.value) return;
+    if (mode === settings.ocrMode || isInstallingOcr.value || isRemovingOcr.value) return;
     ocrMessage.value = null;
     ocrError.value = null;
     ocrProgress.value = null;
     try {
-      await store.updateOcrMode(mode);
+      await settings.updateOcrMode(mode);
       await loadOcrStatus();
     } catch (unknownError) {
       ocrError.value = errorMessage(unknownError);
