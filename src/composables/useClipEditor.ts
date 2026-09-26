@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, ref, toValue, watch, type ComputedRef, type MaybeRefOrGetter, type Ref } from "vue";
-import { emit } from "@tauri-apps/api/event";
+import { publish } from "../platform/events";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { clipMetricText, textStats } from "../lib/format";
@@ -64,7 +64,7 @@ export function useClipEditor(item: ComputedRef<ClipViewItem | undefined>, optio
       localStorage.setItem(clipViewerStorageKey(options.payload.value.label), JSON.stringify(options.payload.value));
       draftText.value = next.text;
       if (isTauri) {
-        await emit<ClipUpdatedEvent>(IPASTE_EVENTS.clipUpdated, {
+        await publish<ClipUpdatedEvent>(IPASTE_EVENTS.clipUpdated, {
           collection: item.value.collection,
           item: next,
           mergedFromId: next.id === item.value.id ? undefined : item.value.id,

@@ -1,4 +1,4 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { hasTauriRuntime } from "./runtime";
 
 export type { UnlistenFn };
@@ -9,4 +9,11 @@ export type { UnlistenFn };
 export function subscribe<T>(eventName: string, handler: (payload: T) => void): Promise<UnlistenFn> {
   if (!hasTauriRuntime()) return Promise.resolve(() => {});
   return listen<T>(eventName, (emitted) => handler(emitted.payload));
+}
+
+// 全仓唯一出站事件出口：向所有窗口广播（如查看器窗口保存后广播 clipUpdated，
+// 主窗口据此更新列表）。浏览器 dev / 测试环境为 no-op。
+export function publish<T>(eventName: string, payload: T): Promise<void> {
+  if (!hasTauriRuntime()) return Promise.resolve();
+  return emit<T>(eventName, payload);
 }
