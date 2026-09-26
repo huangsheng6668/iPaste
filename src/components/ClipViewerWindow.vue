@@ -6,17 +6,8 @@ import {
   CornerDownLeft,
   Copy,
   Image as ImageIcon,
-  LoaderCircle,
-  Maximize2,
-  Pin,
-  PinOff,
-  RotateCcw,
-  RotateCw,
-  ScanText,
   Save,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-vue-next";
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useImageViewer } from "../composables/useImageViewer";
@@ -24,7 +15,7 @@ import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor, type ClipEditorHandle } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
 import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
-import ViewerMeta from "./viewer/ViewerMeta.vue";
+import ViewerToolbar from "./viewer/ViewerToolbar.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { isEditableTarget } from "../lib/dom";
 import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
@@ -192,147 +183,30 @@ function handleViewerResize() {
 
 <template>
   <main class="clip-viewer-shell">
-    <header
-      class="clip-viewer-toolbar"
-      :class="{ 'clip-viewer-toolbar-image': isImage }"
-    >
-      <button
-        type="button"
-        class="viewer-icon-button"
-        :class="{ 'viewer-icon-button-active': isPinned }"
-        :aria-label="isPinned ? t('viewer.unpin') : t('viewer.pin')"
-        :data-tooltip="isPinned ? t('viewer.unpin') : t('viewer.pin')"
-        @click="togglePinned"
-      >
-        <PinOff
-          v-if="isPinned"
-          class="size-4"
-        />
-        <Pin
-          v-else
-          class="size-4"
-        />
-      </button>
-
-      <div
-        class="clip-viewer-drag-zone min-w-0 flex-1"
-        @mousedown="startWindowDrag"
-      >
-        <ViewerMeta
-          :title="title"
-          :item="item"
-          :display-time="displayTime"
-        />
-      </div>
-
-      <div
-        v-if="isImage"
-        class="viewer-image-toolbox"
-        role="toolbar"
-        :aria-label="t('viewer.imageToolbar')"
-        @pointerdown.stop
-        @wheel.stop
-      >
-        <button
-          type="button"
-          class="viewer-icon-button"
-          :disabled="!canZoomOutImage"
-          :aria-label="t('viewer.zoomOut')"
-          :data-tooltip="t('viewer.zoomOut')"
-          @click="zoomImageOut"
-        >
-          <ZoomOut class="size-4" />
-        </button>
-        <button
-          type="button"
-          class="viewer-icon-button"
-          :disabled="!canZoomInImage"
-          :aria-label="t('viewer.zoomIn')"
-          :data-tooltip="t('viewer.zoomIn')"
-          @click="zoomImageIn"
-        >
-          <ZoomIn class="size-4" />
-        </button>
-        <button
-          type="button"
-          class="viewer-icon-button"
-          :class="{ 'viewer-icon-button-active': isImageActualSize }"
-          :aria-label="t('viewer.actualSize')"
-          :data-tooltip="t('viewer.actualSize')"
-          @click="showImageActualSize"
-        >
-          <Maximize2 class="size-4" />
-        </button>
-        <button
-          type="button"
-          class="viewer-icon-button"
-          :aria-label="t('viewer.rotateClockwise')"
-          :data-tooltip="t('viewer.rotateClockwise')"
-          @click="rotateImageClockwise"
-        >
-          <RotateCw class="size-4" />
-        </button>
-        <button
-          type="button"
-          class="viewer-image-zoom-label"
-          :aria-label="t('viewer.restore100')"
-          :data-tooltip="t('viewer.restore100')"
-          @click="showImageActualSize"
-        >
-          {{ imageZoomLabel }}
-        </button>
-        <button
-          type="button"
-          class="viewer-icon-button"
-          :class="{ 'viewer-icon-button-active': Boolean(imageOcrResult) }"
-          :disabled="isRecognizingImage"
-          :aria-label="t('viewer.recognizeText')"
-          :data-tooltip="t('viewer.recognizeText')"
-          @click="recognizeImageText"
-        >
-          <LoaderCircle
-            v-if="isRecognizingImage"
-            class="size-4 update-spin"
-          />
-          <ScanText
-            v-else
-            class="size-4"
-          />
-        </button>
-      </div>
-
-      <button
-        v-if="!isImage"
-        type="button"
-        class="viewer-action-button"
-        :disabled="!hasChanged"
-        @click="resetDraft"
-      >
-        <RotateCcw class="size-4" />
-        <span>{{ t("viewer.reset") }}</span>
-      </button>
-
-      <button
-        v-if="!isImage"
-        type="button"
-        class="viewer-action-button viewer-action-button-primary"
-        :disabled="!hasChanged"
-        @click="applyChanges"
-      >
-        <Save class="size-4" />
-        <span>{{ t("viewer.applyChanges") }}</span>
-      </button>
-
-      <button
-        type="button"
-        class="viewer-icon-button"
-        :aria-label="t('viewer.closeWindow')"
-        :data-tooltip="t('viewer.closeWindow')"
-        @click="closeWindow"
-      >
-        <X class="size-4" />
-      </button>
-    </header>
+    <ViewerToolbar
+      :is-image="isImage"
+      :is-pinned="isPinned"
+      :title="title"
+      :item="item"
+      :display-time="displayTime"
+      :can-zoom-out-image="canZoomOutImage"
+      :can-zoom-in-image="canZoomInImage"
+      :is-image-actual-size="isImageActualSize"
+      :image-zoom-label="imageZoomLabel"
+      :has-changed="hasChanged"
+      :is-recognizing-image="isRecognizingImage"
+      :is-ocr-result-active="Boolean(imageOcrResult)"
+      @toggle-pin="togglePinned"
+      @drag="startWindowDrag"
+      @zoom-out="zoomImageOut"
+      @zoom-in="zoomImageIn"
+      @actual-size="showImageActualSize"
+      @rotate="rotateImageClockwise"
+      @recognize-text="recognizeImageText"
+      @reset-draft="resetDraft"
+      @apply-changes="applyChanges"
+      @close="closeWindow"
+    />
 
     <div
       v-if="error"
