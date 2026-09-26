@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { Check, Palette, Pencil, Plus, Trash2, Zap } from "lucide-vue-next";
+import { Palette, Pencil, Plus, Trash2, Zap } from "lucide-vue-next";
 import { useDragSort } from "../composables/useDragSort";
+import CategoryRow from "./category/CategoryRow.vue";
 import { t } from "../i18n";
 import { categoryDisplayName } from "../lib/format";
 import type { Category } from "../types";
@@ -435,87 +436,31 @@ function countLabel(count: number | undefined) {
         <span class="category-chip-label">{{ t("category.history") }}</span>
       </button>
 
-      <div
+      <CategoryRow
         v-for="category in categories"
         :key="category.id"
+        v-model:editing-name="editingName"
         :data-category-id="category.id"
-        class="category-chip category-chip-group group"
-        :class="{
-          'category-chip-active': selectedCategoryId === category.id,
-          'category-chip-dragging': draggingCategoryId === category.id,
-          'category-chip-drop-before': categoryDropTargetId === category.id && categoryDropSide === 'before',
-          'category-chip-drop-after': categoryDropTargetId === category.id && categoryDropSide === 'after',
-        }"
-        :style="categoryDragStyle(category)"
-        @click="selectCategory(category.id)"
-        @dblclick.stop="editCategory(category)"
-        @contextmenu="openCategoryMenu(category, $event)"
-        @pointerdown="startCategoryDrag(category, $event)"
-      >
-        <span
-          v-if="editingCategoryId !== category.id"
-          class="category-color-dot category-count-dot"
-          :style="{ backgroundColor: category.color }"
-        >
-          {{ countLabel(categoryCounts[category.id]) }}
-        </span>
-        <span
-          v-if="editingCategoryId !== category.id"
-          class="category-chip-label"
-        >
-          {{ categoryDisplayName(category.name) }}
-        </span>
-        <input
-          v-else
-          v-model="editingName"
-          class="category-chip-input"
-          tabindex="-1"
-          @click.stop
-          @keydown.enter.prevent.stop="commitEditing(category)"
-          @keydown.escape.prevent.stop="emit('finishEditing')"
-          @blur="commitEditing(category)"
-        >
-        <div
-          v-if="editingColorCategoryId === category.id"
-          class="category-color-popover"
-          :style="{ left: `${colorPopoverPosition.left}px`, top: `${colorPopoverPosition.top}px` }"
-          @click.stop
-          @pointerdown.stop
-          @mouseleave="closeColorPicker"
-        >
-          <div class="category-color-popover-title">
-            <Palette class="size-3.5" />
-            <span>{{ t("category.color") }}</span>
-          </div>
-          <div class="category-color-grid">
-            <button
-              v-for="color in CATEGORY_COLOR_OPTIONS"
-              :key="color"
-              type="button"
-              class="category-color-swatch"
-              :class="{ 'category-color-swatch-active': color.toLowerCase() === category.color.toLowerCase() }"
-              :style="{ backgroundColor: color }"
-              :aria-label="t('category.selectColor', { color })"
-              tabindex="-1"
-              @click="updateColor(category, color)"
-            >
-              <Check
-                v-if="color.toLowerCase() === category.color.toLowerCase()"
-                class="size-3.5"
-              />
-            </button>
-          </div>
-          <label class="category-custom-color">
-            <input
-              type="color"
-              :value="category.color"
-              tabindex="-1"
-              @change="updateColor(category, ($event.target as HTMLInputElement).value)"
-            >
-            <span>{{ t("category.customColor") }}</span>
-          </label>
-        </div>
-      </div>
+        :category="category"
+        :label="categoryDisplayName(category.name)"
+        :count="countLabel(categoryCounts[category.id])"
+        :is-selected="selectedCategoryId === category.id"
+        :is-editing="editingCategoryId === category.id"
+        :is-dragging="draggingCategoryId === category.id"
+        :drop-side="categoryDropTargetId === category.id ? categoryDropSide : null"
+        :drag-style="categoryDragStyle(category)"
+        :is-color-picker-open="editingColorCategoryId === category.id"
+        :color-popover-position="colorPopoverPosition"
+        :color-options="CATEGORY_COLOR_OPTIONS"
+        @select="selectCategory(category.id)"
+        @edit="editCategory(category)"
+        @context-menu="openCategoryMenu(category, $event)"
+        @drag-start="startCategoryDrag(category, $event)"
+        @commit="commitEditing(category)"
+        @cancel-edit="emit('finishEditing')"
+        @recolor="updateColor(category, $event)"
+        @close-color-picker="closeColorPicker"
+      />
 
       <button
         type="button"
