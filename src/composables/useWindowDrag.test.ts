@@ -7,8 +7,8 @@ vi.mock("../lib/ipasteApi", () => ({
   },
 }));
 vi.mock("../lib/env", () => ({ isTauri: true }));
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ startDragging: vi.fn().mockResolvedValue(undefined) }),
+vi.mock("../platform/window", () => ({
+  windowHandle: () => ({ startDragging: vi.fn().mockResolvedValue(undefined) }),
 }));
 
 // Vitest 跑在 node 环境（无 jsdom）：按仓库惯例 stub 掉 window 定时器全局。

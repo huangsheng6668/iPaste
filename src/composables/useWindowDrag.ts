@@ -1,9 +1,9 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ipasteApi } from "../lib/ipasteApi";
 import { isTauri } from "../lib/env";
+import { windowHandle } from "../platform/window";
 
 interface WindowDragOptions {
-  /** 主面板拖动：通知 Rust 抑制面板交互，优先走原生 NSPanel 拖动，回落 getCurrentWindow。 */
+  /** 主面板拖动：通知 Rust 抑制面板交互，优先走原生 NSPanel 拖动，回落窗口句柄。 */
   mainWindow?: boolean;
 }
 
@@ -22,7 +22,7 @@ export function useWindowDrag(options: WindowDragOptions = {}) {
     if (!isTauri || event.button !== 0) return;
     event.preventDefault();
     if (!options.mainWindow) {
-      await getCurrentWindow().startDragging().catch(() => {});
+      await windowHandle().startDragging().catch(() => {});
       return;
     }
     clearReleaseTimer();
@@ -30,7 +30,7 @@ export function useWindowDrag(options: WindowDragOptions = {}) {
     try {
       const nativeDragStarted = await ipasteApi.startMainWindowDrag().catch(() => false);
       if (!nativeDragStarted) {
-        await getCurrentWindow().startDragging().catch(() => {});
+        await windowHandle().startDragging().catch(() => {});
       }
     } finally {
       releaseTimer = window.setTimeout(() => {
