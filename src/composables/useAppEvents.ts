@@ -6,6 +6,7 @@ import { t } from "../i18n";
 import type { I18nKey } from "../i18n";
 import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useAutomationStore } from "../stores/automationStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type {
   AppendCopyChangedEvent,
@@ -34,6 +35,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
 
   const ui = useUiStore();
   const settings = useSettingsStore();
+  const automation = useAutomationStore();
 
   await subscribe<CapturedEvent>(IPASTE_EVENTS.clipboardCaptured, (payload) => {
     store.applyCaptured(payload);
@@ -83,22 +85,22 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
 
   await subscribe<AutomationRunStartedEvent>(IPASTE_EVENTS.automationRunStarted, (payload) => {
     const { automationId, runId, startedAt } = payload;
-    const action = store.automations.find((entry) => entry.id === automationId);
+    const action = automation.automations.find((entry) => entry.id === automationId);
     if (action) {
       action.lastRun = { id: runId, status: "running", startedAt, finishedAt: null, exitCode: null, durationMs: null };
     }
   });
   await subscribe<AutomationRunOutputEvent>(IPASTE_EVENTS.automationRunOutput, (payload) => {
     const { runId, stream, chunk } = payload;
-    const logs = store.runningAutomationLogs[runId] ?? { stdout: "", stderr: "" };
+    const logs = automation.runningAutomationLogs[runId] ?? { stdout: "", stderr: "" };
     const limit = 200 * 1024;
     if (stream === "stderr") logs.stderr = (logs.stderr + chunk).slice(-limit);
     else logs.stdout = (logs.stdout + chunk).slice(-limit);
-    store.runningAutomationLogs = { ...store.runningAutomationLogs, [runId]: logs };
+    automation.runningAutomationLogs = { ...automation.runningAutomationLogs, [runId]: logs };
   });
   await subscribe<AutomationRunFinishedEvent>(IPASTE_EVENTS.automationRunFinished, (payload) => {
     const { automationId, status, exitCode, finishedAt } = payload;
-    const action = store.automations.find((entry) => entry.id === automationId);
+    const action = automation.automations.find((entry) => entry.id === automationId);
     if (action?.lastRun) {
       action.lastRun = { ...action.lastRun, status, exitCode: exitCode ?? null, finishedAt };
     }
