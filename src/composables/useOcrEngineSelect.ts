@@ -1,5 +1,5 @@
 import { computed, onUnmounted } from "vue";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
@@ -35,10 +35,10 @@ export function useOcrEngineSelect() {
 
   let unlistenSettingsChanged: (() => void) | null = null;
   if (isTauri) {
-    // onUnmounted 必须在 setup 同步阶段注册；listen 异步完成后若组件已卸载则立即注销
+    // onUnmounted 必须在 setup 同步阶段注册；subscribe 异步完成后若组件已卸载则立即注销
     let disposed = false;
-    void listen<SettingsChangedEvent>(IPASTE_EVENTS.settingsChanged, (event) => {
-      store.applySettings(event.payload.settings);
+    void subscribe<SettingsChangedEvent>(IPASTE_EVENTS.settingsChanged, (changed) => {
+      store.applySettings(changed.settings);
     }).then((unlisten) => {
       if (disposed) {
         unlisten();
