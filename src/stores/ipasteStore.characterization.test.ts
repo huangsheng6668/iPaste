@@ -19,6 +19,7 @@ vi.mock("../lib/ipasteApi", () => ({
     reorderCategories: vi.fn(),
     reorderCategoryItems: vi.fn(),
     updateSettings: vi.fn(),
+    updateShortcut: vi.fn(),
     updateAppendCopyTimeout: vi.fn(),
     updateOcrEngine: vi.fn(),
   },
@@ -32,6 +33,7 @@ const listClipsMock = vi.mocked(ipasteApi.listClips);
 const deleteClipMock = vi.mocked(ipasteApi.deleteClip);
 const reorderCategoryItemsMock = vi.mocked(ipasteApi.reorderCategoryItems);
 const updateSettingsMock = vi.mocked(ipasteApi.updateSettings);
+const updateShortcutMock = vi.mocked(ipasteApi.updateShortcut);
 const updateAppendCopyTimeoutMock = vi.mocked(ipasteApi.updateAppendCopyTimeout);
 const updateOcrEngineMock = vi.mocked(ipasteApi.updateOcrEngine);
 
@@ -305,13 +307,29 @@ describe("特征：设置写入的两条不等价路径（F2 锚点）", () => {
     expect(useUiStore().toasts).toHaveLength(0);
   });
 
-  it("updateAppendCopyTimeout 真实失败时 toast + 抛出（与上一条形成 F2 对照）", async () => {
+  it("updateAppendCopyTimeout 真实失败时回滚 + toast + 抛出（Task 39 统一后）", async () => {
     await hydrate(makeSnapshot());
     const settings = useSettingsStore();
     updateAppendCopyTimeoutMock.mockRejectedValueOnce({ code: "io", message: "disk full" });
 
     await expect(settings.updateAppendCopyTimeout(3)).rejects.toMatchObject({ message: "disk full" });
     expect(useUiStore().toasts.map((toast) => toast.message)).toContain("disk full");
+    // 旧行为（Task 39 前）：乐观值保留为 3、只 toast 不回滚；
+    // 新行为：回滚到写之前的镜像值（快照默认 10），界面不谎报已保存。
+    expect(settings.appendCopyTimeoutMinutes).toBe(10);
+  });
+
+  it("回显式设置真实失败同样 toast + 抛出（Task 39 统一后新增）", async () => {
+    await hydrate(makeSnapshot());
+    const settings = useSettingsStore();
+    updateShortcutMock.mockRejectedValueOnce({ code: "io", message: "db locked" });
+
+    // 旧行为（Task 39 前）：回显式 setter 裸抛、不 toast（调用方各自兜底，用户可能毫无感知）；
+    // 新行为：统一走 toast 通道并继续抛出。
+    await expect(settings.updateShortcut("CommandOrControl+Alt+P")).rejects.toMatchObject({
+      message: "db locked",
+    });
+    expect(useUiStore().toasts.map((toast) => toast.message)).toContain("db locked");
   });
 
   it("updateOcrEngine 脏值先清洗再落库（非法值不会到达后端）", async () => {

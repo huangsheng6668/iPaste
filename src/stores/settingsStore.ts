@@ -69,52 +69,51 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function updateRetentionDays(days: number) {
-    const settings = await ipasteApi.updateSettings(days);
-    applySettings(settings);
-    await retentionReloader?.();
-  }
-
-  async function updateAppendCopyTimeout(minutes: number) {
-    const spec = SETTINGS_SCHEMA.appendCopyTimeoutMinutes;
-    const nextMinutes = spec.clean(minutes);
-    appendCopyTimeoutMinutes.value = nextMinutes;
-    await persistSetting(spec.command, () => ipasteApi.updateAppendCopyTimeout(nextMinutes), { tolerateMissing: true });
+    // 保留天影响历史清理：成功后经宿主注入的钩子做一次全量重载（原为隐式 await load()，
+    // Task 39 起显式化为 onApplied 钩子；调用次数与时机不变）。
+    await writeSetting("update_settings", () => ipasteApi.updateSettings(days), {
+      onApplied: () => retentionReloader?.(),
+    });
   }
 
   async function updateShortcut(value: string) {
-    const settings = await ipasteApi.updateShortcut(SETTINGS_SCHEMA.shortcut.clean(value));
-    applySettings(settings);
+    await writeSetting(SETTINGS_SCHEMA.shortcut.command, () =>
+      ipasteApi.updateShortcut(SETTINGS_SCHEMA.shortcut.clean(value)),
+    );
   }
 
   async function updateOcrShortcut(value: string) {
-    const settings = await ipasteApi.updateOcrShortcut(SETTINGS_SCHEMA.ocrShortcut.clean(value));
-    applySettings(settings);
+    await writeSetting(SETTINGS_SCHEMA.ocrShortcut.command, () =>
+      ipasteApi.updateOcrShortcut(SETTINGS_SCHEMA.ocrShortcut.clean(value)),
+    );
   }
 
   async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
-    const settings = await ipasteApi.updatePanelOpenBehavior(SETTINGS_SCHEMA.panelOpenBehavior.clean(behavior));
-    applySettings(settings);
+    await writeSetting(SETTINGS_SCHEMA.panelOpenBehavior.command, () =>
+      ipasteApi.updatePanelOpenBehavior(SETTINGS_SCHEMA.panelOpenBehavior.clean(behavior)),
+    );
+  }
+
+  async function updateAppendCopyTimeout(minutes: number) {
+    await writeMirrorSetting("appendCopyTimeoutMinutes", minutes, (next) =>
+      ipasteApi.updateAppendCopyTimeout(next),
+    );
   }
 
   async function updatePanelLayout(layout: PanelLayout) {
-    const spec = SETTINGS_SCHEMA.panelLayout;
-    const nextLayout = spec.clean(layout);
-    panelLayout.value = nextLayout;
-    await persistSetting(spec.command, () => ipasteApi.updatePanelLayout(nextLayout), { tolerateMissing: true });
+    await writeMirrorSetting("panelLayout", layout, (next) => ipasteApi.updatePanelLayout(next));
   }
 
   async function updateOcrMode(mode: OcrMode) {
-    const spec = SETTINGS_SCHEMA.ocrMode;
-    const nextMode = spec.clean(mode);
-    ocrMode.value = nextMode;
-    await persistSetting(spec.command, () => ipasteApi.updateOcrMode(nextMode), { tolerateMissing: true });
+    await writeMirrorSetting("ocrMode", mode, (next) => ipasteApi.updateOcrMode(next));
   }
 
   async function updateOcrEngine(engine: OcrEngine) {
-    const spec = SETTINGS_SCHEMA.ocrEngine;
-    const nextEngine = spec.clean(engine);
-    ocrEngine.value = nextEngine;
-    await persistSetting(spec.command, () => ipasteApi.updateOcrEngine(nextEngine), { tolerateMissing: true });
+    await writeMirrorSetting("ocrEngine", engine, (next) => ipasteApi.updateOcrEngine(next));
+  }
+
+  async function updateLanguage(value: Language) {
+    await writeMirrorSetting("language", value, (next) => ipasteApi.updateLanguage(next));
   }
 
   async function saveOpenaiOcrConfig(
@@ -123,13 +122,13 @@ export const useSettingsStore = defineStore("settings", () => {
     apiKey: string,
     prompts?: CloudOcrPromptMessage[],
   ) {
-    const settings = await ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey, prompts);
-    applySettings(settings);
+    await writeSetting("update_openai_ocr_config", () =>
+      ipasteApi.updateOpenaiOcrConfig(baseUrl, model, apiKey, prompts),
+    );
   }
 
   async function clearOpenaiOcrConfig() {
-    const settings = await ipasteApi.clearOpenaiOcrConfig();
-    applySettings(settings);
+    await writeSetting("clear_openai_ocr_config", () => ipasteApi.clearOpenaiOcrConfig());
   }
 
   async function testOpenaiOcr(
@@ -141,24 +140,61 @@ export const useSettingsStore = defineStore("settings", () => {
     return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey, prompts);
   }
 
-  async function updateLanguage(value: Language) {
-    const spec = SETTINGS_SCHEMA.language;
-    const nextLanguage = spec.clean(value);
-    language.value = nextLanguage;
-    setLanguage(nextLanguage);
-    await persistSetting(spec.command, () => ipasteApi.updateLanguage(nextLanguage), { tolerateMissing: true });
+  // —— 统一写路径（Task 39：全库唯一设置写入编排）——
+
+  /** 设置域 ref 索引：乐观写/回滚按 key 定位（language 附带界面语言切换）。 */
+  const settingRefs = { appendCopyTimeoutMinutes, panelLayout, ocrMode, ocrEngine, language } as const;
+  type MirrorKey = keyof typeof settingRefs;
+
+  function applyMirror(key: MirrorKey, value: (typeof settingRefs)[MirrorKey]["value"]) {
+    settingRefs[key].value = value;
+    if (key === "language") setLanguage(value as Language);
   }
 
-  /** settings 落库统一编排：成功回填广播；老二进制命令缺失时按需静默容忍。 */
-  async function persistSetting(
+  /**
+   * 乐观镜像写入：先写本地镜像（language 顺带切换 i18n），成功后由后端返回值整体回填；
+   * 真实失败回滚到之前的镜像值。老二进制命令缺失时保持乐观值静默返回（与旧版一致：
+   * 没有可同步的后端，回滚只会让界面与用户刚做的操作打架）。
+   */
+  async function writeMirrorSetting<K extends MirrorKey>(
+    key: K,
+    value: (typeof settingRefs)[K]["value"],
+    save: (next: (typeof settingRefs)[K]["value"]) => Promise<AppSettings>,
+  ) {
+    const spec = SETTINGS_SCHEMA[key];
+    const previous = settingRefs[key].value;
+    const next = spec.clean(value as never) as (typeof settingRefs)[K]["value"];
+    await writeSetting(spec.command, () => save(next), {
+      optimistic: () => applyMirror(key, next),
+      rollback: () => applyMirror(key, previous),
+      tolerateMissing: true,
+    });
+  }
+
+  /**
+   * 设置落库统一编排：乐观写（可选）→ 命令 → 成功回填（+ onApplied 钩子）；
+   * 老二进制命令缺失（tolerateMissing）→ 保持乐观值静默；
+   * 真实失败 → 回滚乐观值 + toast + 继续抛出。
+   * （Task 39 前的三种失败形态——乐观式只 toast 不回滚、回显式裸抛不 toast、
+   * 　命令缺失静默——统一为此一种。）
+   */
+  async function writeSetting(
     command: string,
     save: () => Promise<AppSettings>,
-    options: { tolerateMissing?: boolean } = {},
+    options: {
+      optimistic?: () => void;
+      rollback?: () => void;
+      onApplied?: () => void | Promise<void>;
+      tolerateMissing?: boolean;
+    } = {},
   ): Promise<void> {
+    options.optimistic?.();
     try {
       applySettings(await save());
+      await options.onApplied?.();
     } catch (unknownError) {
       if (options.tolerateMissing && isCommandMissing(unknownError, command)) return;
+      options.rollback?.();
       showError(unknownError);
       throw unknownError;
     }
