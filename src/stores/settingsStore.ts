@@ -14,6 +14,7 @@ import {
   DEFAULT_RETENTION_DAYS,
   cleanAppendCopyTimeoutMinutes,
   cleanCloudOcrSettings,
+  SETTINGS_SCHEMA,
   cleanOcrEngine,
   cleanOcrMode,
   cleanPanelLayout,
@@ -74,42 +75,46 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function updateAppendCopyTimeout(minutes: number) {
-    const nextMinutes = cleanAppendCopyTimeoutMinutes(minutes);
+    const spec = SETTINGS_SCHEMA.appendCopyTimeoutMinutes;
+    const nextMinutes = spec.clean(minutes);
     appendCopyTimeoutMinutes.value = nextMinutes;
-    await persistSetting("update_append_copy_timeout", () => ipasteApi.updateAppendCopyTimeout(nextMinutes), { tolerateMissing: true });
+    await persistSetting(spec.command, () => ipasteApi.updateAppendCopyTimeout(nextMinutes), { tolerateMissing: true });
   }
 
   async function updateShortcut(value: string) {
-    const settings = await ipasteApi.updateShortcut(value);
+    const settings = await ipasteApi.updateShortcut(SETTINGS_SCHEMA.shortcut.clean(value));
     applySettings(settings);
   }
 
   async function updateOcrShortcut(value: string) {
-    const settings = await ipasteApi.updateOcrShortcut(value);
+    const settings = await ipasteApi.updateOcrShortcut(SETTINGS_SCHEMA.ocrShortcut.clean(value));
     applySettings(settings);
   }
 
   async function updatePanelOpenBehavior(behavior: PanelOpenBehavior) {
-    const settings = await ipasteApi.updatePanelOpenBehavior(behavior);
+    const settings = await ipasteApi.updatePanelOpenBehavior(SETTINGS_SCHEMA.panelOpenBehavior.clean(behavior));
     applySettings(settings);
   }
 
   async function updatePanelLayout(layout: PanelLayout) {
-    const nextLayout = cleanPanelLayout(layout);
+    const spec = SETTINGS_SCHEMA.panelLayout;
+    const nextLayout = spec.clean(layout);
     panelLayout.value = nextLayout;
-    await persistSetting("update_panel_layout", () => ipasteApi.updatePanelLayout(nextLayout), { tolerateMissing: true });
+    await persistSetting(spec.command, () => ipasteApi.updatePanelLayout(nextLayout), { tolerateMissing: true });
   }
 
   async function updateOcrMode(mode: OcrMode) {
-    const nextMode = cleanOcrMode(mode);
+    const spec = SETTINGS_SCHEMA.ocrMode;
+    const nextMode = spec.clean(mode);
     ocrMode.value = nextMode;
-    await persistSetting("update_ocr_mode", () => ipasteApi.updateOcrMode(nextMode), { tolerateMissing: true });
+    await persistSetting(spec.command, () => ipasteApi.updateOcrMode(nextMode), { tolerateMissing: true });
   }
 
   async function updateOcrEngine(engine: OcrEngine) {
-    const nextEngine = cleanOcrEngine(engine);
+    const spec = SETTINGS_SCHEMA.ocrEngine;
+    const nextEngine = spec.clean(engine);
     ocrEngine.value = nextEngine;
-    await persistSetting("update_ocr_engine", () => ipasteApi.updateOcrEngine(nextEngine), { tolerateMissing: true });
+    await persistSetting(spec.command, () => ipasteApi.updateOcrEngine(nextEngine), { tolerateMissing: true });
   }
 
   async function saveOpenaiOcrConfig(
@@ -137,10 +142,11 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function updateLanguage(value: Language) {
-    const nextLanguage = cleanLanguage(value);
+    const spec = SETTINGS_SCHEMA.language;
+    const nextLanguage = spec.clean(value);
     language.value = nextLanguage;
     setLanguage(nextLanguage);
-    await persistSetting("update_language", () => ipasteApi.updateLanguage(nextLanguage), { tolerateMissing: true });
+    await persistSetting(spec.command, () => ipasteApi.updateLanguage(nextLanguage), { tolerateMissing: true });
   }
 
   /** settings 落库统一编排：成功回填广播；老二进制命令缺失时按需静默容忍。 */
