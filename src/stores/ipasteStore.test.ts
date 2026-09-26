@@ -9,18 +9,7 @@ vi.mock("../lib/ipasteApi", () => ({
   },
 }));
 
-// i18n.ts（经 ipasteStore 传递引入）在模块顶层读取 localStorage/document；
-// vitest 跑在 node 环境，先补浏览器全局再动态导入。
-vi.stubGlobal("localStorage", {
-  getItem: () => null,
-  setItem: () => undefined,
-  removeItem: () => undefined,
-});
-vi.stubGlobal("document", {
-  documentElement: { lang: "en" },
-  createElement: () => ({}),
-});
-
+// jsdom 环境提供真实的 localStorage/document；i18n 的模块顶层读取不再需要手动桩。
 const { ipasteApi } = await import("../lib/ipasteApi");
 const { useIpasteStore } = await import("./ipasteStore");
 
