@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::lan_sync::protocol::IPASTE_ALPN;
 use crate::lan_sync::session::{run_session_loop, SessionCtx};
 use crate::models::DeviceOnline;
+use crate::util::LockRecover;
 
 use super::{
     endpoint_id_from_hex, hex_encode_32, send_stream_opener, DeviceLinkRegistry, LinkHandle,
@@ -52,7 +53,7 @@ impl DeviceLinkRegistry {
     /// 「无会话」而重拨，双向互踢以 5s 节奏永久震荡。gen 不匹配 = 登记已易主。
     pub(super) fn set_status_if_owner(&self, node_id: &str, gen: u64, status: DeviceOnline) {
         {
-            let mut links = self.inner.links.lock().expect("links 锁中毒");
+            let mut links = self.inner.links.lock_recover("links");
             let Some(handle) = links.get_mut(node_id) else {
                 return;
             };
@@ -72,7 +73,7 @@ impl DeviceLinkRegistry {
     /// 为已配对设备启动后台重拨任务（links 里已有该设备登记则不重复启动）。
     /// 占位与 spawn 在同一临界区内完成，防并发重复启动。
     pub(super) fn spawn_link_task(self: &Arc<Self>, node_id: String) {
-        let mut links = self.inner.links.lock().expect("links 锁中毒");
+        let mut links = self.inner.links.lock_recover("links");
         if links.contains_key(&node_id) {
             return;
         }
@@ -98,7 +99,7 @@ impl DeviceLinkRegistry {
     /// status 只是展示层快照，任何遗留/并发的非 gen-aware 写都可能让它短暂失真，
     /// 拿它当在线判据会重新打开互踢震荡的口子。
     pub(super) fn has_live_session(&self, node_id: &str) -> bool {
-        let links = self.inner.links.lock().expect("links 锁中毒");
+        let links = self.inner.links.lock_recover("links");
         links
             .get(node_id)
             .is_some_and(|handle| handle.control_tx.is_some())
@@ -124,7 +125,7 @@ impl DeviceLinkRegistry {
             // 认领当前登记（无活跃会话时的 gen）作为本轮状态写的所有权凭据。
             // 拨号期间（最长 15s）若有入站会话收编登记，gen 变化 → 状态写自动 no-op。
             let claim_gen = {
-                let links = self.inner.links.lock().expect("links 锁中毒");
+                let links = self.inner.links.lock_recover("links");
                 links
                     .get(&node_id)
                     .filter(|handle| handle.control_tx.is_none())
@@ -170,7 +171,7 @@ impl DeviceLinkRegistry {
         // 任务退出：清掉自己的登记（仅当无活跃会话占用时）
         let mut remove = false;
         {
-            let links = self.inner.links.lock().expect("links 锁中毒");
+            let links = self.inner.links.lock_recover("links");
             if links
                 .get(&node_id)
                 .is_some_and(|handle| handle.control_tx.is_none())
@@ -179,11 +180,7 @@ impl DeviceLinkRegistry {
             }
         }
         if remove {
-            self.inner
-                .links
-                .lock()
-                .expect("links 锁中毒")
-                .remove(&node_id);
+            self.inner.links.lock_recover("links").remove(&node_id);
             self.emit_device_list();
         }
     }
@@ -251,7 +248,7 @@ impl DeviceLinkRegistry {
         let (control_tx, control_rx) = mpsc::channel(16);
         let my_gen = self.next_gen();
         {
-            let mut links = self.inner.links.lock().expect("links 锁中毒");
+            let mut links = self.inner.links.lock_recover("links");
             // A1 登记前复验（TOCTOU）：入站分流（首帧路由）与这里的登记之间，
             // revoke/disconnect/delete 可能恰好落地——kill_link 找不到条目可杀，随后
             // Vacant 插入会让已撤销/已断开/已删除的设备顶着 Connected 幽灵会话继续
@@ -331,7 +328,7 @@ impl DeviceLinkRegistry {
         let mut remove_entry = false;
         let mut owned = false;
         {
-            let mut links = self.inner.links.lock().expect("links 锁中毒");
+            let mut links = self.inner.links.lock_recover("links");
             if let Some(handle) = links.get_mut(&node_hex) {
                 if handle.gen == my_gen {
                     owned = true;
@@ -347,7 +344,7 @@ impl DeviceLinkRegistry {
             }
         }
         if remove_entry {
-            let mut links = self.inner.links.lock().expect("links 锁中毒");
+            let mut links = self.inner.links.lock_recover("links");
             // 复查 gen：两段锁之间可能已被新会话收编
             if links
                 .get(&node_hex)
