@@ -3,6 +3,7 @@
 pub(crate) mod decision;
 pub(crate) mod overlay;
 pub(crate) mod ports;
+pub(crate) mod watcher;
 pub(crate) mod screen;
 pub(crate) mod selection;
 

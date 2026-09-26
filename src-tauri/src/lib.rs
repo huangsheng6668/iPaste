@@ -39,7 +39,7 @@ mod cloud;
 mod lan_sync;
 
 use crate::capture::start_screenshot_ocr as run_screenshot_ocr_capture;
-use crate::clipboard::spawn_clipboard_watcher;
+use crate::capture::watcher::spawn_clipboard_watcher;
 use crate::events::EVENT_SHORTCUT_OPENED;
 use crate::lan_sync::commands::{
     device_delete, device_disconnect, device_list, device_request_clip, device_revoke,
