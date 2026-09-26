@@ -3,6 +3,7 @@
 //! 显式断开（disconnect）与整体关停（shutdown）。
 
 use crate::models::{AutoSyncMode, DeviceInfo, DeviceOnline};
+use crate::util::LockRecover;
 
 use super::{DeviceLinkRegistry, LinkHandle};
 
@@ -22,7 +23,7 @@ impl DeviceLinkRegistry {
         if devices.is_empty() {
             return Vec::new();
         }
-        let links = self.inner.links.lock().expect("links 锁中毒");
+        let links = self.inner.links.lock_recover("links");
         devices
             .into_iter()
             .map(|device| {
@@ -43,7 +44,7 @@ impl DeviceLinkRegistry {
     /// + abort 重拨任务。
     fn kill_link(&self, node_id: &str) {
         let removed = {
-            let mut links = self.inner.links.lock().expect("links 锁中毒");
+            let mut links = self.inner.links.lock_recover("links");
             links.remove(node_id)
         };
         if let Some(handle) = removed {
@@ -90,8 +91,7 @@ impl DeviceLinkRegistry {
     pub(crate) fn disconnect(&self, node_id: &str) {
         self.inner
             .disconnected
-            .lock()
-            .expect("disconnected 锁中毒")
+            .lock_recover("disconnected")
             .insert(node_id.to_string());
         self.kill_link(node_id);
         self.emit_status(node_id, DeviceOnline::Offline);
@@ -101,17 +101,11 @@ impl DeviceLinkRegistry {
     /// 停止入站接受循环并断开全部链路。Endpoint 本体随最后的 Arc 引用释放关闭
     ///（其 close() 是异步的，留给 Task 8 的 lib 接线决定是否显式等待）。
     pub(crate) fn shutdown(&self) {
-        if let Some(task) = self
-            .inner
-            .accept_task
-            .lock()
-            .expect("accept_task 锁中毒")
-            .take()
-        {
+        if let Some(task) = self.inner.accept_task.lock_recover("accept_task").take() {
             task.abort();
         }
         let handles: Vec<LinkHandle> = {
-            let mut links = self.inner.links.lock().expect("links 锁中毒");
+            let mut links = self.inner.links.lock_recover("links");
             links.drain().map(|(_, handle)| handle).collect()
         };
         // control_tx 随 handle drop → 各会话收到 None 干净关闭；任务 abort 停止重拨
