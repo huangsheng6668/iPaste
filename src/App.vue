@@ -33,10 +33,12 @@ import { isMacOs, isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
+import { useCategoryStore } from "./stores/categoryStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
 import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "./types";
 
 const store = useIpasteStore();
+const categoryStore = useCategoryStore();
 const updater = useUpdater();
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
 const isClipViewerWindow = new URLSearchParams(window.location.search).get("window") === "clip-viewer";
@@ -206,14 +208,14 @@ const {
 } = itemDrag;
 
 const categoryById = computed(() =>
-  store.categories.reduce<Record<string, Category>>((categories, category) => {
+  categoryStore.categories.reduce<Record<string, Category>>((categories, category) => {
     categories[category.id] = category;
     return categories;
   }, {}),
 );
 
 const categoriesByHash = computed(() =>
-  store.categoryItems.reduce<Record<string, Category[]>>((groups, item) => {
+  categoryStore.categoryItems.reduce<Record<string, Category[]>>((groups, item) => {
     const category = categoryById.value[item.categoryId];
     if (!category) return groups;
 
@@ -223,7 +225,7 @@ const categoriesByHash = computed(() =>
 );
 
 const categoryItemCounts = computed(() =>
-  store.categoryItems.reduce<Record<string, number>>((counts, item) => {
+  categoryStore.categoryItems.reduce<Record<string, number>>((counts, item) => {
     counts[item.categoryId] = (counts[item.categoryId] ?? 0) + 1;
     return counts;
   }, {}),

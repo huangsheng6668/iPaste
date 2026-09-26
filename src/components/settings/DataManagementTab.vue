@@ -4,9 +4,13 @@ import { CheckCircle2, Cloud, HardDrive, Unplug } from "lucide-vue-next";
 import { t } from "../../i18n";
 import { pluralText } from "../../lib/format";
 import { useIpasteStore } from "../../stores/ipasteStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useCategoryStore } from "../../stores/categoryStore";
 import { useCloudSync } from "../../composables/useCloudSync";
 
-const store = useIpasteStore();
+const store = useIpasteStore(); // 历史条目统计（clips）
+const settings = useSettingsStore();
+const category = useCategoryStore();
 const {
   cloudApiAddress,
   cloudApiKey,
@@ -24,10 +28,10 @@ const isInsecureHttpAddress = computed(() =>
   cloudApiAddress.value.trim().toLowerCase().startsWith("http://"),
 );
 
-const totalItems = computed(() => store.clips.length + store.categoryItems.length);
+const totalItems = computed(() => store.clips.length + category.categoryItems.length);
 const imageCount = computed(() => store.clips.filter((c) => c.clipType === "image").length);
 const textCount = computed(() => store.clips.length - imageCount.value);
-const categoryCount = computed(() => store.categories.length);
+const categoryCount = computed(() => category.categories.length);
 
 const textPercent = computed(() => (totalItems.value ? Math.max(5, Math.round((textCount.value / (totalItems.value + categoryCount.value || 1)) * 100)) : 50));
 const imagePercent = computed(() => (totalItems.value ? Math.max(5, Math.round((imageCount.value / (totalItems.value + categoryCount.value || 1)) * 100)) : 30));
@@ -184,7 +188,7 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
           <button
             type="button"
             class="settings-action-button settings-action-button-danger"
-            :disabled="isSavingCloud || !store.cloud.enabled"
+            :disabled="isSavingCloud || !settings.cloud.enabled"
             @click="disableCloud"
           >
             <Unplug class="size-4" />
