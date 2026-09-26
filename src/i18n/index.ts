@@ -1,5 +1,6 @@
 import { computed, ref } from "vue";
 import type { Language } from "../types";
+import { readStored, writeStored } from "../platform/storage";
 import { de } from "./locales/de";
 import { en } from "./locales/en";
 import { es } from "./locales/es";
@@ -45,7 +46,7 @@ export const messages = {
 
 export type I18nKey = keyof typeof messages.en;
 
-const initialLanguage = cleanLanguage(localStorage.getItem(STORAGE_KEY));
+const initialLanguage = cleanLanguage(readStored(STORAGE_KEY));
 export const currentLanguage = ref<Language>(initialLanguage);
 
 export const currentLocale = computed(() => localeByLanguage[currentLanguage.value] ?? localeByLanguage[DEFAULT_LANGUAGE]);
@@ -53,7 +54,7 @@ export const currentLocale = computed(() => localeByLanguage[currentLanguage.val
 export function setLanguage(language: Language, options: { persist?: boolean } = {}) {
   currentLanguage.value = cleanLanguage(language);
   if (options.persist ?? true) {
-    localStorage.setItem(STORAGE_KEY, currentLanguage.value);
+    writeStored(STORAGE_KEY, currentLanguage.value);
   }
   document.documentElement.lang = currentLanguage.value;
 }

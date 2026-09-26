@@ -1,4 +1,5 @@
 import { t } from "../i18n";
+import { readStored, writeStored } from "../platform/storage";
 
 export type OcrLanguageId = "auto" | "zh-Hans" | "zh-Hant" | "en" | "ja";
 
@@ -29,11 +30,11 @@ export function normalizeOcrLanguage(value: string | null | undefined): OcrLangu
 }
 
 export function loadOcrLanguage(): OcrLanguageId {
-  return normalizeOcrLanguage(localStorage.getItem(OCR_LANGUAGE_STORAGE_KEY)) ?? "auto";
+  return normalizeOcrLanguage(readStored(OCR_LANGUAGE_STORAGE_KEY)) ?? "auto";
 }
 
 export function saveOcrLanguage(language: OcrLanguageId) {
-  localStorage.setItem(OCR_LANGUAGE_STORAGE_KEY, language);
+  writeStored(OCR_LANGUAGE_STORAGE_KEY, language);
 }
 
 /** 引擎返回的语言串 → 本地化显示名；组合串（Paddle 自动/manga）一并映射，

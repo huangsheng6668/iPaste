@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import { readStored, writeStored } from "../platform/storage";
 
 /**
  * 外观主题（浅色 / 深色 / 跟随系统）。
@@ -14,12 +15,8 @@ const STORAGE_KEY = "ipaste.theme";
 const DARK_CLASS = "dark";
 
 function readStoredPreference(): ThemePreference {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    if (value === "light" || value === "dark") return value;
-  } catch {
-    /* localStorage 不可用时回退到 system */
-  }
+  const value = readStored(STORAGE_KEY);
+  if (value === "light" || value === "dark") return value;
   return "system";
 }
 
@@ -39,11 +36,7 @@ export const resolvedTheme = computed<ResolvedTheme>(() => {
 
 export function setThemePreference(preference: ThemePreference) {
   themePreference.value = preference;
-  try {
-    localStorage.setItem(STORAGE_KEY, preference);
-  } catch {
-    /* ignore */
-  }
+  writeStored(STORAGE_KEY, preference);
   applyTheme();
 }
 
