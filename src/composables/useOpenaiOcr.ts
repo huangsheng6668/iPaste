@@ -2,7 +2,7 @@ import { computed, ref, watch } from "vue";
 import { t } from "../i18n";
 import { errorMessage } from "../lib/appError";
 import { useSettingsStore } from "../stores/settingsStore";
-import { DEFAULT_OPENAI_OCR_PROMPTS } from "../stores/lib/settings";
+import { DEFAULT_OPENAI_OCR_PROMPTS, isOpenaiOcrConfigured } from "../stores/lib/settings";
 import type { CloudOcrPromptMessage } from "../types";
 
 /** OpenAI 兼容接口（通用云 OCR）配置表单：Base URL + 模型 + API Key + 自定义 Prompt 列表。 */
@@ -22,9 +22,7 @@ export function useOpenaiOcr() {
   const isTestingOpenai = ref(false);
   const isSavingOpenai = ref(false);
 
-  const openaiConfigured = computed(() =>
-    Boolean(settings.cloudOcr.openaiBaseUrl && settings.cloudOcr.openaiModel && settings.cloudOcr.openaiApiKey),
-  );
+  const openaiConfigured = computed(() => isOpenaiOcrConfigured(settings.cloudOcr));
 
   const openaiStatusText = computed(() =>
     openaiConfigured.value ? t("settings.openai.configured") : t("settings.openai.notConfigured"),

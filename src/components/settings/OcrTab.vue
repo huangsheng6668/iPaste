@@ -19,6 +19,7 @@ import { t } from "../../i18n";
 import { isMacOs } from "../../lib/env";
 import { formatBytes } from "../../lib/format";
 import { useSettingsStore } from "../../stores/settingsStore";
+import OcrEngineSection from "./ocr/OcrEngineSection.vue";
 import { useOpenaiOcr } from "../../composables/useOpenaiOcr";
 import { useMocrInstaller } from "../../composables/useMocrInstaller";
 import { useOcrInstaller } from "../../composables/useOcrInstaller";
@@ -46,31 +47,8 @@ const {
   clearOpenaiConfig,
 } = useOpenaiOcr();
 
-const ocrEngineOptions: Array<{ value: OcrEngine; label: string; description: string }> = [
-  {
-    value: "local",
-    label: t("settings.bigmodel.engineLocal"),
-    description: t("settings.bigmodel.engineLocalDescription"),
-  },
-  {
-    value: "openai",
-    label: t("settings.openai.engineOpenai"),
-    description: t("settings.openai.engineOpenaiDescription"),
-  },
-];
-
 function updateOcrEngine(value: OcrEngine) {
   void settings.updateOcrEngine(value);
-}
-
-function engineBadgeLabel(): string {
-  if (settings.ocrEngine === "openai") return t("settings.openai.engineOpenai");
-  return t("settings.bigmodel.engineLocal");
-}
-
-function engineReady(): boolean {
-  if (settings.ocrEngine === "openai") return openaiConfigured.value;
-  return true;
 }
 
 const {
@@ -110,47 +88,11 @@ const {
 
 <template>
   <div class="settings-section">
-    <section class="settings-panel settings-column-panel">
-      <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-violet">
-          <ScanText class="size-5" />
-        </div>
-        <div class="min-w-0 flex-1">
-          <h2 class="text-sm font-semibold text-[var(--text-1)]">
-            {{ t("settings.bigmodel.engineTitle") }}
-          </h2>
-          <p class="mt-1 text-sm text-[var(--text-2)]">
-            {{ t("settings.bigmodel.engineSubtitle") }}
-          </p>
-        </div>
-        <span
-          class="ocr-status-badge"
-          :class="{ 'ocr-status-badge-ready': engineReady() }"
-        >
-          {{ engineBadgeLabel() }}
-        </span>
-      </div>
-
-      <div class="ocr-mode-options">
-        <button
-          v-for="option in ocrEngineOptions"
-          :key="option.value"
-          type="button"
-          class="ocr-mode-option"
-          :class="{ 'ocr-mode-option-active': settings.ocrEngine === option.value }"
-          :aria-pressed="settings.ocrEngine === option.value"
-          @click="updateOcrEngine(option.value)"
-        >
-          <span class="ocr-mode-option-header">
-            <span>{{ option.label }}</span>
-          </span>
-          <span class="ocr-mode-option-description">{{ option.description }}</span>
-        </button>
-      </div>
-      <p class="ocr-mode-hint">
-        {{ t("settings.bigmodel.engineHint") }}
-      </p>
-    </section>
+    <OcrEngineSection
+      :engine="settings.ocrEngine"
+      :openai-configured="openaiConfigured"
+      @select="updateOcrEngine"
+    />
 
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">

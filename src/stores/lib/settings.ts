@@ -55,6 +55,11 @@ export function cleanOpenaiPrompts(prompts: unknown): CloudOcrPromptMessage[] {
   return cleaned.length > 0 ? cleaned : DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }));
 }
 
+/** 云 OCR（OpenAI 兼容）是否已配置齐 base/model/key（useOpenaiOcr 与引擎选择区共用）。 */
+export function isOpenaiOcrConfigured(cloudOcr: CloudOcrSettings): boolean {
+  return Boolean(cloudOcr.openaiBaseUrl && cloudOcr.openaiModel && cloudOcr.openaiApiKey);
+}
+
 export function cleanCloudOcrSettings(settings: unknown): CloudOcrSettings {
   const raw = settings && typeof settings === "object" ? (settings as Record<string, unknown>) : {};
   return {
