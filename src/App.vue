@@ -26,6 +26,7 @@ import { useClipListScroll } from "./composables/useClipListScroll";
 import { useDragSort } from "./composables/useDragSort";
 import { useInlineRename } from "./composables/useInlineRename";
 import { usePanelKeyboard } from "./composables/usePanelKeyboard";
+import type { PanelCommand, PanelContext } from "./composables/panelKeymap";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
@@ -150,14 +151,15 @@ const {
 } = automationFlow;
 
 const panelKeyboard = usePanelKeyboard({
-  store,
+  // store 派生的面板态：键位表据此决定落点（automation 页签 vs 条目列表）。
+  context: () => ({
+    isAutomationMode: store.selectedCategoryId === "automation",
+    hasSearchQuery: store.search.trim() !== "",
+  }),
+  dispatch: dispatchPanelCommand,
   quickPreview,
   clipMenu,
-  automationFlow,
   closeFloatingLayers,
-  hidePanelFromUi,
-  finishEditingCategory,
-  openClipViewer,
   isModalOpen: () =>
     automationEditorOpen.value ||
     automationConfirmOpen.value ||
@@ -386,6 +388,137 @@ function selectClipCard(index: number) {
 
   pendingDeleteByKey.value = null;
   store.setSelectedIndex(index);
+}
+
+/** 移动 automation 选择：与原实现的上下界钳制一致。 */
+function moveAutomationSelection(delta: number) {
+  automationStore.selectedActionIndex = delta > 0
+    ? Math.min(automationStore.selectedActionIndex + delta, Math.max(automationStore.visibleActions.length - 1, 0))
+    : Math.max(automationStore.selectedActionIndex + delta, 0);
+}
+
+function focusSearchInput() {
+  const input = document.querySelector<HTMLInputElement>(".raycast-search-input, .search-box input");
+  input?.focus();
+  input?.select();
+}
+
+/**
+ * 面板键盘命令落点（Task 21 从 usePanelKeyboard 的分支体原样搬来）。
+ * 键位判定在 panelKeymap，这里只负责"按当前页签执行哪段副作用"。
+ */
+function dispatchPanelCommand(command: PanelCommand, ctx: PanelContext) {
+  const selectedAction = () => automationStore.visibleActions[automationStore.selectedActionIndex];
+
+  switch (command.type) {
+    case "move":
+      if (ctx.isAutomationMode) {
+        moveAutomationSelection(command.delta);
+      } else {
+        store.moveSelection(command.delta);
+      }
+      return;
+
+    case "activate":
+      if (ctx.isAutomationMode) {
+        const action = selectedAction();
+        if (action) runSelectedAction(action);
+      } else {
+        void store.applySelected();
+      }
+      return;
+
+    case "copy":
+      if (ctx.isAutomationMode) {
+        const action = selectedAction();
+        if (action) void copyAutomationCommand(action);
+      } else {
+        const item = store.visibleItems[store.selectedIndex];
+        if (item) void store.copyItem(item);
+      }
+      return;
+
+    case "delete":
+      if (ctx.isAutomationMode) {
+        const action = selectedAction();
+        if (action) void deleteAutomationAction(action);
+      } else {
+        const item = store.visibleItems[store.selectedIndex];
+        if (!item) return;
+
+        const key = contextItemKey(item);
+        if (pendingDeleteContextKey.value === key) {
+          void clipMenu.deleteSelectedItem(item);
+        } else {
+          pendingDeleteContextKey.value = key;
+        }
+      }
+      return;
+
+    case "openViewer": {
+      const item = store.visibleItems[store.selectedIndex];
+      if (item) void openClipViewer(item);
+      return;
+    }
+
+    case "editAction": {
+      const action = selectedAction();
+      if (action) openAutomationEditor(action);
+      return;
+    }
+
+    case "toggleCategory":
+      closeFloatingLayers();
+      finishEditingCategory();
+      store.selectCategory(store.selectedCategoryId === "automation" ? "history" : "automation");
+      return;
+
+    case "cycleCategory": {
+      const categoryIds = store.allCategoryIds;
+      const length = categoryIds.length;
+      // 只有一个分类时不做任何事（含不关闭浮层），与原实现一致。
+      if (length <= 1) return;
+
+      const currentIndex = categoryIds.indexOf(store.selectedCategoryId);
+      const nextIndex = currentIndex === -1 ? 0 : (currentIndex + command.delta + length) % length;
+      const targetCategoryId = categoryIds[nextIndex];
+
+      closeFloatingLayers();
+      finishEditingCategory();
+      if (targetCategoryId && targetCategoryId !== store.selectedCategoryId) {
+        store.selectCategory(targetCategoryId);
+      }
+      return;
+    }
+
+    case "selectCategoryIndex": {
+      const targetCategoryId = store.allCategoryIds[command.index];
+      // 下标越界时只消费按键（原实现在此处直接 return true）。
+      if (!targetCategoryId) return;
+
+      closeFloatingLayers();
+      finishEditingCategory();
+      if (targetCategoryId !== store.selectedCategoryId) {
+        store.selectCategory(targetCategoryId);
+      }
+      return;
+    }
+
+    case "focusSearch":
+      focusSearchInput();
+      return;
+
+    case "escape":
+      if (ctx.isSearchTarget && store.search.trim()) {
+        store.clearSearch();
+        return;
+      }
+      void hidePanelFromUi();
+      return;
+
+    case "none":
+      return;
+  }
 }
 
 async function openClipViewer(item: ClipViewItem, autoRecognize = false) {

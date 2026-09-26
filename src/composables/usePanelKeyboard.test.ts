@@ -1,17 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
-import { reactive, ref } from "vue";
-import { createPinia, setActivePinia } from "pinia";
+import { ref } from "vue";
 import { usePanelKeyboard } from "./usePanelKeyboard";
-import { useAutomationStore } from "../stores/automationStore";
-import type { AutomationAction, Category, ClipViewItem } from "../types";
+import type { PanelCommand, PanelContext } from "./panelKeymap";
 
+// 路由层测试：断言"什么时候接管按键"与"派发了哪条命令"。
+// 键位本身的判定由 panelKeymap.test.ts 覆盖；命令的副作用由 App.vue 的 dispatch 承担。
+
+// 注意：搜索框选择器（.raycast-search-input, .search-box input）本身含 "input" 子串，
+// 必须先判搜索选择器，否则 isInput 替身会被误判成搜索框。
 function createFakeElement(options: { isSearch?: boolean; isInput?: boolean } = {}): EventTarget {
   return {
     closest(sel: string) {
-      if (options.isSearch && sel.includes("raycast-search-input")) return {};
-      if (options.isInput && sel.includes("input")) return {};
+      if (sel.includes("raycast-search-input")) return options.isSearch ? {} : null;
+      if (sel.includes("input")) return options.isInput ? {} : null;
       return null;
     },
+  } as unknown as EventTarget;
+}
+
+function createSearchInput(selection: { start: number; end: number } | null): EventTarget {
+  return {
+    closest: (sel: string) => (sel.includes("raycast-search-input") ? {} : null),
+    selectionStart: selection?.start ?? 0,
+    selectionEnd: selection?.end ?? 0,
   } as unknown as EventTarget;
 }
 
@@ -42,81 +53,7 @@ function createFakeEvent(init: {
 }
 
 function setupDeps(overrides: Record<string, unknown> = {}) {
-  const clip1: ClipViewItem = {
-    id: "1",
-    clipType: "text",
-    contentHash: "hash1",
-    displayName: null,
-    sourceApp: null,
-    text: "clip one",
-    previewText: "clip one",
-    collection: "history",
-    lastCapturedAt: "10:00",
-    favoriteCount: 0,
-    isPinned: false,
-  };
-  const clip2: ClipViewItem = {
-    id: "2",
-    clipType: "text",
-    contentHash: "hash2",
-    displayName: null,
-    sourceApp: null,
-    text: "clip two",
-    previewText: "clip two",
-    collection: "history",
-    lastCapturedAt: "10:01",
-    favoriteCount: 0,
-    isPinned: false,
-  };
-
-  const action1: AutomationAction = {
-    id: "action-1",
-    name: "Action 1",
-    command: "echo 1",
-    confirmBeforeRun: false,
-    sortOrder: 0,
-    cwd: null,
-    runMode: "terminal",
-    closePanelOnSuccess: false,
-    lastRun: null,
-    createdAt: "10:00",
-    updatedAt: "10:00",
-  };
-
-  // automation 域走真实 store（组合式内部经 useAutomationStore 消费）；
-  // 面板域仍是假 store。
-  setActivePinia(createPinia());
-  const automationStore = useAutomationStore();
-  automationStore.automations = [action1] as AutomationAction[];
-  automationStore.selectedActionIndex = 0;
-
-  const store = reactive({
-    selectedCategoryId: "history",
-    categories: [{ id: "cat-1", name: "Dev" }] as Category[],
-    visibleItems: [clip1, clip2] as ClipViewItem[],
-    selectedIndex: 0,
-    get selectedItem(): ClipViewItem | null {
-      return this.visibleItems[this.selectedIndex] ?? null;
-    },
-    get allCategoryIds(): string[] {
-      return ["history", ...this.categories.map((category) => category.id), "automation"];
-    },
-    search: "",
-    applySelected: vi.fn(),
-    copyItem: vi.fn(),
-    moveSelection: vi.fn((delta: number) => {
-      store.selectedIndex += delta;
-    }),
-    selectCategory: vi.fn((id: string) => {
-      store.selectedCategoryId = id;
-    }),
-    clearSearch: vi.fn(() => {
-      store.search = "";
-    }),
-  });
-
   const quickPreview = {
-    quickPreviewItem: ref<ClipViewItem | null>(null),
     handleQuickPreviewKeydown: vi.fn(() => false),
     handleQuickPreviewKeyup: vi.fn(),
     isEditableTarget: vi.fn((target: unknown) => {
@@ -131,189 +68,253 @@ function setupDeps(overrides: Record<string, unknown> = {}) {
   const clipMenu = {
     contextMenu: ref<unknown | null>(null),
     pendingDeleteByKey: ref<string | null>(null),
+    close: vi.fn(),
     deleteSelectedItem: vi.fn(),
   };
 
-  const automationFlow = {
-    runSelectedAction: vi.fn(),
-    openAutomationEditor: vi.fn(),
-    copyAutomationCommand: vi.fn(),
-    deleteAutomationAction: vi.fn(),
-    handleActionsKey: vi.fn(() => false),
-  };
-
+  const dispatch = vi.fn<(command: PanelCommand, ctx: PanelContext) => void>();
   const closeFloatingLayers = vi.fn();
-  const hidePanelFromUi = vi.fn();
-  const finishEditingCategory = vi.fn();
-  const openClipViewer = vi.fn();
 
   const deps = {
-    store,
+    context: () => ({ isAutomationMode: false, hasSearchQuery: false }),
+    dispatch,
     quickPreview,
     clipMenu,
-    automationFlow,
     closeFloatingLayers,
-    hidePanelFromUi,
-    finishEditingCategory,
-    openClipViewer,
     ...overrides,
   } as unknown as Parameters<typeof usePanelKeyboard>[0];
 
-  return { deps, store, automationStore, clipMenu, automationFlow, openClipViewer, hidePanelFromUi };
+  return { deps, dispatch, clipMenu, quickPreview, closeFloatingLayers };
 }
 
-describe("usePanelKeyboard shortcuts", () => {
-  it("Enter: applies selected clip in history mode", () => {
-    const { deps, store } = setupDeps();
+function lastCommand(dispatch: ReturnType<typeof vi.fn>): PanelCommand {
+  return dispatch.mock.calls[dispatch.mock.calls.length - 1][0] as PanelCommand;
+}
+
+function lastContext(dispatch: ReturnType<typeof vi.fn>): PanelContext {
+  return dispatch.mock.calls[dispatch.mock.calls.length - 1][1] as PanelContext;
+}
+
+describe("usePanelKeyboard 路由：命令派发", () => {
+  it("Enter：派发 activate，并带上当前页签上下文", () => {
+    const { deps, dispatch } = setupDeps();
     const keyboard = usePanelKeyboard(deps);
 
     const event = createFakeEvent({ key: "Enter" });
     keyboard.handleKeydown(event);
 
-    expect(store.applySelected).toHaveBeenCalledTimes(1);
+    expect(lastCommand(dispatch)).toEqual({ type: "activate" });
+    expect(lastContext(dispatch).isAutomationMode).toBe(false);
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("Enter: runs automation action in automation mode", () => {
-    const { deps, store, automationFlow, automationStore } = setupDeps();
-    store.selectedCategoryId = "automation";
+  it("Enter：automation 页签下上下文标记为 automation", () => {
+    const { deps, dispatch } = setupDeps({
+      context: () => ({ isAutomationMode: true, hasSearchQuery: false }),
+    });
     const keyboard = usePanelKeyboard(deps);
 
-    const event = createFakeEvent({ key: "Enter" });
-    keyboard.handleKeydown(event);
+    keyboard.handleKeydown(createFakeEvent({ key: "Enter" }));
 
-    expect(automationFlow.runSelectedAction).toHaveBeenCalledWith(automationStore.visibleActions[0]);
-    expect(event.defaultPrevented).toBe(true);
+    expect(lastCommand(dispatch)).toEqual({ type: "activate" });
+    expect(lastContext(dispatch).isAutomationMode).toBe(true);
   });
 
-  it("Ctrl+C: copies selected clip in history mode", () => {
-    const { deps, store } = setupDeps();
+  it("Ctrl+C：派发 copy", () => {
+    const { deps, dispatch } = setupDeps();
     const keyboard = usePanelKeyboard(deps);
 
     const event = createFakeEvent({ key: "c", ctrlKey: true });
     keyboard.handleKeydown(event);
 
-    expect(store.copyItem).toHaveBeenCalledWith(store.visibleItems[0]);
+    expect(lastCommand(dispatch)).toEqual({ type: "copy" });
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("Ctrl+C: copies automation command in automation mode", () => {
-    const { deps, store, automationFlow, automationStore } = setupDeps();
-    store.selectedCategoryId = "automation";
+  it("Ctrl+C：搜索框内有选区时不接管（放行给浏览器复制）", () => {
+    const { deps, dispatch } = setupDeps();
     const keyboard = usePanelKeyboard(deps);
 
-    const event = createFakeEvent({ key: "c", ctrlKey: true });
+    const event = createFakeEvent({
+      key: "c",
+      ctrlKey: true,
+      target: createSearchInput({ start: 1, end: 4 }),
+    });
     keyboard.handleKeydown(event);
 
-    expect(automationFlow.copyAutomationCommand).toHaveBeenCalledWith(automationStore.visibleActions[0]);
-    expect(event.defaultPrevented).toBe(true);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 
-  it("Space: opens clip viewer in history mode when not in search input", () => {
-    const { deps, store, openClipViewer } = setupDeps();
-    const keyboard = usePanelKeyboard(deps);
+  it("Space：非搜索框派发 openViewer；automation 页签派发 none；搜索框内不接管", () => {
+    const history = setupDeps();
+    usePanelKeyboard(history.deps).handleKeydown(createFakeEvent({ key: " " }));
+    expect(lastCommand(history.dispatch)).toEqual({ type: "openViewer" });
 
-    const event = createFakeEvent({ key: " " });
-    keyboard.handleKeydown(event);
+    const automation = setupDeps({ context: () => ({ isAutomationMode: true, hasSearchQuery: false }) });
+    usePanelKeyboard(automation.deps).handleKeydown(createFakeEvent({ key: " " }));
+    expect(lastCommand(automation.dispatch)).toEqual({ type: "none" });
 
-    expect(openClipViewer).toHaveBeenCalledWith(store.visibleItems[0]);
-    expect(event.defaultPrevented).toBe(true);
+    const search = setupDeps();
+    const searchEvent = createFakeEvent({ key: " ", target: createSearchInput(null) });
+    usePanelKeyboard(search.deps).handleKeydown(searchEvent);
+    expect(search.dispatch).not.toHaveBeenCalled();
+    expect(searchEvent.defaultPrevented).toBe(false);
   });
 
-  it("Ctrl+K: toggles to automation category and back", () => {
-    const { deps, store } = setupDeps();
-    const keyboard = usePanelKeyboard(deps);
+  it("Ctrl+K / Tab / Shift+Tab：分别派发切换与循环命令", () => {
+    const keyboardSetup = setupDeps();
+    const keyboard = usePanelKeyboard(keyboardSetup.deps);
 
-    const event1 = createFakeEvent({ key: "k", ctrlKey: true });
-    keyboard.handleKeydown(event1);
-    expect(store.selectCategory).toHaveBeenLastCalledWith("automation");
+    keyboard.handleKeydown(createFakeEvent({ key: "k", ctrlKey: true }));
+    expect(lastCommand(keyboardSetup.dispatch)).toEqual({ type: "toggleCategory" });
 
-    store.selectedCategoryId = "automation";
-    const event2 = createFakeEvent({ key: "k", ctrlKey: true });
-    keyboard.handleKeydown(event2);
-    expect(store.selectCategory).toHaveBeenLastCalledWith("history");
-  });
-
-  it("Backspace: two-stage delete in history mode", () => {
-    const { deps, store, clipMenu } = setupDeps();
-    const keyboard = usePanelKeyboard(deps);
-
-    const event1 = createFakeEvent({ key: "Backspace" });
-    keyboard.handleKeydown(event1);
-    expect(clipMenu.pendingDeleteByKey.value).toBe("history-1");
-    expect(clipMenu.deleteSelectedItem).not.toHaveBeenCalled();
-
-    const event2 = createFakeEvent({ key: "Backspace" });
-    keyboard.handleKeydown(event2);
-    expect(clipMenu.deleteSelectedItem).toHaveBeenCalledWith(store.visibleItems[0]);
-  });
-
-  it("Backspace: deletes action in automation mode", () => {
-    const { deps, store, automationFlow, automationStore } = setupDeps();
-    store.selectedCategoryId = "automation";
-    const keyboard = usePanelKeyboard(deps);
-
-    const event = createFakeEvent({ key: "Backspace" });
-    keyboard.handleKeydown(event);
-
-    expect(automationFlow.deleteAutomationAction).toHaveBeenCalledWith(automationStore.visibleActions[0]);
-    expect(event.defaultPrevented).toBe(true);
-  });
-
-  it("E: opens automation editor in automation mode", () => {
-    const { deps, store, automationFlow, automationStore } = setupDeps();
-    store.selectedCategoryId = "automation";
-    const keyboard = usePanelKeyboard(deps);
-
-    const event = createFakeEvent({ key: "e" });
-    keyboard.handleKeydown(event);
-
-    expect(automationFlow.openAutomationEditor).toHaveBeenCalledWith(automationStore.visibleActions[0]);
-    expect(event.defaultPrevented).toBe(true);
-  });
-
-  it("Tab: cycles categories forward and Shift+Tab cycles backward", () => {
-    const { deps, store } = setupDeps();
-    const keyboard = usePanelKeyboard(deps);
-
-    // Categories: history -> cat-1 -> automation
     keyboard.handleKeydown(createFakeEvent({ key: "Tab" }));
-    expect(store.selectCategory).toHaveBeenLastCalledWith("cat-1");
+    expect(lastCommand(keyboardSetup.dispatch)).toEqual({ type: "cycleCategory", delta: 1 });
 
-    store.selectedCategoryId = "cat-1";
-    keyboard.handleKeydown(createFakeEvent({ key: "Tab" }));
-    expect(store.selectCategory).toHaveBeenLastCalledWith("automation");
-
-    store.selectedCategoryId = "automation";
-    keyboard.handleKeydown(createFakeEvent({ key: "Tab" }));
-    expect(store.selectCategory).toHaveBeenLastCalledWith("history");
-
-    // Shift+Tab backward
-    store.selectedCategoryId = "history";
     keyboard.handleKeydown(createFakeEvent({ key: "Tab", shiftKey: true }));
-    expect(store.selectCategory).toHaveBeenLastCalledWith("automation");
+    expect(lastCommand(keyboardSetup.dispatch)).toEqual({ type: "cycleCategory", delta: -1 });
   });
 
-  it("Esc: closes panel when search is empty", () => {
-    const { deps, hidePanelFromUi } = setupDeps();
-    const keyboard = usePanelKeyboard(deps);
+  it("Backspace / Delete：派发 delete（搜索框内不接管）", () => {
+    const backspace = setupDeps();
+    usePanelKeyboard(backspace.deps).handleKeydown(createFakeEvent({ key: "Backspace" }));
+    expect(lastCommand(backspace.dispatch)).toEqual({ type: "delete" });
 
-    const event = createFakeEvent({ key: "Escape" });
-    keyboard.handleKeydown(event);
-
-    expect(hidePanelFromUi).toHaveBeenCalledTimes(1);
+    const inSearch = setupDeps();
+    usePanelKeyboard(inSearch.deps).handleKeydown(createFakeEvent({ key: "Delete", target: createSearchInput(null) }));
+    expect(inSearch.dispatch).not.toHaveBeenCalled();
   });
 
-  it("Esc: clears search when search is not empty in search input", () => {
-    const { deps, store, hidePanelFromUi } = setupDeps();
-    store.search = "hello";
-    const searchTarget = createFakeElement({ isSearch: true });
+  it("E：automation 页签派发 editAction，普通页签不接管", () => {
+    const automation = setupDeps({ context: () => ({ isAutomationMode: true, hasSearchQuery: false }) });
+    usePanelKeyboard(automation.deps).handleKeydown(createFakeEvent({ key: "e" }));
+    expect(lastCommand(automation.dispatch)).toEqual({ type: "editAction" });
+
+    const history = setupDeps();
+    usePanelKeyboard(history.deps).handleKeydown(createFakeEvent({ key: "e" }));
+    expect(history.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("Escape：派发 escape，搜索态在上下文里标记", () => {
+    const { deps, dispatch } = setupDeps({
+      context: () => ({ isAutomationMode: false, hasSearchQuery: true }),
+    });
     const keyboard = usePanelKeyboard(deps);
 
-    const event = createFakeEvent({ key: "Escape", target: searchTarget });
+    keyboard.handleKeydown(createFakeEvent({ key: "Escape", target: createSearchInput(null) }));
+
+    expect(lastCommand(dispatch)).toEqual({ type: "escape" });
+    expect(lastContext(dispatch)).toMatchObject({ isSearchTarget: true, hasSearchQuery: true });
+  });
+
+  it("Ctrl+数字：先于可编辑目标守卫派发分类直跳", () => {
+    const { deps, dispatch } = setupDeps();
+    const keyboard = usePanelKeyboard(deps);
+
+    // 焦点在普通输入框（非搜索框）里：数字快捷键仍应生效
+    const event = createFakeEvent({ key: "2", ctrlKey: true, target: createFakeElement({ isInput: true }) });
     keyboard.handleKeydown(event);
 
-    expect(store.clearSearch).toHaveBeenCalledTimes(1);
-    expect(hidePanelFromUi).not.toHaveBeenCalled();
+    expect(lastCommand(dispatch)).toEqual({ type: "selectCategoryIndex", index: 1 });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("方向键：派发 move 命令（搜索框内左右键放行）", () => {
+    const { deps, dispatch } = setupDeps();
+    const keyboard = usePanelKeyboard(deps);
+
+    keyboard.handleKeydown(createFakeEvent({ key: "ArrowDown" }));
+    expect(lastCommand(dispatch)).toEqual({ type: "move", delta: 1 });
+
+    keyboard.handleKeydown(createFakeEvent({ key: "ArrowUp" }));
+    expect(lastCommand(dispatch)).toEqual({ type: "move", delta: -1 });
+
+    const inSearch = setupDeps();
+    usePanelKeyboard(inSearch.deps).handleKeydown(createFakeEvent({ key: "ArrowLeft", target: createSearchInput(null) }));
+    expect(inSearch.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("Ctrl+F：派发 focusSearch", () => {
+    const { deps, dispatch } = setupDeps();
+    usePanelKeyboard(deps).handleKeydown(createFakeEvent({ key: "f", ctrlKey: true }));
+    expect(lastCommand(dispatch)).toEqual({ type: "focusSearch" });
+  });
+});
+
+describe("usePanelKeyboard 路由：守卫与优先级", () => {
+  it("已被 preventDefault 的事件不再处理", () => {
+    const { deps, dispatch } = setupDeps();
+    usePanelKeyboard(deps).handleKeydown(createFakeEvent({ key: "Enter", defaultPrevented: true }));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("模态打开或改名中直接放行", () => {
+    const modal = setupDeps({ isModalOpen: () => true });
+    usePanelKeyboard(modal.deps).handleKeydown(createFakeEvent({ key: "Enter" }));
+    expect(modal.dispatch).not.toHaveBeenCalled();
+
+    const editing = setupDeps({ isEditingName: () => true });
+    usePanelKeyboard(editing.deps).handleKeydown(createFakeEvent({ key: "Enter" }));
+    expect(editing.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("快速预览接管时不再派发命令", () => {
+    const { deps, dispatch, quickPreview } = setupDeps();
+    quickPreview.handleQuickPreviewKeydown.mockReturnValue(true);
+
+    usePanelKeyboard(deps).handleKeydown(createFakeEvent({ key: "Enter" }));
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("右键菜单打开时：Escape 关闭浮层，其余按键只吞掉", () => {
+    const { deps, dispatch, clipMenu, closeFloatingLayers } = setupDeps();
+    clipMenu.contextMenu.value = { item: {}, index: 0, x: 0, y: 0 };
+    const keyboard = usePanelKeyboard(deps);
+
+    keyboard.handleKeydown(createFakeEvent({ key: "Escape" }));
+    expect(closeFloatingLayers).toHaveBeenCalledTimes(1);
+    expect(dispatch).not.toHaveBeenCalled();
+
+    keyboard.handleKeydown(createFakeEvent({ key: "Enter" }));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("非搜索框的可编辑目标（input/textarea）不接管按键", () => {
+    const { deps, dispatch } = setupDeps();
+    const event = createFakeEvent({ key: "Enter", target: createFakeElement({ isInput: true }) });
+
+    usePanelKeyboard(deps).handleKeydown(event);
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("非删除键会复位两击删除确认", () => {
+    const { deps, clipMenu } = setupDeps();
+    clipMenu.pendingDeleteByKey.value = "history-1";
+
+    usePanelKeyboard(deps).handleKeydown(createFakeEvent({ key: "ArrowDown" }));
+
+    expect(clipMenu.pendingDeleteByKey.value).toBeNull();
+  });
+
+  it("删除键保留两击确认状态", () => {
+    const { deps, clipMenu } = setupDeps();
+    clipMenu.pendingDeleteByKey.value = "history-1";
+
+    usePanelKeyboard(deps).handleKeydown(createFakeEvent({ key: "Backspace" }));
+
+    expect(clipMenu.pendingDeleteByKey.value).toBe("history-1");
+  });
+
+  it("keyup 透传给快速预览", () => {
+    const { deps, quickPreview } = setupDeps();
+    const event = createFakeEvent({ key: "Control" });
+
+    usePanelKeyboard(deps).handleKeyup(event);
+
+    expect(quickPreview.handleQuickPreviewKeyup).toHaveBeenCalledWith(event);
   });
 });
