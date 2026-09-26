@@ -16,6 +16,11 @@ import {
   joinOcrWords,
   type OcrSourceWord,
 } from "../lib/ocr/textLayout";
+import {
+  clientPointToImagePoint as toImagePoint,
+  unionRects,
+  wordIndexFromPoint,
+} from "../lib/ocr/hitTest";
 import type { ClipViewItem, ImageOcrResult } from "../types";
 import type { useImageViewer } from "./useImageViewer";
 import type { ClipEditorHandle } from "./useClipEditor";
@@ -180,84 +185,31 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
     return lineText || imageOcrResult.value?.text || "";
   });
 
-  function unionDomRects(rects: DOMRect[]) {
-    if (!rects.length) return null;
-
-    const left = Math.min(...rects.map((rect) => rect.left));
-    const top = Math.min(...rects.map((rect) => rect.top));
-    const right = Math.max(...rects.map((rect) => rect.right));
-    const bottom = Math.max(...rects.map((rect) => rect.bottom));
-    return { left, top, right, bottom };
-  }
-
-  function nearestImageOcrWordIndex(x: number, y: number) {
-    const lines = imageOcrLines.value;
-    if (!lines.length) return null;
-
-    if (y <= lines[0].top) return lines[0].words[0]?.selectionIndex ?? null;
-
-    const lastLine = lines[lines.length - 1];
-    if (lastLine && y >= lastLine.top + lastLine.height) {
-      return lastLine.words[lastLine.words.length - 1]?.selectionIndex ?? null;
-    }
-
-    const line = lines
-      .map((entry) => ({
-        line: entry,
-        distance: y < entry.top ? entry.top - y : Math.max(0, y - entry.top - entry.height),
-      }))
-      .sort((a, b) => a.distance - b.distance)[0]?.line;
-    if (!line) return null;
-
-    const words = line.words;
-    if (!words.length) return null;
-    const firstWord = words[0];
-    const lastWord = words[words.length - 1];
-    if (x <= firstWord.left + firstWord.width / 2) return firstWord.selectionIndex;
-    if (x >= lastWord.left + lastWord.width / 2) return lastWord.selectionIndex;
-
-    return words
-      .map((word) => ({
-        word,
-        distance: Math.abs(x - (word.left + word.width / 2)),
-      }))
-      .sort((a, b) => a.distance - b.distance)[0]?.word.selectionIndex ?? null;
-  }
+  // —— 命中测试适配层：收集响应式输入后交给 lib/ocr/hitTest 的纯函数 ——
 
   function clientPointToImagePoint(clientX: number, clientY: number) {
     const stage = viewer.imageStageElement.value;
     const { width, height } = viewer.imageNaturalSize.value;
     if (!stage || !width || !height || viewer.imageScale.value <= 0) return null;
 
-    const rect = stage.getBoundingClientRect();
-    const centeredX = clientX - rect.left - rect.width / 2 - viewer.imagePan.value.x;
-    const centeredY = clientY - rect.top - rect.height / 2 - viewer.imagePan.value.y;
-    const radians = -viewer.normalizedImageRotation.value * Math.PI / 180;
-    const rotatedX = centeredX * Math.cos(radians) - centeredY * Math.sin(radians);
-    const rotatedY = centeredX * Math.sin(radians) + centeredY * Math.cos(radians);
-
-    return {
-      x: rotatedX / viewer.imageScale.value + width / 2,
-      y: rotatedY / viewer.imageScale.value + height / 2,
-    };
+    return toImagePoint(clientX, clientY, {
+      stageRect: stage.getBoundingClientRect(),
+      naturalWidth: width,
+      naturalHeight: height,
+      scale: viewer.imageScale.value,
+      pan: viewer.imagePan.value,
+      normalizedRotation: viewer.normalizedImageRotation.value,
+    });
   }
 
   function imageOcrWordIndexFromPoint(event: PointerEvent, allowNearest: boolean) {
     const point = clientPointToImagePoint(event.clientX, event.clientY);
     if (!point) return null;
 
-    const scale = Math.max(0.001, viewer.imageScale.value);
-    const tolerance = Math.max(2, Math.min(18, 6 / scale));
-    const exactWord = imageOcrWords.value.find((word) => (
-      point.x >= word.left - tolerance
-      && point.x <= word.left + word.width + tolerance
-      && point.y >= word.top - tolerance
-      && point.y <= word.top + word.height + tolerance
-    ));
-    if (exactWord) return exactWord.selectionIndex;
-    if (!allowNearest) return null;
-
-    return nearestImageOcrWordIndex(point.x, point.y);
+    return wordIndexFromPoint(point, imageOcrWords.value, imageOcrLines.value, {
+      scale: viewer.imageScale.value,
+      allowNearest,
+    });
   }
 
   function endImageOcrSelection() {
@@ -277,7 +229,7 @@ export function useImageOcr(viewer: ReturnType<typeof useImageViewer>, options: 
       .filter((element) => selectedIndexes.has(Number(element.dataset.ocrWordIndex)))
       .map((element) => element.getBoundingClientRect())
       .filter((rect) => rect.width || rect.height);
-    const rect = unionDomRects(rects);
+    const rect = unionRects(rects);
     if (!rect) {
       options.editor.value?.hideSelectionAction();
       return;
