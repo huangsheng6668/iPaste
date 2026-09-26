@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { subscribe, type UnlistenFn } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
 import { ipasteApi } from "../lib/ipasteApi";
@@ -65,13 +65,13 @@ onMounted(async () => {
   window.addEventListener("keydown", onKeydown, true);
 
   if (isTauri) {
-    unlistenSessionStart = await listen<OcrOverlaySessionStart>(
+    unlistenSessionStart = await subscribe<OcrOverlaySessionStart>(
       IPASTE_EVENTS.ocrOverlaySessionStart,
-      (event) => {
-        if (event.payload.monitorIndex !== monitorIndex) return;
+      (session) => {
+        if (session.monitorIndex !== monitorIndex) return;
         submitFailed.value = false;
         endSelection();
-        frameSrc.value = `${convertFileSrc(event.payload.framePath)}?t=${event.payload.timestamp}`;
+        frameSrc.value = `${convertFileSrc(session.framePath)}?t=${session.timestamp}`;
       },
     );
   }
