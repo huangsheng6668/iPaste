@@ -23,6 +23,25 @@ export type OcrLineSeed = {
   firstSourceIndex?: number;
 };
 
+/** 可选词：源词 + 全局选中序号与所属行标识（文本层渲染与选区共用）。 */
+export type OcrSelectableWord = OcrSourceWord & {
+  selectionIndex: number;
+  lineKey: string;
+  lineOrder: number;
+};
+
+/** 文本层的一行（由 OcrLineSeed 排序、拼接、取框后得到）。 */
+export type OcrLine = {
+  key: string;
+  text: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  order: number;
+  words: OcrSelectableWord[];
+};
+
 export function buildOcrLineSeeds(words: OcrSourceWord[]): OcrLineSeed[] {
   if (!words.length) return [];
 
