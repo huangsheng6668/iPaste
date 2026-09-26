@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { windowHandle } from "../platform/window";
 import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
@@ -108,7 +108,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 async function closeWindow() {
   try {
-    await getCurrentWindow().close();
+    await windowHandle().close();
   } catch {
     // 浏览器 dev 模式下无 Tauri 窗口 API，忽略
   }

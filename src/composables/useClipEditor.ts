@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref, toValue, watch, type ComputedRef, type MaybeRefOrGetter, type Ref } from "vue";
 import { publish } from "../platform/events";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { windowHandle } from "../platform/window";
 import { clipViewerStorageKey, ipasteApi } from "../lib/ipasteApi";
 import { clipMetricText, textStats } from "../lib/format";
 import { errorMessage } from "../lib/appError";
@@ -95,7 +95,7 @@ export function useClipEditor(item: ComputedRef<ClipViewItem | undefined>, optio
   async function pasteFromViewer(text: string) {
     if (!options.payload.value || !item.value) return;
 
-    const viewerWindow = isTauri ? getCurrentWindow() : null;
+    const viewerWindow = isTauri ? windowHandle() : null;
     if (viewerWindow) {
       await viewerWindow.hide();
     }

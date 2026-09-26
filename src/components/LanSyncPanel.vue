@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { windowHandle } from "../platform/window";
 import { X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
@@ -23,7 +23,7 @@ const { devices, inviteTicket, inviteExpiresAt, joinError, pairRequest, pairErro
 // —— 窗口壳 ——
 
 async function closeWindow() {
-  await getCurrentWindow().close();
+  await windowHandle().close();
 }
 
 // —— 设备行操作 ——
