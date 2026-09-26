@@ -11,6 +11,9 @@ use base64::{engine::general_purpose, Engine as _};
 use image::{ImageBuffer, ImageEncoder, Rgba};
 use tauri::Emitter;
 
+use crate::capture::decision::{
+    decide_capture, AppendState, CaptureCursor, CaptureDecision, CaptureSample,
+};
 use crate::error::AppError;
 use crate::events::{ClipboardCaptured, EVENT_CAPTURE_ERROR, EVENT_CLIPBOARD_CAPTURED};
 use crate::models::{AppendCopyState, AppState, CapturedClipboardItem, ClipboardRead, ClipItem};
@@ -51,23 +54,60 @@ pub(crate) fn spawn_clipboard_watcher(
         match read_clipboard_item() {
             Ok(ClipboardRead::Item(item)) => {
                 let after_change_id = clipboard_change_id();
-                if before_change_id.is_some()
-                    && after_change_id.is_some()
-                    && before_change_id != after_change_id
-                {
-                    thread::sleep(Duration::from_millis(120));
-                    continue;
+
+                // 判定收成纯函数（capture/decision.rs）：只保留"读光标 → 判定 → 写回"三步，
+                // 判定分支本身由表驱动测试覆盖（含 6 条不变量）。
+                let mut cursor = CaptureCursor {
+                    last_change_id: last_clipboard_change_id
+                        .lock()
+                        .map(|value| *value)
+                        .unwrap_or(None),
+                    last_hash: last_clipboard_hash
+                        .lock()
+                        .map(|value| value.clone())
+                        .unwrap_or(None),
+                };
+                let append = append_copy_state
+                    .lock()
+                    .map(|state| AppendState {
+                        is_enabled: state.is_enabled,
+                        has_session: state.session_id.is_some(),
+                    })
+                    .unwrap_or(AppendState {
+                        is_enabled: false,
+                        has_session: false,
+                    });
+                let decision = decide_capture(
+                    &mut cursor,
+                    CaptureSample {
+                        before_change_id,
+                        after_change_id,
+                        content_hash: &item.content_hash,
+                        mergeable: item.clip_type != "image" && !item.text.trim().is_empty(),
+                    },
+                    append,
+                );
+
+                // 写回时机与原 should_capture_clipboard_item 一致：仅捕获类决定会改动光标值。
+                if let Ok(mut last) = last_clipboard_change_id.lock() {
+                    *last = cursor.last_change_id;
+                }
+                if let Ok(mut last) = last_clipboard_hash.lock() {
+                    *last = cursor.last_hash;
                 }
 
-                let change_id = after_change_id.or(before_change_id);
-                if !should_capture_clipboard_item(
-                    change_id,
-                    &item.content_hash,
-                    &last_clipboard_change_id,
-                    &last_clipboard_hash,
-                ) {
-                    thread::sleep(Duration::from_millis(700));
-                    continue;
+                match decision {
+                    CaptureDecision::UnstableChangeId => {
+                        thread::sleep(Duration::from_millis(120));
+                        continue;
+                    }
+                    CaptureDecision::AlreadyCaptured => {
+                        thread::sleep(Duration::from_millis(700));
+                        continue;
+                    }
+                    // 合并与新建都继续走下面的落库流程：真正的合并判定与写回仍在
+                    // capture_append_copy_item 内（含其锁失败即报错的原有语义）。
+                    CaptureDecision::MergeAppendCopy | CaptureDecision::Insert => {}
                 }
 
                 // 追加复制路径标记：capture_append_copy_item 返回 Some 表示本次
@@ -282,49 +322,6 @@ fn read_clipboard_image_file(clipboard: &mut Clipboard) -> Result<Option<Clipboa
         Err(ClipboardError::ClipboardOccupied) => Ok(Some(ClipboardRead::Occupied)),
         Err(error) => Err(error.to_string()),
     }
-}
-
-fn should_capture_clipboard_item(
-    change_id: Option<u64>,
-    content_hash: &str,
-    last_clipboard_change_id: &Arc<Mutex<Option<u64>>>,
-    last_clipboard_hash: &Arc<Mutex<Option<String>>>,
-) -> bool {
-    let last_change_id = last_clipboard_change_id
-        .lock()
-        .map(|last| *last)
-        .unwrap_or(None);
-    let last_hash = last_clipboard_hash
-        .lock()
-        .map(|last| last.clone())
-        .unwrap_or(None);
-    let same_hash = last_hash.as_deref() == Some(content_hash);
-
-    if let Some(id) = change_id {
-        if last_change_id == Some(id) && same_hash {
-            return false;
-        }
-
-        if let Ok(mut last) = last_clipboard_change_id.lock() {
-            *last = Some(id);
-        }
-        if let Ok(mut last_hash) = last_clipboard_hash.lock() {
-            *last_hash = Some(content_hash.to_string());
-        }
-        return true;
-    }
-
-    if same_hash {
-        return false;
-    }
-
-    last_clipboard_hash
-        .lock()
-        .map(|mut last| {
-            *last = Some(content_hash.to_string());
-            true
-        })
-        .unwrap_or(true)
 }
 
 pub(crate) fn remember_current_clipboard_marker(
