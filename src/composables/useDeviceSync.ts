@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { subscribe, type UnlistenFn } from "../platform/events";
 import { ipasteApi } from "../lib/ipasteApi";
 import { isTauri } from "../lib/env";
 import { errorMessage } from "../lib/appError";
@@ -92,26 +92,26 @@ export function useDeviceSync() {
     // 异常中断 onMounted——五种事件监听必须无条件注册（B4）。
     await refresh();
     // 逐个类型化订阅；refresh 之外的回调直接消费生成的 payload 类型。
-    unlistenFns.push(await listen(IPASTE_EVENTS.deviceListChanged, () => void refresh()));
-    unlistenFns.push(await listen(IPASTE_EVENTS.deviceStatusChanged, () => void refresh()));
+    unlistenFns.push(await subscribe(IPASTE_EVENTS.deviceListChanged, () => void refresh()));
+    unlistenFns.push(await subscribe(IPASTE_EVENTS.deviceStatusChanged, () => void refresh()));
     unlistenFns.push(
-      await listen<PairInviteState>(IPASTE_EVENTS.pairInviteState, (event) => {
+      await subscribe<PairInviteState>(IPASTE_EVENTS.pairInviteState, (invite) => {
         // 票据被后端作废/过期时（ticket = null）同步清空本地邀请态。
-        inviteTicket.value = event.payload.ticket;
-        inviteExpiresAt.value = event.payload.expiresAt;
+        inviteTicket.value = invite.ticket;
+        inviteExpiresAt.value = invite.expiresAt;
       }),
     );
     unlistenFns.push(
-      await listen<PairRequested>(IPASTE_EVENTS.pairRequest, (event) => {
+      await subscribe<PairRequested>(IPASTE_EVENTS.pairRequest, (request) => {
         // 新请求到达时清除上一轮应答的残留错误（B2）。
         pairError.value = null;
-        pairRequest.value = event.payload;
+        pairRequest.value = request;
       }),
     );
     unlistenFns.push(
-      await listen<PairJoinFailed>(IPASTE_EVENTS.pairJoinFailed, (event) => {
+      await subscribe<PairJoinFailed>(IPASTE_EVENTS.pairJoinFailed, (failed) => {
         // 后端 reason 为原始字符串，面板原样展示（不做映射）。
-        joinError.value = event.payload.reason;
+        joinError.value = failed.reason;
       }),
     );
     // 面板重开时恢复后端尚未超时作废的待确认配对请求（B1b）：lan-sync 窗口
