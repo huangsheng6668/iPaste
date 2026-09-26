@@ -24,6 +24,7 @@ import { useImageOcr } from "../composables/useImageOcr";
 import { useClipEditor, type ClipEditorHandle } from "../composables/useClipEditor";
 import { useViewerWindow } from "../composables/useViewerWindow";
 import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
+import ViewerMeta from "./viewer/ViewerMeta.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { isEditableTarget } from "../lib/dom";
 import { OCR_LANGUAGE_OPTIONS } from "../lib/ocrLanguages";
@@ -31,7 +32,7 @@ import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { formatTime, typeLabel } from "../lib/format";
+import { typeLabel } from "../lib/format";
 import type { ClipViewerPayload } from "../types";
 
 const payload = ref<ClipViewerPayload | null>(null);
@@ -217,15 +218,11 @@ function handleViewerResize() {
         class="clip-viewer-drag-zone min-w-0 flex-1"
         @mousedown="startWindowDrag"
       >
-        <h1 class="truncate text-base font-semibold text-slate-950">
-          {{ title }}
-        </h1>
-        <p
-          v-if="item"
-          class="truncate text-xs text-slate-500"
-        >
-          {{ typeLabel(item.clipType) }} · {{ formatTime(displayTime) }}
-        </p>
+        <ViewerMeta
+          :title="title"
+          :item="item"
+          :display-time="displayTime"
+        />
       </div>
 
       <div
