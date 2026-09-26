@@ -17,6 +17,7 @@ use crate::lan_sync::frame::{FrameReader, FrameWriter};
 use crate::lan_sync::protocol::{LanMessage, PairRejectReason, IPASTE_ALPN, LAN_PROTOCOL_VERSION};
 use crate::lan_sync::session::fingerprint_hex;
 use crate::lan_sync::ticket::{PairTicket, INVITE_TTL};
+use crate::util::LockRecover;
 
 use super::{
     endpoint_id_from_hex, hex_encode_32, send_stream_opener, DeviceLinkRegistry, CONNECT_TIMEOUT,
@@ -63,7 +64,7 @@ impl DeviceLinkRegistry {
             .take(8)
             .map(|addr| addr.to_string())
             .collect();
-        let secret = self.inner.invites.lock().expect("invites 锁中毒").create();
+        let secret = self.inner.invites.lock_recover("invites").create();
         let ticket = PairTicket {
             version: 1,
             endpoint_id: *self.inner.endpoint.id().as_bytes(),
@@ -89,7 +90,7 @@ impl DeviceLinkRegistry {
 
     /// 作废当前邀请并 emit PairInviteState{None, None}。
     pub(crate) fn cancel_invite(&self) -> Result<(), String> {
-        self.inner.invites.lock().expect("invites 锁中毒").cancel();
+        self.inner.invites.lock_recover("invites").cancel();
         self.emit(
             EVENT_PAIR_INVITE_STATE,
             &PairInviteState {
@@ -102,12 +103,7 @@ impl DeviceLinkRegistry {
 
     /// 用户对 pending 配对请求的决定。无 pending 时报错。
     pub(crate) fn respond_pair(&self, accept: bool) -> Result<(), String> {
-        let pending = self
-            .inner
-            .pending_pair
-            .lock()
-            .expect("pending 锁中毒")
-            .take();
+        let pending = self.inner.pending_pair.lock_recover("pending").take();
         match pending {
             Some(pending) => {
                 // Err（接收方已不在）只可能是流程竞态，忽略——连接侧按拒绝处理
@@ -125,8 +121,7 @@ impl DeviceLinkRegistry {
     pub(crate) fn pending_pair_info(&self) -> Option<PairRequested> {
         self.inner
             .pending_pair
-            .lock()
-            .expect("pending 锁中毒")
+            .lock_recover("pending")
             .as_ref()
             .map(|slot| PairRequested {
                 device_name: slot.device_name.clone(),
