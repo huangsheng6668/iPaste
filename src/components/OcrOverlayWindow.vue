@@ -5,6 +5,7 @@ import { subscribe, type UnlistenFn } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
 import { ipasteApi } from "../lib/ipasteApi";
+import { errorMessage } from "../lib/appError";
 import { useRegionSelection } from "../composables/useRegionSelection";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrOverlaySessionStart } from "../types/generated/OcrOverlaySessionStart";
@@ -14,6 +15,8 @@ const initialFramePath = new URLSearchParams(window.location.search).get("frame"
 const frameSrc = ref(initialFramePath ? fileSrc(initialFramePath) : "");
 const { rect, isSelecting, beginSelection, updateSelection, endSelection } = useRegionSelection();
 const submitFailed = ref(false);
+/** 提交失败的真实原因（AppError.message）：笼统提示会把用户引向设置页。 */
+const submitError = ref("");
 const rootRef = ref<HTMLElement | null>(null);
 let unlistenSessionStart: UnlistenFn | null = null;
 
@@ -43,8 +46,10 @@ function onPointerUp(event: PointerEvent) {
       width: selection.width,
       height: selection.height,
     })
-    .catch(() => {
-      // 截屏失败：留在遮罩内提示，点击或 Esc 关闭
+    .catch((unknownError: unknown) => {
+      // 截屏/裁剪/入库失败都走这里：留在遮罩内提示，点击或 Esc 关闭。
+      // 同时带出真实原因——这些失败与「OCR 资源」无关，只说通用文案是误导。
+      submitError.value = errorMessage(unknownError);
       submitFailed.value = true;
     });
 }
@@ -70,6 +75,7 @@ onMounted(async () => {
       (session) => {
         if (session.monitorIndex !== monitorIndex) return;
         submitFailed.value = false;
+        submitError.value = "";
         endSelection();
         frameSrc.value = `${fileSrc(session.framePath)}?t=${session.timestamp}`;
       },
@@ -118,6 +124,10 @@ onUnmounted(() => {
       class="ocr-overlay-hint ocr-overlay-hint-error"
     >
       {{ t("ocrScreenshot.recognizeFailed") }}
+      <span
+        v-if="submitError"
+        class="ocr-overlay-hint-detail"
+      >{{ submitError }}</span>
     </p>
     <p
       v-else
@@ -177,6 +187,16 @@ onUnmounted(() => {
 }
 
 .ocr-overlay-hint-error {
+  max-width: 80vw;
   background: rgb(180 40 40 / 0.85);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.ocr-overlay-hint-detail {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.85;
+  font-size: 0.75rem;
 }
 </style>

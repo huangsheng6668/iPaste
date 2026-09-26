@@ -4,6 +4,7 @@ import { windowHandle } from "../platform/window";
 import { Check, Copy, ExternalLink, LoaderCircle, ScanText, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
+import { errorMessage } from "../lib/appError";
 import { useIpasteStore } from "../stores/ipasteStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import OcrEngineSelect from "./ocr/OcrEngineSelect.vue";
@@ -23,6 +24,8 @@ const payload = ref<OcrResultPayload | null>(null);
 const selectedProfile = ref<"default" | "manga">("default");
 const selectedOcrLanguage = ref<OcrLanguageId>(loadOcrLanguage());
 const text = ref("");
+/** 失败原因原文（服务商返回的 message / HTTP 状态）：只显示通用文案会把用户引错方向。 */
+const errorDetail = ref("");
 const copied = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 let copiedTimer: number | null = null;
@@ -38,6 +41,7 @@ const canCopy = computed(() => status.value === "ready" && text.value.trim().len
 async function runRecognition(profile: "default" | "manga") {
   if (!payload.value?.imagePath) return;
   status.value = "loading";
+  errorDetail.value = "";
   try {
     const result = await ipasteApi.recognizeImageText(
       payload.value.imagePath,
@@ -54,7 +58,10 @@ async function runRecognition(profile: "default" | "manga") {
     await nextTick();
     textareaRef.value?.focus();
     textareaRef.value?.select();
-  } catch {
+  } catch (unknownError) {
+    // 此前把错误整个丢掉、只显示通用文案：额度用尽/限流/凭据过期都会被
+    // 说成「请在设置中检查 OCR 资源」，用户只能去查一个没问题的配置。
+    errorDetail.value = errorMessage(unknownError);
     status.value = "error";
   }
 }
@@ -234,6 +241,12 @@ async function openImage() {
         class="ocr-result-state ocr-result-state-error"
       >
         <p>{{ t("ocrScreenshot.recognizeFailed") }}</p>
+        <p
+          v-if="errorDetail"
+          class="ocr-result-state-detail"
+        >
+          {{ errorDetail }}
+        </p>
       </div>
       <div
         v-else-if="status === 'expired'"
@@ -400,6 +413,15 @@ async function openImage() {
 
 .ocr-result-state-error {
   color: var(--accent);
+}
+
+.ocr-result-state-detail {
+  max-width: 92%;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .ocr-result-textarea {
