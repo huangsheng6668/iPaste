@@ -34,7 +34,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   const ui = useUiStore();
 
   await subscribe<CapturedEvent>(IPASTE_EVENTS.clipboardCaptured, (payload) => {
-    store.upsertClip(payload.clip, payload.clipTotalCount, payload.wasInserted);
+    store.applyCaptured(payload);
   });
 
   await subscribe<ListeningChangedEvent>(IPASTE_EVENTS.listeningChanged, (payload) => {
@@ -46,19 +46,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   });
 
   await subscribe<ClipUpdatedEvent>(IPASTE_EVENTS.clipUpdated, (payload) => {
-    if (payload.mergedFromId && payload.mergedFromId !== payload.item.id) {
-      if (payload.collection === "history") {
-        store.clips = store.clips.filter((clip) => clip.id !== payload.mergedFromId);
-        store.clipTotalCount = Math.max(0, store.clipTotalCount - 1);
-        store.visibleHistoryTotalCount = Math.max(0, store.visibleHistoryTotalCount - 1);
-      } else {
-        store.categoryItems = store.categoryItems.filter((item) => item.id !== payload.mergedFromId);
-      }
-    }
-    store.patchItem(payload.collection, payload.item);
-    if (payload.collection === "category") {
-      store.syncCloudInBackground();
-    }
+    store.applyClipUpdate(payload);
   });
 
   await subscribe<SettingsChangedEvent>(IPASTE_EVENTS.settingsChanged, (payload) => {

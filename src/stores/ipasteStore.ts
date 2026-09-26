@@ -13,10 +13,12 @@ import { useCategoryStore } from "./categoryStore";
 import { useAutomationStore } from "./automationStore";
 import type {
   AppSnapshot,
+  CapturedEvent,
   Category,
   CategoryHitGroup,
   CategoryItem,
   ClipItem,
+  ClipUpdatedEvent,
   ClipViewItem,
 } from "../types";
 
@@ -401,6 +403,30 @@ export const useIpasteStore = defineStore("ipaste", () => {
     category.patchCategoryItem(item as CategoryItem);
   }
 
+  // —— 事件落库动作（useAppEvents 调用；内部记账字段不再暴露给事件层直写）——
+
+  /** clipboard-captured 事件的落库入口。 */
+  function applyCaptured(payload: CapturedEvent) {
+    upsertClip(payload.clip, payload.clipTotalCount, payload.wasInserted);
+  }
+
+  /** clip-updated 事件的落库入口：合并来源先移除旧条目并递减计数，再 patch 新条目。 */
+  function applyClipUpdate(payload: ClipUpdatedEvent) {
+    if (payload.mergedFromId && payload.mergedFromId !== payload.item.id) {
+      if (payload.collection === "history") {
+        clips.value = clips.value.filter((clip) => clip.id !== payload.mergedFromId);
+        clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
+        visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
+      } else {
+        category.categoryItems = category.categoryItems.filter((item) => item.id !== payload.mergedFromId);
+      }
+    }
+    patchItem(payload.collection, payload.item);
+    if (payload.collection === "category") {
+      sync.syncCloudInBackground();
+    }
+  }
+
   // —— 云同步 ——（执行与计时器在 cloudSyncStore；快照落地留在本 store）
 
   async function applyCloudSnapshot() {
@@ -510,6 +536,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
     clampSelection,
     upsertClip,
     patchItem,
+    applyCaptured,
+    applyClipUpdate,
     closePanelRequested,
     // —— automation 域转发（实现在 automationStore；可写 computed 兼容既有赋值点）——
     automations: computed({ get: () => automation.automations, set: (value) => (automation.automations = value) }),

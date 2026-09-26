@@ -427,3 +427,48 @@ describe("特征：patchItem（clip-updated 事件的落库单元）", () => {
     expect(store.categoryItems[0].displayName).toBe("renamed");
   });
 });
+
+describe("特征：applyClipUpdate（clip-updated 事件入口）", () => {
+  it("history 合并：移除旧条目、递减两个计数并落入新条目", async () => {
+    const store = await hydrate(
+      makeSnapshot({ clips: [makeClip("a", 1), makeClip("b", 2)], clipTotalCount: 2 }),
+    );
+
+    store.applyClipUpdate({
+      collection: "history",
+      item: makeClip("merged-new", 0, { text: "merged", previewText: "merged" }),
+      mergedFromId: "a",
+    });
+
+    expect(store.clips.map((clip) => clip.id)).toEqual(["merged-new", "b"]);
+    expect(store.clipTotalCount).toBe(1);
+    expect(store.visibleHistoryTotalCount).toBe(1);
+  });
+
+  it("category 合并：移除旧条目并替换为新条目", async () => {
+    const items = [makeCategoryItem("i1", "k1", 0), makeCategoryItem("i2", "k1", 1)];
+    const store = await hydrate(makeSnapshot({ categories: [makeCategory("k1", 0)], categoryItems: items }));
+
+    store.applyClipUpdate({
+      collection: "category",
+      item: makeCategoryItem("i2", "k1", 1, { displayName: "merged-name" }),
+      mergedFromId: "i1",
+    });
+
+    expect(store.categoryItems.map((item) => item.id)).toEqual(["i2"]);
+    expect(store.categoryItems[0].displayName).toBe("merged-name");
+  });
+
+  it("非合并更新：只走 patch 路径", async () => {
+    const store = await hydrate(makeSnapshot({ clips: [makeClip("a", 1)], clipTotalCount: 1 }));
+
+    store.applyClipUpdate({
+      collection: "history",
+      item: makeClip("a", 1, { text: "edited", previewText: "edited" }),
+    });
+
+    expect(store.clips.map((clip) => clip.id)).toEqual(["a"]);
+    expect(store.clips[0].text).toBe("edited");
+    expect(store.clipTotalCount).toBe(1);
+  });
+});
