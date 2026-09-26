@@ -14,6 +14,7 @@ import { useClipEditor, type ClipEditorHandle } from "../composables/useClipEdit
 import { useViewerWindow } from "../composables/useViewerWindow";
 import ViewerToolbar from "./viewer/ViewerToolbar.vue";
 import ViewerOcrPanel from "./viewer/ViewerOcrPanel.vue";
+import ViewerStage from "./viewer/ViewerStage.vue";
 import { clipImageSrc } from "../lib/clipMedia";
 import { isEditableTarget } from "../lib/dom";
 import { t } from "../i18n";
@@ -111,6 +112,17 @@ watch(imageSrc, () => {
   resetImageViewState();
   resetOcrState();
 });
+
+// ViewerStage 把舞台 DOM 经 defineExpose 暴露出来；命中测试与选区定位都依赖
+// 真实元素，这里同步到 useImageViewer 持有的 imageStageElement。
+const viewerStageComponent = ref<InstanceType<typeof ViewerStage> | null>(null);
+watch(
+  viewerStageComponent,
+  (component) => {
+    imageStageElement.value = component?.stageElement ?? null;
+  },
+  { flush: "post" },
+);
 
 
 function handleViewerKeydown(event: KeyboardEvent) {
@@ -220,94 +232,32 @@ function handleViewerResize() {
       }"
     >
       <template v-if="isImage">
-        <div
-          ref="imageStageElement"
-          class="viewer-image-stage"
-          :class="{
-            'viewer-image-stage-pannable': canPanImage,
-            'viewer-image-stage-dragging': isImageDragging,
-            'viewer-image-stage-recognizing': isRecognizingImage,
-          }"
+        <ViewerStage
+          ref="viewerStageComponent"
+          :src="imageSrc"
+          :image-style="imageStyle"
+          :image-frame-style="imageFrameStyle"
+          :ocr-text-layer-style="ocrTextLayerStyle"
+          :can-pan="canPanImage"
+          :is-dragging="isImageDragging"
+          :is-recognizing="isRecognizingImage"
+          :lines="imageOcrLines"
+          :words="imageOcrWords"
+          :selected-word-indexes="selectedImageOcrWordIndexes"
+          :highlights="imageOcrSelectionHighlights"
           @wheel="handleImageWheel"
-          @pointerdown="startImagePan"
-          @pointermove="moveImagePan"
-          @pointerup="finishImagePan"
-          @pointercancel="finishImagePan"
-          @lostpointercapture="endImageDrag"
+          @pointer-down="startImagePan"
+          @pointer-move="moveImagePan"
+          @pointer-up="finishImagePan"
+          @pointer-cancel="finishImagePan"
+          @lost-pointer-capture="endImageDrag"
+          @image-load="handleImageLoad"
+          @word-pointer-down="({ event, selectionIndex }) => startImageOcrSelection(event, selectionIndex)"
+          @word-pointer-move="moveImageOcrSelection"
+          @word-pointer-up="finishImageOcrSelection"
+          @word-pointer-cancel="finishImageOcrSelection"
+          @word-pointer-lost-capture="endImageOcrSelection"
         >
-          <div
-            class="viewer-image-frame"
-            :style="imageFrameStyle"
-          >
-            <img
-              :src="imageSrc"
-              :style="imageStyle"
-              draggable="false"
-              :alt="t('common.imagePreviewAlt')"
-              @load="handleImageLoad"
-            >
-            <div
-              v-if="imageOcrLines.length"
-              class="viewer-image-ocr-layer"
-              :style="ocrTextLayerStyle"
-            >
-              <span
-                v-for="highlight in imageOcrSelectionHighlights"
-                :key="highlight.key"
-                class="viewer-image-ocr-highlight"
-                :style="{
-                  left: `${highlight.left}px`,
-                  top: `${highlight.top}px`,
-                  width: `${highlight.width}px`,
-                  height: `${highlight.height}px`,
-                }"
-              />
-              <span
-                v-for="line in imageOcrLines"
-                :key="line.key"
-                class="viewer-image-ocr-line"
-                :style="{
-                  left: `${line.left}px`,
-                  top: `${line.top}px`,
-                  width: `${line.width}px`,
-                  height: `${line.height}px`,
-                  fontSize: `${Math.max(10, line.height * 0.84)}px`,
-                }"
-                aria-hidden="true"
-              >
-                {{ line.text }}
-              </span>
-              <button
-                v-for="word in imageOcrWords"
-                :key="`${word.lineKey}:${word.selectionIndex}`"
-                type="button"
-                class="viewer-image-ocr-word"
-                :class="{ 'viewer-image-ocr-word-selected': selectedImageOcrWordIndexes.has(word.selectionIndex) }"
-                :data-ocr-word-index="word.selectionIndex"
-                :aria-label="word.text"
-                :style="{
-                  left: `${word.left}px`,
-                  top: `${word.top}px`,
-                  width: `${word.width}px`,
-                  height: `${word.height}px`,
-                }"
-                @pointerdown="startImageOcrSelection($event, word.selectionIndex)"
-                @pointermove="moveImageOcrSelection"
-                @pointerup="finishImageOcrSelection"
-                @pointercancel="finishImageOcrSelection"
-                @lostpointercapture="endImageOcrSelection"
-              />
-            </div>
-          </div>
-
-          <div
-            v-if="isRecognizingImage"
-            class="viewer-image-scan-mask"
-            aria-hidden="true"
-          >
-            <span />
-          </div>
-
           <ViewerOcrPanel
             v-if="showImageOcrPanel"
             :panel-collapsed="isImageOcrPanelCollapsed"
@@ -326,7 +276,7 @@ function handleViewerResize() {
             @paste-text="pasteImageOcrText"
             @clear-selection="clearImageTextSelection"
           />
-        </div>
+        </ViewerStage>
       </template>
 
       <textarea
