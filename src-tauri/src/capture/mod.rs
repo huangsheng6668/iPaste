@@ -171,7 +171,14 @@ fn end_session(
         let _ = show_main_window(app, MainWindowActivation::Activate);
     }
     if let Ok(dir) = app.path().app_data_dir() {
-        let _ = std::fs::remove_dir_all(dir.join(OVERLAY_FRAME_DIR));
+        let frames_dir = dir.join(OVERLAY_FRAME_DIR);
+        // Task 42 清理失败类的代表点：冻结帧是整屏未压缩 BMP，清理失败会持续占盘，
+        // 此前完全静默。目录本来就不存在是正常路径（从未截图过），不产生噪音。
+        if let Err(error) = std::fs::remove_dir_all(&frames_dir) {
+            if frames_dir.exists() {
+                eprintln!("[ipaste] 清理截图冻结帧目录失败：{error}");
+            }
+        }
     }
 }
 
