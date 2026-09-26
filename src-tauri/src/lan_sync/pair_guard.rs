@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use crate::util::LockRecover;
+
 /// 失败 5 次起开始退避（2s 起指数增长封顶 32s）；20 次后封禁 10 分钟。
 const DELAY_START_FAILURES: u32 = 5;
 const BLOCK_FAILURES: u32 = 20;
@@ -38,7 +40,7 @@ impl PairGuard {
 
     /// 该 node_id 当前是否处于封禁期。
     pub(crate) fn is_blocked(&self, node_id: &str, now: Instant) -> bool {
-        let states = self.states.lock().expect("pair guard poisoned");
+        let states = self.states.lock_recover("pair guard");
         states
             .get(node_id)
             .and_then(|s| s.blocked_until)
@@ -49,7 +51,7 @@ impl PairGuard {
     /// 记录一次失败，返回调用方应等待的退避时长。达到封禁阈值时内部置封禁并返回 0
     /// （调用方应直接拒绝连接）。
     pub(crate) fn record_failure(&self, node_id: &str, now: Instant) -> Duration {
-        let mut states = self.states.lock().expect("pair guard poisoned");
+        let mut states = self.states.lock_recover("pair guard");
         let state = states
             .entry(node_id.to_string())
             .or_insert_with(|| AttemptState {
@@ -72,10 +74,7 @@ impl PairGuard {
 
     /// 配对成功，清除该 node_id 的失败记录。
     pub(crate) fn record_success(&self, node_id: &str) {
-        self.states
-            .lock()
-            .expect("pair guard poisoned")
-            .remove(node_id);
+        self.states.lock_recover("pair guard").remove(node_id);
     }
 
     /// 清理过期条目：仅保留「封禁仍在生效」或「`STALE_AFTER` 内有活动」的 node_id。
@@ -83,13 +82,10 @@ impl PairGuard {
     /// 永久留在内存里（攻击者可借此线性堆积条目）。持续攻击者的
     /// `last_activity` 会不断刷新，其条目不会因此被提前清理。
     pub(crate) fn prune(&self, now: Instant) {
-        self.states
-            .lock()
-            .expect("pair guard poisoned")
-            .retain(|_, s| {
-                s.blocked_until.map(|until| now < until).unwrap_or(false)
-                    || now.duration_since(s.last_activity) < STALE_AFTER
-            });
+        self.states.lock_recover("pair guard").retain(|_, s| {
+            s.blocked_until.map(|until| now < until).unwrap_or(false)
+                || now.duration_since(s.last_activity) < STALE_AFTER
+        });
     }
 }
 
