@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,6 +9,12 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [vue(), tailwindcss()],
+
+  // Vitest：与构建共用同一 Vite 管道（含 vue 插件，组件测试可直接编译 SFC）。
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
