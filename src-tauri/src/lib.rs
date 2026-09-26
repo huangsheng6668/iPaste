@@ -110,12 +110,12 @@ pub fn run() {
                     };
                     let (active_shortcut, active_ocr_shortcut) = {
                         let panel = state
-                            .active_shortcut
+                            .shortcuts.active_shortcut
                             .lock()
                             .map(|value| value.clone())
                             .ok();
                         let ocr = state
-                            .active_ocr_shortcut
+                            .shortcuts.active_ocr_shortcut
                             .lock()
                             .map(|value| value.clone())
                             .ok();
@@ -301,22 +301,30 @@ pub fn run() {
                     last_clipboard_change_id: Arc::new(Mutex::new(None)),
                     last_clipboard_hash: Arc::new(Mutex::new(None)),
                 },
-                show_menu_item: show_menu_item.clone(),
-                append_copy_menu_item: append_copy_menu_item.clone(),
-                pause_capture_menu_item: pause_capture_menu_item.clone(),
-                settings_menu_item: settings_menu_item.clone(),
-                quit_menu_item: quit_menu_item.clone(),
-                is_dragging_main_window: Arc::new(Mutex::new(false)),
-                target_app_bundle_id: Arc::new(Mutex::new(None)),
-                main_window_activation: Arc::new(Mutex::new(MainWindowActivation::Activate)),
-                active_shortcut: Arc::new(Mutex::new(settings.shortcut.clone())),
-                active_ocr_shortcut: Arc::new(Mutex::new(settings.ocr_shortcut.clone())),
-                ocr_menu_item: ocr_menu_item.clone(),
-                is_app_shortcut_enabled: Arc::new(Mutex::new(true)),
-                capture_session: Arc::new(Mutex::new(None)),
-                ocr_result_payloads: Arc::new(Mutex::new(std::collections::HashMap::new())),
-                #[cfg(target_os = "macos")]
-                main_panel_state: Arc::new(Mutex::new(None)),
+                ui: crate::state::UiHandles {
+                    show_menu_item: show_menu_item.clone(),
+                    append_copy_menu_item: append_copy_menu_item.clone(),
+                    pause_capture_menu_item: pause_capture_menu_item.clone(),
+                    settings_menu_item: settings_menu_item.clone(),
+                    quit_menu_item: quit_menu_item.clone(),
+                    ocr_menu_item: ocr_menu_item.clone(),
+                },
+                shortcuts: crate::state::ShortcutState {
+                    active_shortcut: Arc::new(Mutex::new(settings.shortcut.clone())),
+                    active_ocr_shortcut: Arc::new(Mutex::new(settings.ocr_shortcut.clone())),
+                    is_app_shortcut_enabled: Arc::new(Mutex::new(true)),
+                },
+                window: crate::state::WindowState {
+                    is_dragging_main_window: Arc::new(Mutex::new(false)),
+                    target_app_bundle_id: Arc::new(Mutex::new(None)),
+                    main_window_activation: Arc::new(Mutex::new(MainWindowActivation::Activate)),
+                    #[cfg(target_os = "macos")]
+                    main_panel_state: Arc::new(Mutex::new(None)),
+                },
+                ocr: crate::state::OcrRuntime {
+                    capture_session: Arc::new(Mutex::new(None)),
+                    ocr_result_payloads: Arc::new(Mutex::new(std::collections::HashMap::new())),
+                },
             };
 
             // 跨设备同步：加载设备身份 → 起 iroh endpoint（中继：自定义优先，否则
@@ -429,7 +437,7 @@ pub fn run() {
                             .try_state::<AppState>()
                             .and_then(|state| {
                                 state
-                                    .is_dragging_main_window
+                                    .window.is_dragging_main_window
                                     .lock()
                                     .ok()
                                     .map(|value| *value)

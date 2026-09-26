@@ -1,9 +1,6 @@
-use std::sync::{Arc, Mutex};
-
 use crate::store::Store;
 
 use serde::{Deserialize, Serialize};
-use tauri::{menu::MenuItem, Wry};
 use ts_rs::TS;
 
 #[derive(Clone, Copy)]
@@ -407,26 +404,22 @@ pub(crate) struct MainPanelState {
     pub(crate) visible: bool,
 }
 
+/// 应用级共享状态：组合根（Task 27 起按域聚合）。
+///
+/// 每个域结构体只承载状态句柄，锁的粒度与获取顺序与聚合前完全一致；
+/// 命令层仍以 `state.<domain>.<field>` 访问。
 pub struct AppState {
     pub store: Store,
-    /// 剪贴板捕获域（Task 27 聚合：监听开关 / 追加复制会话 / 去重光标）。
+    /// 剪贴板捕获域：监听开关 / 追加复制会话 / 去重光标。
     pub capture: crate::state::CaptureState,
-    pub show_menu_item: MenuItem<Wry>,
-    pub append_copy_menu_item: MenuItem<Wry>,
-    pub pause_capture_menu_item: MenuItem<Wry>,
-    pub settings_menu_item: MenuItem<Wry>,
-    pub quit_menu_item: MenuItem<Wry>,
-    pub is_dragging_main_window: Arc<Mutex<bool>>,
-    pub target_app_bundle_id: Arc<Mutex<Option<String>>>,
-    pub main_window_activation: Arc<Mutex<MainWindowActivation>>,
-    pub active_shortcut: Arc<Mutex<String>>,
-    pub active_ocr_shortcut: Arc<Mutex<String>>,
-    pub ocr_menu_item: MenuItem<Wry>,
-    pub is_app_shortcut_enabled: Arc<Mutex<bool>>,
-    pub capture_session: Arc<Mutex<Option<crate::capture::CaptureSession>>>,
-    pub ocr_result_payloads: Arc<Mutex<std::collections::HashMap<String, OcrResultPayload>>>,
-    #[cfg(target_os = "macos")]
-    pub main_panel_state: Arc<Mutex<Option<MainPanelState>>>,
+    /// 托盘菜单句柄。
+    pub ui: crate::state::UiHandles,
+    /// 全局快捷键域。
+    pub shortcuts: crate::state::ShortcutState,
+    /// 窗口域：拖动抑制、目标应用、激活方式、macOS 面板缓存。
+    pub window: crate::state::WindowState,
+    /// OCR 域：截图会话与结果载荷缓存。
+    pub ocr: crate::state::OcrRuntime,
 }
 
 #[cfg(test)]

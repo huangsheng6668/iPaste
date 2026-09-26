@@ -77,7 +77,7 @@ pub(crate) fn update_shortcut(
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
     let active_ocr_shortcut = state
-        .active_ocr_shortcut
+        .shortcuts.active_ocr_shortcut
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .clone();
@@ -95,7 +95,7 @@ pub(crate) fn update_ocr_shortcut(
 ) -> Result<AppSettings, AppError> {
     let shortcut = clean_shortcut(shortcut)?;
     let active_panel_shortcut = state
-        .active_shortcut
+        .shortcuts.active_shortcut
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .clone();

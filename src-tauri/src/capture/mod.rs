@@ -188,7 +188,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
 
     {
         let mut session = state
-            .capture_session
+            .ocr.capture_session
             .lock()
             .map_err(|error| error.to_string())?;
         if session.is_some() {
@@ -205,7 +205,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     if main_was_visible {
         // 失败也必须收尾会话：占位已写入，直接 ? 返回会卡死后续所有触发。
         if let Err(error) = hide_main_window(app) {
-            end_session(app, &state.capture_session, true);
+            end_session(app, &state.ocr.capture_session, true);
             return Err(error);
         }
         // 冻结帧捕获前等合成器把主面板从画面里刷掉
@@ -215,19 +215,19 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     let monitors = match app.available_monitors() {
         Ok(monitors) => monitors,
         Err(error) => {
-            end_session(app, &state.capture_session, true);
+            end_session(app, &state.ocr.capture_session, true);
             return Err(error.to_string());
         }
     };
     if monitors.is_empty() {
-        end_session(app, &state.capture_session, true);
+        end_session(app, &state.ocr.capture_session, true);
         return Err("未找到可用屏幕".to_string());
     }
 
     let labels = match overlay::sync_overlay_windows(app, &monitors) {
         Ok(labels) => labels,
         Err(error) => {
-            end_session(app, &state.capture_session, true);
+            end_session(app, &state.ocr.capture_session, true);
             return Err(error);
         }
     };
@@ -235,7 +235,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     let frames = match screen::capture_all_monitor_frames(&monitors) {
         Ok(frames) => frames,
         Err(error) => {
-            frame_capture_failed(app, &state.capture_session);
+            frame_capture_failed(app, &state.ocr.capture_session);
             eprintln!("frozen frame capture failed: {error}");
             return Ok(());
         }
@@ -244,7 +244,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     let frame_dir = match overlay_frame_dir(app) {
         Ok(dir) => dir,
         Err(error) => {
-            end_session(app, &state.capture_session, true);
+            end_session(app, &state.ocr.capture_session, true);
             return Err(error);
         }
     };
@@ -258,7 +258,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     for (index, frame) in frames.into_iter().enumerate() {
         let path = frame_dir.join(format!("frozen-{index}.bmp"));
         if let Err(error) = write_frame_bmp(&path, &frame) {
-            frame_capture_failed(app, &state.capture_session);
+            frame_capture_failed(app, &state.ocr.capture_session);
             eprintln!("frozen frame encode failed: {error}");
             return Ok(());
         }
@@ -274,7 +274,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     }
 
     *state
-        .capture_session
+        .ocr.capture_session
         .lock()
         .map_err(|error| error.to_string())? = Some(CaptureSession {
         overlay_labels: labels.clone(),
@@ -283,7 +283,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
     });
 
     if let Err(error) = overlay::show_overlay_windows(app, &labels) {
-        end_session(app, &state.capture_session, true);
+        end_session(app, &state.ocr.capture_session, true);
         return Err(error);
     }
 
@@ -294,7 +294,7 @@ pub(crate) fn cancel_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String
     let Some(state) = app.try_state::<AppState>() else {
         return Ok(());
     };
-    end_session(app, &state.capture_session, true);
+    end_session(app, &state.ocr.capture_session, true);
     Ok(())
 }
 
@@ -307,8 +307,8 @@ pub(crate) async fn submit_screenshot_selection(
     };
     // 提前克隆 Arc 句柄：避免跨 await 持有 State 借用
     let (capture_session, payloads, store) = (
-        state.capture_session.clone(),
-        state.ocr_result_payloads.clone(),
+        state.ocr.capture_session.clone(),
+        state.ocr.ocr_result_payloads.clone(),
         state.store.clone(),
     );
 

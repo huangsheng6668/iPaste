@@ -83,7 +83,7 @@ pub(crate) fn remember_main_window_activation(
     };
 
     let mut current = state
-        .main_window_activation
+        .window.main_window_activation
         .lock()
         .map_err(|error| error.to_string())?;
     *current = activation;
@@ -94,7 +94,7 @@ pub(crate) fn current_main_window_activation(app: &tauri::AppHandle) -> MainWind
     app.try_state::<AppState>()
         .and_then(|state| {
             state
-                .main_window_activation
+                .window.main_window_activation
                 .lock()
                 .ok()
                 .map(|activation| *activation)
@@ -108,7 +108,7 @@ pub(crate) fn remember_target_app_for_paste(app: &tauri::AppHandle) {
     };
 
     if let Some(bundle_id) = frontmost_external_app_bundle_id(app) {
-        if let Ok(mut target) = state.target_app_bundle_id.lock() {
+        if let Ok(mut target) = state.window.target_app_bundle_id.lock() {
             *target = Some(bundle_id);
         }
     }
@@ -156,7 +156,7 @@ pub(crate) fn paste_to_previous_app(
     state: &AppState,
 ) -> Result<(), AppError> {
     let target_app_bundle_id = state
-        .target_app_bundle_id
+        .window.target_app_bundle_id
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .clone();

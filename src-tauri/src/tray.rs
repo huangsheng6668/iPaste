@@ -28,7 +28,7 @@ pub(crate) fn update_pause_capture_menu_label(state: &AppState, is_listening: bo
             "resume_capture"
         },
     );
-    let _ = state.pause_capture_menu_item.set_text(label);
+    let _ = state.ui.pause_capture_menu_item.set_text(label);
 }
 
 pub(crate) fn set_append_copy_enabled_inner(
@@ -65,7 +65,7 @@ pub(crate) fn set_append_copy_enabled_inner(
         spawn_append_copy_timeout(
             app.clone(),
             state.capture.append_copy_state.clone(),
-            state.append_copy_menu_item.clone(),
+            state.ui.append_copy_menu_item.clone(),
             session_id,
             timeout,
             settings.language,
@@ -88,7 +88,7 @@ fn update_append_copy_menu_label(state: &AppState, is_enabled: bool) {
             "enable_append_copy"
         },
     );
-    let _ = state.append_copy_menu_item.set_text(label);
+    let _ = state.ui.append_copy_menu_item.set_text(label);
 }
 
 fn spawn_append_copy_timeout(
@@ -188,16 +188,16 @@ fn tray_icon() -> Option<tauri::image::Image<'static>> {
 
 pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
     let _ = state
-        .show_menu_item
+        .ui.show_menu_item
         .set_text(localized_text(language, "open_ipaste"));
     let _ = state
-        .ocr_menu_item
+        .ui.ocr_menu_item
         .set_text(localized_text(language, "screenshot_ocr"));
     let _ = state
-        .settings_menu_item
+        .ui.settings_menu_item
         .set_text(localized_text(language, "settings"));
     let _ = state
-        .quit_menu_item
+        .ui.quit_menu_item
         .set_text(localized_text(language, "quit_ipaste"));
 
     let is_append_copy_enabled = state
@@ -205,7 +205,7 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
         .lock()
         .map(|append_copy| append_copy.is_enabled)
         .unwrap_or(false);
-    let _ = state.append_copy_menu_item.set_text(localized_text(
+    let _ = state.ui.append_copy_menu_item.set_text(localized_text(
         language,
         if is_append_copy_enabled {
             "disable_append_copy"
@@ -219,7 +219,7 @@ pub(crate) fn apply_tray_language(state: &AppState, language: &str) {
         .lock()
         .map(|listening| *listening)
         .unwrap_or(true);
-    let _ = state.pause_capture_menu_item.set_text(localized_text(
+    let _ = state.ui.pause_capture_menu_item.set_text(localized_text(
         language,
         if is_listening {
             "pause_capture"
