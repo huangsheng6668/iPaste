@@ -20,7 +20,7 @@ vi.stubGlobal("document", {
   createElement: () => ({}),
 });
 
-const { useIpasteStore } = await import("../stores/ipasteStore");
+const { useSettingsStore } = await import("../stores/settingsStore");
 const { useOpenaiOcr } = await import("./useOpenaiOcr");
 
 describe("useOpenaiOcr", () => {
@@ -29,9 +29,9 @@ describe("useOpenaiOcr", () => {
     vi.clearAllMocks();
   });
 
-  it("当 store.cloudOcr 已经加载时，初始化立即读取已保存的配置，表单不为空", () => {
-    const store = useIpasteStore();
-    store.cloudOcr = {
+  it("当 settings.cloudOcr 已经加载时，初始化立即读取已保存的配置，表单不为空", () => {
+    const settings = useSettingsStore();
+    settings.cloudOcr = {
       openaiBaseUrl: "https://api.openai.com/v1",
       openaiModel: "glm-4v-flash",
       openaiApiKey: "sk-test-key-123456",
@@ -55,8 +55,8 @@ describe("useOpenaiOcr", () => {
     expect(formComplete.value).toBe(true);
   });
 
-  it("当 store.cloudOcr 在初始化之后更新时，表单自动响应同步", async () => {
-    const store = useIpasteStore();
+  it("当 settings.cloudOcr 在初始化之后更新时，表单自动响应同步", async () => {
+    const settings = useSettingsStore();
     const {
       openaiBaseUrl,
       openaiModel,
@@ -68,7 +68,7 @@ describe("useOpenaiOcr", () => {
     expect(openaiBaseUrl.value).toBe("");
     expect(formComplete.value).toBe(false);
 
-    store.cloudOcr = {
+    settings.cloudOcr = {
       openaiBaseUrl: "https://api.deepseek.com/v1",
       openaiModel: "deepseek-chat",
       openaiApiKey: "sk-loaded-later",

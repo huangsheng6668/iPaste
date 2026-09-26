@@ -33,12 +33,18 @@ import { isMacOs, isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
 import { useIpasteStore } from "./stores/ipasteStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import { useCategoryStore } from "./stores/categoryStore";
+import { useAutomationStore } from "./stores/automationStore";
+import { useCloudSyncStore } from "./stores/cloudSyncStore";
 import { IPASTE_EVENTS } from "./types/generated/events";
 import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "./types";
 
 const store = useIpasteStore();
+const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
+const automationStore = useAutomationStore();
+const cloudSyncStore = useCloudSyncStore();
 const updater = useUpdater();
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
 const isClipViewerWindow = new URLSearchParams(window.location.search).get("window") === "clip-viewer";
@@ -247,7 +253,7 @@ onMounted(async () => {
   setupWatches();
 
   await store.load();
-  await store.loadAutomations();
+  await automationStore.loadAutomations();
   watchClosePanelRequest();
   await useAppEvents(store);
   if (isTauri) {
@@ -282,6 +288,8 @@ onUnmounted(() => {
   unlistenShortcutOpened = null;
   unlistenPanelVisibilityChanged = null;
   document.body.classList.remove("ipaste-preserve-current-app");
+  // 停掉挂起的后台云同步计时器（主窗口卸载即应用退出的场景下与进程消亡等价）。
+  cloudSyncStore.dispose();
 });
 
 watch(isPreservingCurrentApp, (preservesCurrentApp) => {
@@ -442,12 +450,12 @@ function scheduleSilentUpdateCheck() {
 }
 
 const selectedClipItem = computed(() => store.visibleItems[store.selectedIndex] ?? null);
-const selectedAutomationAction = computed(() => store.visibleActions[store.selectedActionIndex] ?? null);
+const selectedAutomationAction = computed(() => automationStore.visibleActions[automationStore.selectedActionIndex] ?? null);
 
 const nextCategoryLabel = computed(() => {
   const categoryNamesById = new Map<string, string>([
     ["history", t("category.history")],
-    ...store.categories.map((c) => [c.id, categoryDisplayName(c.name)] as const),
+    ...categoryStore.categories.map((c) => [c.id, categoryDisplayName(c.name)] as const),
     ["automation", t("automation.entry")],
   ]);
   const ids = store.allCategoryIds;
@@ -475,14 +483,14 @@ const nextCategoryLabel = computed(() => {
     <CommandSearchBar
       :search-query="store.search"
       :shortcut="formattedShortcut"
-      :categories="store.categories"
+      :categories="categoryStore.categories"
       :selected-category-id="store.selectedCategoryId"
       :editing-category-id="editingCategoryId"
       :history-count="store.clipTotalCount"
       :category-counts="categoryItemCounts"
       :settings-open="false"
       :append-copy-enabled="store.isAppendCopyEnabled"
-      :append-copy-timeout-minutes="store.appendCopyTimeoutMinutes"
+      :append-copy-timeout-minutes="settingsStore.appendCopyTimeoutMinutes"
       :has-update="updater.hasAvailableUpdate.value"
       :checking-update="updater.updateStatus.value === 'checking'"
       @update:search-query="store.search = $event"
@@ -527,7 +535,7 @@ const nextCategoryLabel = computed(() => {
       <ClipListPane
         :list-ref="setClipListElement"
         :items="store.visibleItems"
-        :selected-index="store.selectedCategoryId === 'automation' ? store.selectedActionIndex : store.selectedIndex"
+        :selected-index="store.selectedCategoryId === 'automation' ? automationStore.selectedActionIndex : store.selectedIndex"
         :selected-category-id="store.selectedCategoryId"
         :is-loading-more="store.isLoadingMoreClips"
         :can-reorder="canReorderVisibleItems"
@@ -537,7 +545,7 @@ const nextCategoryLabel = computed(() => {
         :dragging-item-key="draggingItemKey"
         :item-drop-target-key="itemDropTargetKey"
         :item-drop-side="itemDropSide"
-        :visible-actions="store.visibleActions"
+        :visible-actions="automationStore.visibleActions"
         :fallback-groups="store.fallbackGroups"
         :item-category-tags="itemCategoryTags"
         :item-drag-style="itemDragStyle"
@@ -553,7 +561,7 @@ const nextCategoryLabel = computed(() => {
         @reorder-pointer-down="startItemDrag"
         @hover-preview="hoverPreviewItem"
         @leave-preview="clearHoveredPreviewItem"
-        @select-action="(action) => selectActionCard(store.visibleActions.findIndex((a: AutomationAction) => a.id === action.id))"
+        @select-action="(action) => selectActionCard(automationStore.visibleActions.findIndex((a: AutomationAction) => a.id === action.id))"
         @run-action="runSelectedAction"
         @edit-action="openAutomationEditor"
         @delete-action="deleteAutomationAction"
@@ -588,7 +596,7 @@ const nextCategoryLabel = computed(() => {
     <ClipContextMenu
       v-if="contextMenu"
       :context-menu="contextMenu"
-      :categories="store.categories"
+      :categories="categoryStore.categories"
       :delete-label="contextDeleteLabel(contextMenu.item)"
       :delete-confirming="pendingDeleteContextKey === contextItemKey(contextMenu.item)"
       :show-move-submenu="showMoveSubmenu"

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { reactive, ref } from "vue";
+import { createPinia, setActivePinia } from "pinia";
 import { usePanelKeyboard } from "./usePanelKeyboard";
+import { useAutomationStore } from "../stores/automationStore";
 import type { AutomationAction, Category, ClipViewItem } from "../types";
 
 function createFakeElement(options: { isSearch?: boolean; isInput?: boolean } = {}): EventTarget {
@@ -81,6 +83,13 @@ function setupDeps(overrides: Record<string, unknown> = {}) {
     updatedAt: "10:00",
   };
 
+  // automation 域走真实 store（组合式内部经 useAutomationStore 消费）；
+  // 面板域仍是假 store。
+  setActivePinia(createPinia());
+  const automationStore = useAutomationStore();
+  automationStore.automations = [action1] as AutomationAction[];
+  automationStore.selectedActionIndex = 0;
+
   const store = reactive({
     selectedCategoryId: "history",
     categories: [{ id: "cat-1", name: "Dev" }] as Category[],
@@ -92,8 +101,6 @@ function setupDeps(overrides: Record<string, unknown> = {}) {
     get allCategoryIds(): string[] {
       return ["history", ...this.categories.map((category) => category.id), "automation"];
     },
-    visibleActions: [action1] as AutomationAction[],
-    selectedActionIndex: 0,
     search: "",
     applySelected: vi.fn(),
     copyItem: vi.fn(),
@@ -152,7 +159,7 @@ function setupDeps(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as unknown as Parameters<typeof usePanelKeyboard>[0];
 
-  return { deps, store, clipMenu, automationFlow, openClipViewer, hidePanelFromUi };
+  return { deps, store, automationStore, clipMenu, automationFlow, openClipViewer, hidePanelFromUi };
 }
 
 describe("usePanelKeyboard shortcuts", () => {
@@ -168,14 +175,14 @@ describe("usePanelKeyboard shortcuts", () => {
   });
 
   it("Enter: runs automation action in automation mode", () => {
-    const { deps, store, automationFlow } = setupDeps();
+    const { deps, store, automationFlow, automationStore } = setupDeps();
     store.selectedCategoryId = "automation";
     const keyboard = usePanelKeyboard(deps);
 
     const event = createFakeEvent({ key: "Enter" });
     keyboard.handleKeydown(event);
 
-    expect(automationFlow.runSelectedAction).toHaveBeenCalledWith(store.visibleActions[0]);
+    expect(automationFlow.runSelectedAction).toHaveBeenCalledWith(automationStore.visibleActions[0]);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -191,14 +198,14 @@ describe("usePanelKeyboard shortcuts", () => {
   });
 
   it("Ctrl+C: copies automation command in automation mode", () => {
-    const { deps, store, automationFlow } = setupDeps();
+    const { deps, store, automationFlow, automationStore } = setupDeps();
     store.selectedCategoryId = "automation";
     const keyboard = usePanelKeyboard(deps);
 
     const event = createFakeEvent({ key: "c", ctrlKey: true });
     keyboard.handleKeydown(event);
 
-    expect(automationFlow.copyAutomationCommand).toHaveBeenCalledWith(store.visibleActions[0]);
+    expect(automationFlow.copyAutomationCommand).toHaveBeenCalledWith(automationStore.visibleActions[0]);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -242,26 +249,26 @@ describe("usePanelKeyboard shortcuts", () => {
   });
 
   it("Backspace: deletes action in automation mode", () => {
-    const { deps, store, automationFlow } = setupDeps();
+    const { deps, store, automationFlow, automationStore } = setupDeps();
     store.selectedCategoryId = "automation";
     const keyboard = usePanelKeyboard(deps);
 
     const event = createFakeEvent({ key: "Backspace" });
     keyboard.handleKeydown(event);
 
-    expect(automationFlow.deleteAutomationAction).toHaveBeenCalledWith(store.visibleActions[0]);
+    expect(automationFlow.deleteAutomationAction).toHaveBeenCalledWith(automationStore.visibleActions[0]);
     expect(event.defaultPrevented).toBe(true);
   });
 
   it("E: opens automation editor in automation mode", () => {
-    const { deps, store, automationFlow } = setupDeps();
+    const { deps, store, automationFlow, automationStore } = setupDeps();
     store.selectedCategoryId = "automation";
     const keyboard = usePanelKeyboard(deps);
 
     const event = createFakeEvent({ key: "e" });
     keyboard.handleKeydown(event);
 
-    expect(automationFlow.openAutomationEditor).toHaveBeenCalledWith(store.visibleActions[0]);
+    expect(automationFlow.openAutomationEditor).toHaveBeenCalledWith(automationStore.visibleActions[0]);
     expect(event.defaultPrevented).toBe(true);
   });
 

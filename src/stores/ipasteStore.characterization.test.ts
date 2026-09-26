@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import type { AppSnapshot, AppSettings, Category, CategoryItem, ClipItem, ClipPage, OcrEngine } from "../types";
 import { useUiStore } from "./uiStore";
+import { useSettingsStore } from "./settingsStore";
+import { useCategoryStore } from "./categoryStore";
 
 vi.mock("../lib/ipasteApi", () => ({
   ipasteApi: {
@@ -134,10 +136,11 @@ describe("特征：快照装载与选择复位", () => {
     const store = await hydrate(
       makeSnapshot({ clips, hasMoreClips: true, clipTotalCount: 9, categories, categoryItems }),
     );
+    const category = useCategoryStore();
 
     expect(store.clips).toEqual(clips);
-    expect(store.categories).toEqual(categories);
-    expect(store.categoryItems).toEqual(categoryItems);
+    expect(category.categories).toEqual(categories);
+    expect(category.categoryItems).toEqual(categoryItems);
     expect(store.hasMoreClips).toBe(true);
     expect(store.clipTotalCount).toBe(9);
     expect(store.visibleHistoryTotalCount).toBe(9);
@@ -273,57 +276,61 @@ describe("特征：历史分页", () => {
 
 describe("特征：设置写入的两条不等价路径（F2 锚点）", () => {
   it("updateRetentionDays 成功后触发一次完整 load()", async () => {
-    const store = await hydrate(makeSnapshot());
+    await hydrate(makeSnapshot());
+    const settings = useSettingsStore();
     updateSettingsMock.mockResolvedValueOnce(makeSettings({ retentionDays: 14 }));
 
     // hydrate 已消费一次 snapshot，这里只统计本操作触发的完整重载。
     snapshotMock.mockClear();
 
-    await store.updateRetentionDays(14);
+    await settings.updateRetentionDays(14);
 
     expect(updateSettingsMock).toHaveBeenCalledWith(14);
-    expect(store.retentionDays).toBe(14);
+    expect(settings.retentionDays).toBe(14);
     expect(snapshotMock).toHaveBeenCalledTimes(1);
   });
 
   it("updateAppendCopyTimeout 命令缺失时静默容忍且保留乐观值", async () => {
-    const store = await hydrate(makeSnapshot());
+    await hydrate(makeSnapshot());
+    const settings = useSettingsStore();
     updateAppendCopyTimeoutMock.mockRejectedValueOnce({
       code: "command_missing",
       message: "Command update_append_copy_timeout not found",
     });
 
-    await expect(store.updateAppendCopyTimeout(3)).resolves.toBeUndefined();
+    await expect(settings.updateAppendCopyTimeout(3)).resolves.toBeUndefined();
 
     expect(updateAppendCopyTimeoutMock).toHaveBeenCalledWith(3);
-    expect(store.appendCopyTimeoutMinutes).toBe(3);
+    expect(settings.appendCopyTimeoutMinutes).toBe(3);
     expect(useUiStore().toasts).toHaveLength(0);
   });
 
   it("updateAppendCopyTimeout 真实失败时 toast + 抛出（与上一条形成 F2 对照）", async () => {
-    const store = await hydrate(makeSnapshot());
+    await hydrate(makeSnapshot());
+    const settings = useSettingsStore();
     updateAppendCopyTimeoutMock.mockRejectedValueOnce({ code: "io", message: "disk full" });
 
-    await expect(store.updateAppendCopyTimeout(3)).rejects.toMatchObject({ message: "disk full" });
+    await expect(settings.updateAppendCopyTimeout(3)).rejects.toMatchObject({ message: "disk full" });
     expect(useUiStore().toasts.map((toast) => toast.message)).toContain("disk full");
   });
 
   it("updateOcrEngine 脏值先清洗再落库（非法值不会到达后端）", async () => {
-    const store = await hydrate(makeSnapshot());
+    await hydrate(makeSnapshot());
+    const settings = useSettingsStore();
     updateOcrEngineMock.mockResolvedValueOnce(makeSettings({ ocrEngine: "local" }));
 
     // 模拟边界外传来的脏值：参数类型是 OcrEngine，但 clean 层存在的意义就是兜底非法运行时值。
-    await store.updateOcrEngine("bogus" as OcrEngine);
+    await settings.updateOcrEngine("bogus" as OcrEngine);
 
     expect(updateOcrEngineMock).toHaveBeenCalledWith("local");
-    expect(store.ocrEngine).toBe("local");
+    expect(settings.ocrEngine).toBe("local");
   });
 });
 
 describe("特征：applySettings 广播回填", () => {
   it("回填全部设置字段并触发 setLanguage 副作用", () => {
-    const store = useIpasteStore();
-    const settings = makeSettings({
+    const settings = useSettingsStore();
+    const next = makeSettings({
       shortcut: "CommandOrControl+Alt+P",
       ocrShortcut: "",
       retentionDays: 7,
@@ -335,19 +342,19 @@ describe("特征：applySettings 广播回填", () => {
       language: "zh-CN",
     });
 
-    store.applySettings(settings);
+    settings.applySettings(next);
 
-    expect(store.shortcut).toBe("CommandOrControl+Alt+P");
+    expect(settings.shortcut).toBe("CommandOrControl+Alt+P");
     // 空的 ocrShortcut 回退默认值。
-    expect(store.ocrShortcut).toBe("CommandOrControl+Shift+O");
-    expect(store.retentionDays).toBe(7);
-    expect(store.appendCopyTimeoutMinutes).toBe(5);
-    expect(store.panelOpenBehavior).toBe("last_selected");
-    expect(store.panelLayout).toBe("side");
-    expect(store.ocrMode).toBe("best");
-    expect(store.ocrEngine).toBe("openai");
-    expect(store.language).toBe("zh-CN");
-    expect(store.cloud).toEqual(settings.cloud);
+    expect(settings.ocrShortcut).toBe("CommandOrControl+Shift+O");
+    expect(settings.retentionDays).toBe(7);
+    expect(settings.appendCopyTimeoutMinutes).toBe(5);
+    expect(settings.panelOpenBehavior).toBe("last_selected");
+    expect(settings.panelLayout).toBe("side");
+    expect(settings.ocrMode).toBe("best");
+    expect(settings.ocrEngine).toBe("openai");
+    expect(settings.language).toBe("zh-CN");
+    expect(settings.cloud).toEqual(next.cloud);
     expect(document.documentElement.lang).toBe("zh-CN");
     expect(window.localStorage.getItem("ipaste.language")).toBe("zh-CN");
   });
@@ -362,6 +369,7 @@ describe("特征：分类重排的乐观更新与失败回滚", () => {
       makeCategoryItem("j1", "k2", 0),
     ];
     const store = await hydrate(makeSnapshot({ categories: [makeCategory("k1", 0), makeCategory("k2", 1)], categoryItems: items }));
+    const category = useCategoryStore();
     store.selectCategory("k1");
     store.setSelectedIndex(2); // 选中 i3
 
@@ -376,7 +384,7 @@ describe("特征：分类重排的乐观更新与失败回滚", () => {
     await store.reorderCategoryItems("k1", ["i3", "i1", "i2"]);
 
     expect(reorderCategoryItemsMock).toHaveBeenCalledWith("k1", ["i3", "i1", "i2"]);
-    expect(store.categoryItems.map((item) => item.id)).toEqual(["i3", "i1", "i2", "j1"]);
+    expect(category.categoryItems.map((item) => item.id)).toEqual(["i3", "i1", "i2", "j1"]);
     // 选中的条目（i3）在新顺序里仍被选中。
     expect(store.visibleItems[store.selectedIndex]?.id).toBe("i3");
   });
@@ -387,12 +395,13 @@ describe("特征：分类重排的乐观更新与失败回滚", () => {
       makeCategoryItem("i2", "k1", 1),
     ];
     const store = await hydrate(makeSnapshot({ categories: [makeCategory("k1", 0)], categoryItems: items }));
+    const category = useCategoryStore();
     store.selectCategory("k1");
     reorderCategoryItemsMock.mockRejectedValueOnce({ code: "io", message: "sync failed" });
 
     await expect(store.reorderCategoryItems("k1", ["i2", "i1"])).rejects.toMatchObject({ message: "sync failed" });
 
-    expect(store.categoryItems.map((item) => item.id)).toEqual(["i1", "i2"]);
+    expect(category.categoryItems.map((item) => item.id)).toEqual(["i1", "i2"]);
     expect(useUiStore().toasts.map((toast) => toast.message)).toContain("sync failed");
   });
 });
@@ -421,10 +430,11 @@ describe("特征：patchItem（clip-updated 事件的落库单元）", () => {
   it("category 条目：按 id 替换", async () => {
     const items = [makeCategoryItem("i1", "k1", 0)];
     const store = await hydrate(makeSnapshot({ categories: [makeCategory("k1", 0)], categoryItems: items }));
+    const category = useCategoryStore();
 
     store.patchItem("category", makeCategoryItem("i1", "k1", 0, { displayName: "renamed" }));
 
-    expect(store.categoryItems[0].displayName).toBe("renamed");
+    expect(category.categoryItems[0].displayName).toBe("renamed");
   });
 });
 
@@ -448,6 +458,7 @@ describe("特征：applyClipUpdate（clip-updated 事件入口）", () => {
   it("category 合并：移除旧条目并替换为新条目", async () => {
     const items = [makeCategoryItem("i1", "k1", 0), makeCategoryItem("i2", "k1", 1)];
     const store = await hydrate(makeSnapshot({ categories: [makeCategory("k1", 0)], categoryItems: items }));
+    const category = useCategoryStore();
 
     store.applyClipUpdate({
       collection: "category",
@@ -455,8 +466,8 @@ describe("特征：applyClipUpdate（clip-updated 事件入口）", () => {
       mergedFromId: "i1",
     });
 
-    expect(store.categoryItems.map((item) => item.id)).toEqual(["i2"]);
-    expect(store.categoryItems[0].displayName).toBe("merged-name");
+    expect(category.categoryItems.map((item) => item.id)).toEqual(["i2"]);
+    expect(category.categoryItems[0].displayName).toBe("merged-name");
   });
 
   it("非合并更新：只走 patch 路径", async () => {

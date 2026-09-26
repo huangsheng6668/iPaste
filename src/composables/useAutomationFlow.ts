@@ -2,6 +2,7 @@ import { ref, watch } from "vue";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { serializeAutomations, parseImportFile } from "../stores/lib/automationTransfer";
+import { useAutomationStore } from "../stores/automationStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type { AutomationAction, AutomationInput } from "../types";
 
@@ -13,6 +14,7 @@ type IpasteStore = ReturnType<typeof useIpasteStore>;
  * 面板隐藏经 hidePanelFromUi 注入以避免回环依赖。
  */
 export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Promise<void>) {
+  const automation = useAutomationStore();
   const automationEditorOpen = ref(false);
   const automationEditorAction = ref<AutomationAction | null>(null);
   const automationConfirmOpen = ref(false);
@@ -24,15 +26,15 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
 
   function handleActionsKey(key: string): boolean {
     if (key === "ArrowDown") {
-      store.selectedActionIndex = Math.min(store.selectedActionIndex + 1, Math.max(store.visibleActions.length - 1, 0));
+      automation.selectedActionIndex = Math.min(automation.selectedActionIndex + 1, Math.max(automation.visibleActions.length - 1, 0));
       return true;
     }
     if (key === "ArrowUp") {
-      store.selectedActionIndex = Math.max(store.selectedActionIndex - 1, 0);
+      automation.selectedActionIndex = Math.max(automation.selectedActionIndex - 1, 0);
       return true;
     }
     if (key === "Enter") {
-      const action = store.visibleActions[store.selectedActionIndex];
+      const action = automation.visibleActions[automation.selectedActionIndex];
       if (action) void runSelectedAction(action);
       return true;
     }
@@ -44,7 +46,7 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
   }
 
   function selectActionCard(index: number) {
-    store.selectedActionIndex = index;
+    automation.selectedActionIndex = index;
   }
 
   function runSelectedAction(action: AutomationAction) {
@@ -58,7 +60,7 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
 
   async function executeAutomation(action: AutomationAction) {
     try {
-      await store.runAutomation(action.id);
+      await automation.runAutomation(action.id);
     } catch (unknownError) {
       console.error("automation run failed", unknownError);
     }
@@ -72,9 +74,9 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
   async function saveAutomation(input: AutomationInput) {
     try {
       if (automationEditorAction.value) {
-        await store.updateAutomation(automationEditorAction.value.id, input);
+        await automation.updateAutomation(automationEditorAction.value.id, input);
       } else {
-        await store.createAutomation(input);
+        await automation.createAutomation(input);
       }
     } catch (unknownError) {
       console.error("automation save failed", unknownError);
@@ -84,7 +86,7 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
 
   async function deleteAutomationAction(action: AutomationAction) {
     try {
-      await store.deleteAutomation(action.id);
+      await automation.deleteAutomation(action.id);
     } catch (unknownError) {
       console.error("automation delete failed", unknownError);
     }
@@ -125,12 +127,12 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
 
   function exportAllAutomations() {
     closeAutomationContextMenu();
-    if (!store.automations.length) {
+    if (!automation.automations.length) {
       alert(t("automation.exportEmpty"));
       return;
     }
     try {
-      const json = serializeAutomations(store.automations);
+      const json = serializeAutomations(automation.automations);
       const date = new Date().toISOString().slice(0, 10);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -159,7 +161,7 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
 
     try {
       const text = await file.text();
-      const existingNames = new Set(store.automations.map((a) => a.name));
+      const existingNames = new Set(automation.automations.map((a) => a.name));
       const result = parseImportFile(text, existingNames);
 
       if (result.skippedInvalid > 0 && result.valid.length === 0 && result.skippedDuplicates === 0) {
@@ -168,7 +170,7 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
       }
 
       for (const input_ of result.valid) {
-        await store.createAutomation(input_);
+        await automation.createAutomation(input_);
       }
 
       alert(t("automation.importSuccess", { imported: result.valid.length, skipped: result.skippedDuplicates }));

@@ -20,7 +20,7 @@ vi.stubGlobal("document", {
   createElement: () => ({}),
 });
 
-const { useIpasteStore } = await import("../stores/ipasteStore");
+const { useSettingsStore } = await import("../stores/settingsStore");
 const { useCloudSync } = await import("./useCloudSync");
 const { t } = await import("../i18n");
 
@@ -30,9 +30,9 @@ describe("useCloudSync", () => {
     vi.clearAllMocks();
   });
 
-  it("当 store.cloud 已经加载时，初始化立即读取已保存的配置，表单不为空", () => {
-    const store = useIpasteStore();
-    store.cloud = {
+  it("当 settings.cloud 已经加载时，初始化立即读取已保存的配置，表单不为空", () => {
+    const settings = useSettingsStore();
+    settings.cloud = {
       enabled: true,
       apiAddress: "https://sync.example.com",
       apiKey: "sync-secret-key",
@@ -50,8 +50,8 @@ describe("useCloudSync", () => {
     expect(cloudStatusText.value).toBe(t("settings.cloud.enabled"));
   });
 
-  it("当 store.cloud 在初始化之后更新时，表单自动响应同步", async () => {
-    const store = useIpasteStore();
+  it("当 settings.cloud 在初始化之后更新时，表单自动响应同步", async () => {
+    const settings = useSettingsStore();
     const {
       cloudApiAddress,
       cloudApiKey,
@@ -60,7 +60,7 @@ describe("useCloudSync", () => {
     expect(cloudApiAddress.value).toBe("");
     expect(cloudApiKey.value).toBe("");
 
-    store.cloud = {
+    settings.cloud = {
       enabled: true,
       apiAddress: "https://new.example.com",
       apiKey: "new-key",

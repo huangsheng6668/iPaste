@@ -1,4 +1,5 @@
 import { contextItemKey } from "../lib/clipKeys";
+import { useAutomationStore } from "../stores/automationStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type { ClipViewItem } from "../types";
 import type { useAutomationFlow } from "./useAutomationFlow";
@@ -30,6 +31,7 @@ export type PanelKeyboardDeps = {
  * E 编辑动作、方向键导航、Ctrl+F 聚焦搜索、Ctrl+1~9 快捷切换分类）。
  */
 export function usePanelKeyboard(deps: PanelKeyboardDeps) {
+  const automation = useAutomationStore();
   const {
     store,
     quickPreview,
@@ -119,7 +121,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
       }
       event.preventDefault();
       if (store.selectedCategoryId === "automation") {
-        const action = store.visibleActions[store.selectedActionIndex];
+        const action = automation.visibleActions[automation.selectedActionIndex];
         if (action) void automationFlow.copyAutomationCommand(action);
       } else {
         const item = store.visibleItems[store.selectedIndex];
@@ -150,7 +152,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
     if (event.key === "Enter") {
       event.preventDefault();
       if (store.selectedCategoryId === "automation") {
-        const action = store.visibleActions[store.selectedActionIndex];
+        const action = automation.visibleActions[automation.selectedActionIndex];
         if (action) automationFlow.runSelectedAction(action);
       } else {
         void store.applySelected();
@@ -174,7 +176,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
     if (event.key.toLowerCase() === "e" && !event.metaKey && !event.ctrlKey && !event.altKey) {
       if (!isSearch && store.selectedCategoryId === "automation") {
         event.preventDefault();
-        const action = store.visibleActions[store.selectedActionIndex];
+        const action = automation.visibleActions[automation.selectedActionIndex];
         if (action) automationFlow.openAutomationEditor(action);
         return;
       }
@@ -185,7 +187,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
       if (!isSearch) {
         event.preventDefault();
         if (store.selectedCategoryId === "automation") {
-          const action = store.visibleActions[store.selectedActionIndex];
+          const action = automation.visibleActions[automation.selectedActionIndex];
           if (action) void automationFlow.deleteAutomationAction(action);
         } else {
           const item = store.visibleItems[store.selectedIndex];
@@ -208,9 +210,9 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
         if (event.key === "ArrowDown") {
           event.preventDefault();
           if (store.selectedCategoryId === "automation") {
-            store.selectedActionIndex = Math.min(
-              store.selectedActionIndex + 1,
-              Math.max(store.visibleActions.length - 1, 0),
+            automation.selectedActionIndex = Math.min(
+              automation.selectedActionIndex + 1,
+              Math.max(automation.visibleActions.length - 1, 0),
             );
           } else {
             store.moveSelection(1);
@@ -220,7 +222,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
         if (event.key === "ArrowUp") {
           event.preventDefault();
           if (store.selectedCategoryId === "automation") {
-            store.selectedActionIndex = Math.max(store.selectedActionIndex - 1, 0);
+            automation.selectedActionIndex = Math.max(automation.selectedActionIndex - 1, 0);
           } else {
             store.moveSelection(-1);
           }
@@ -232,12 +234,12 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
       event.preventDefault();
       if (store.selectedCategoryId === "automation") {
         if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-          store.selectedActionIndex = Math.min(
-            store.selectedActionIndex + 1,
-            Math.max(store.visibleActions.length - 1, 0),
+          automation.selectedActionIndex = Math.min(
+            automation.selectedActionIndex + 1,
+            Math.max(automation.visibleActions.length - 1, 0),
           );
         } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-          store.selectedActionIndex = Math.max(store.selectedActionIndex - 1, 0);
+          automation.selectedActionIndex = Math.max(automation.selectedActionIndex - 1, 0);
         }
       } else {
         if (event.key === "ArrowDown" || event.key === "ArrowRight") {
@@ -261,7 +263,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
 
     event.preventDefault();
 
-    const categoryIds = ["history", ...store.categories.map((category) => category.id), "automation"];
+    const categoryIds = store.allCategoryIds;
     const targetCategoryId = categoryIds[Number(event.key) - 1];
     if (!targetCategoryId) return true;
 

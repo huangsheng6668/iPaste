@@ -5,6 +5,8 @@ import { sendTargets as buildSendTargets, SEND_TARGET_ALL, type SendTarget } fro
 import { isTauri } from "../lib/env";
 import { ipasteApi, type LanClipSource } from "../lib/ipasteApi";
 import { showError } from "../stores/uiStore";
+import { useCategoryStore } from "../stores/categoryStore";
+import { useCloudSyncStore } from "../stores/cloudSyncStore";
 import type { useIpasteStore } from "../stores/ipasteStore";
 import type { ClipViewItem } from "../types";
 import { useTwoStepConfirm } from "./useTwoStepConfirm";
@@ -28,6 +30,8 @@ const CATEGORY_COLORS = ["#0D9488", "#2563EB", "#7C3AED", "#D97706", "#DC2626", 
  * 分类栏）仍由 App.vue 的 closeFloatingLayers 编排。
  */
 export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuOptions) {
+  const category = useCategoryStore();
+  const sync = useCloudSyncStore();
   const contextMenu = ref<{ item: ClipViewItem; index: number; x: number; y: number } | null>(null);
   const showMoveSubmenu = ref(false);
   const showSendSubmenu = ref(false);
@@ -141,16 +145,16 @@ export function useClipContextMenu(store: IpasteStore, options: ClipContextMenuO
 
     fullClose();
     const clipId = originalClipId(item);
-    const color = CATEGORY_COLORS[store.categories.length % CATEGORY_COLORS.length];
-    const { category, item: categoryItem } = await ipasteApi.createCategoryWithClip(t("category.newCategory"), color, clipId);
-    store.categories.push(category);
-    store.categoryItems.push(categoryItem);
+    const color = CATEGORY_COLORS[category.categories.length % CATEGORY_COLORS.length];
+    const { category: created, item: categoryItem } = await ipasteApi.createCategoryWithClip(t("category.newCategory"), color, clipId);
+    category.categories.push(created);
+    category.categoryItems.push(categoryItem);
     store.clips = store.clips.map((clip) =>
       clip.id === clipId ? { ...clip, favoriteCount: clip.favoriteCount + 1 } : clip,
     );
-    store.selectCategory(category.id);
-    store.syncCloudInBackground();
-    editingCategoryId.value = category.id;
+    store.selectCategory(created.id);
+    sync.syncCloudInBackground();
+    editingCategoryId.value = created.id;
   }
 
   function openMoveSubmenu() {
