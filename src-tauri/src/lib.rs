@@ -20,6 +20,18 @@ mod paste;
 mod shortcut;
 mod state;
 mod store;
+
+/// 捕获跨设备扇出端口的真实实现（组合根组装）：委托给 lan_sync 的
+/// fire-and-forget 推送，避免捕获域直接依赖同步模块。
+struct LanPeerPusher {
+    app: tauri::AppHandle,
+}
+
+impl crate::capture::ports::PeerPusher for LanPeerPusher {
+    fn fan_out(&self, clip: &crate::models::ClipItem) {
+        crate::lan_sync::fan_out_spawned(&self.app, clip);
+    }
+}
 mod tray;
 mod util;
 mod window;
@@ -394,6 +406,9 @@ pub fn run() {
                 state.capture.append_copy_state.clone(),
                 state.capture.last_clipboard_change_id.clone(),
                 state.capture.last_clipboard_hash.clone(),
+                Arc::new(LanPeerPusher {
+                    app: app_handle.clone(),
+                }),
             );
 
             app.manage(state);

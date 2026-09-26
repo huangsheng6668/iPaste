@@ -14,6 +14,9 @@ use tauri::Emitter;
 use crate::capture::decision::{
     decide_capture, AppendState, CaptureCursor, CaptureDecision, CaptureSample,
 };
+use crate::capture::ports::{
+    handle_captured, CaptureNotifier, CaptureSink, PeerPusher, PersistOutcome,
+};
 use crate::error::AppError;
 use crate::events::{ClipboardCaptured, EVENT_CAPTURE_ERROR, EVENT_CLIPBOARD_CAPTURED};
 use crate::models::{AppendCopyState, AppState, CapturedClipboardItem, ClipboardRead, ClipItem};
@@ -41,7 +44,15 @@ pub(crate) fn spawn_clipboard_watcher(
     append_copy_state: Arc<Mutex<AppendCopyState>>,
     last_clipboard_change_id: Arc<Mutex<Option<u64>>>,
     last_clipboard_hash: Arc<Mutex<Option<String>>>,
+    peers: Arc<dyn PeerPusher>,
 ) {
+    let sink = StoreSink {
+        store: store.clone(),
+        append_copy_state: append_copy_state.clone(),
+        last_clipboard_change_id: last_clipboard_change_id.clone(),
+        last_clipboard_hash: last_clipboard_hash.clone(),
+    };
+    let notifier = TauriNotifier { app: app.clone() };
     thread::spawn(move || loop {
         let enabled = is_listening.lock().map(|value| *value).unwrap_or(false);
         if !enabled {
@@ -110,48 +121,10 @@ pub(crate) fn spawn_clipboard_watcher(
                     CaptureDecision::MergeAppendCopy | CaptureDecision::Insert => {}
                 }
 
-                // 追加复制路径标记：capture_append_copy_item 返回 Some 表示本次
-                // 捕获属于追加会话（首条 INSERT 或后续合并 UPDATE），扇出钩子
-                // 据此整体跳过（见下方 was_inserted 分支）。
-                let mut from_append_copy = false;
-                let capture_result = capture_append_copy_item(
-                    &store,
-                    &append_copy_state,
-                    &last_clipboard_change_id,
-                    &last_clipboard_hash,
-                    &item,
-                )
-                .and_then(|append_copy_clip| match append_copy_clip {
-                    Some(result) => {
-                        from_append_copy = true;
-                        Ok(Some(result))
-                    }
-                    None => store.insert_captured_item(item),
-                });
-
-                match capture_result {
-                    Ok(Some((clip, clip_total_count, was_inserted))) => {
-                        let _ = app.emit(
-                            EVENT_CLIPBOARD_CAPTURED,
-                            ClipboardCaptured {
-                                clip: clip.clone(),
-                                clip_total_count,
-                                was_inserted,
-                            },
-                        );
-                        if was_inserted && !from_append_copy {
-                            // 捕获即自动同步（Spec 2）：fire-and-forget，不阻塞捕获线程。
-                            // 追加复制合并期间不自动推送（对端不应看到半合并内容）：
-                            // 追加会话的捕获一律不扇出（含首条 INSERT），合并后的
-                            // 完整内容仍可手动发送。
-                            crate::lan_sync::fan_out_spawned(&app, &clip);
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        let _ = app.emit(EVENT_CAPTURE_ERROR, error);
-                    }
-                }
+                // 落库 → 广播 → 按条件扇出：编排在 ports::handle_captured（可测），
+                // 真实副作用经端口注入；跨设备推送由组合根提供的 PeerPusher 承担，
+                // 捕获域不再直接依赖 lan_sync。
+                handle_captured(item, &sink, &notifier, peers.as_ref());
             }
             Ok(ClipboardRead::Empty) => {}
             Ok(ClipboardRead::Occupied) => {}
@@ -162,6 +135,58 @@ pub(crate) fn spawn_clipboard_watcher(
 
         thread::sleep(Duration::from_millis(700));
     });
+}
+
+/// 落库端口的真实实现：追加复制会话优先合并，否则插入新条目。
+struct StoreSink {
+    store: Store,
+    append_copy_state: Arc<Mutex<AppendCopyState>>,
+    last_clipboard_change_id: Arc<Mutex<Option<u64>>>,
+    last_clipboard_hash: Arc<Mutex<Option<String>>>,
+}
+
+impl CaptureSink for StoreSink {
+    fn persist(&self, item: CapturedClipboardItem) -> Result<Option<PersistOutcome>, String> {
+        // 追加复制路径标记：capture_append_copy_item 返回 Some 表示本次捕获属于
+        // 追加会话（首条 INSERT 或后续合并 UPDATE），扇出据此整体跳过。
+        let mut from_append_copy = false;
+        let persisted = capture_append_copy_item(
+            &self.store,
+            &self.append_copy_state,
+            &self.last_clipboard_change_id,
+            &self.last_clipboard_hash,
+            &item,
+        )
+        .and_then(|append_copy_clip| match append_copy_clip {
+            Some(result) => {
+                from_append_copy = true;
+                Ok(Some(result))
+            }
+            None => self.store.insert_captured_item(item),
+        })?;
+
+        Ok(persisted.map(|(clip, clip_total_count, was_inserted)| PersistOutcome {
+            clip,
+            clip_total_count,
+            was_inserted,
+            from_append_copy,
+        }))
+    }
+}
+
+/// 广播端口的真实实现：沿用原 watcher 的 fire-and-forget emit。
+struct TauriNotifier {
+    app: tauri::AppHandle,
+}
+
+impl CaptureNotifier for TauriNotifier {
+    fn captured(&self, event: ClipboardCaptured) {
+        let _ = self.app.emit(EVENT_CLIPBOARD_CAPTURED, event);
+    }
+
+    fn error(&self, error: String) {
+        let _ = self.app.emit(EVENT_CAPTURE_ERROR, error);
+    }
 }
 
 fn capture_append_copy_item(
