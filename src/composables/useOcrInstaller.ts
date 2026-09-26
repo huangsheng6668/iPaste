@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { subscribe, type UnlistenFn } from "../platform/events";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
@@ -156,8 +156,8 @@ export function useOcrInstaller() {
   onMounted(async () => {
     await loadOcrStatus();
     if (isTauri) {
-      unlistenOcrProgress = await listen<OcrInstallProgress>(IPASTE_EVENTS.ocrInstallProgress, (event) => {
-        ocrProgress.value = event.payload;
+      unlistenOcrProgress = await subscribe<OcrInstallProgress>(IPASTE_EVENTS.ocrInstallProgress, (progress) => {
+        ocrProgress.value = progress;
       });
     }
   });
