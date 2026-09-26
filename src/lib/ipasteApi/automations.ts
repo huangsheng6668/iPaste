@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { callStrict } from "./call";
 import type {
   AutomationAction,
   AutomationInput,
@@ -13,7 +13,7 @@ let mockAutomations: AutomationAction[] = [];
 export const automationsApi = {
   listAutomations() {
     if (!isTauri) return Promise.resolve(structuredClone(mockAutomations));
-    return invoke<AutomationAction[]>("list_automations");
+    return callStrict<AutomationAction[]>("list_automations");
   },
   createAutomation(input: AutomationInput) {
     if (!isTauri) {
@@ -29,7 +29,7 @@ export const automationsApi = {
       mockAutomations.push(action);
       return Promise.resolve(action);
     }
-    return invoke<AutomationAction>("create_automation", { input });
+    return callStrict<AutomationAction>("create_automation", { input });
   },
   updateAutomation(id: string, input: AutomationInput) {
     if (!isTauri) {
@@ -38,14 +38,14 @@ export const automationsApi = {
       mockAutomations[index] = { ...mockAutomations[index], ...input, updatedAt: new Date().toISOString() };
       return Promise.resolve(structuredClone(mockAutomations[index]));
     }
-    return invoke<AutomationAction>("update_automation", { id, input });
+    return callStrict<AutomationAction>("update_automation", { id, input });
   },
   deleteAutomation(id: string) {
     if (!isTauri) {
       mockAutomations = mockAutomations.filter((action) => action.id !== id);
       return Promise.resolve();
     }
-    return invoke<void>("delete_automation", { id });
+    return callStrict<void>("delete_automation", { id });
   },
   runAutomation(id: string) {
     if (!isTauri) {
@@ -58,7 +58,7 @@ export const automationsApi = {
         durationMs: 1,
       });
     }
-    return invoke<AutomationRunSummary>("run_automation", { id });
+    return callStrict<AutomationRunSummary>("run_automation", { id });
   },
   getAutomationRun(runId: string) {
     if (!isTauri) {
@@ -76,6 +76,6 @@ export const automationsApi = {
         durationMs: 1,
       });
     }
-    return invoke<AutomationRunDetail>("get_automation_run", { runId });
+    return callStrict<AutomationRunDetail>("get_automation_run", { runId });
   },
 };

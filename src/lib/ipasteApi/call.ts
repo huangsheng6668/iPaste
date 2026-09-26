@@ -13,3 +13,13 @@ export async function call<T>(command: string, args?: Record<string, unknown>, f
   if (fallback !== undefined) return structuredClone(fallback);
   return undefined;
 }
+
+/**
+ * 严格调用（Task 41）：给本就没有 mock fallback 的写命令用——Tauri 下走 invoke，
+ * 浏览器 dev 下同样拒绝（与裸 invoke 一致），但错误信息可读。
+ * 全仓不再出现 ipasteApi 域模块直接 import invoke 的第二套约定。
+ */
+export function callStrict<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (isTauri) return invoke<T>(command, args);
+  return Promise.reject(new Error(`命令 ${command} 仅在 Tauri 环境可用（浏览器开发模式不支持写命令）`));
+}

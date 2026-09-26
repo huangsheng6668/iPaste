@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { callStrict } from "./call";
 import type { Category, CategoryItem, CategoryWithItem } from "../../types";
 import { isCommandMissing } from "../appError";
 import { isTauri } from "../env";
@@ -24,7 +24,7 @@ export const categoriesApi = {
       mockCategories.splice(0, mockCategories.length, ...ordered);
       return Promise.resolve(structuredClone(mockCategories));
     }
-    return invoke<Category[]>("reorder_categories", { categoryIds });
+    return callStrict<Category[]>("reorder_categories", { categoryIds });
   },
   reorderCategoryItems(categoryId: string, itemIds: string[]) {
     if (!isTauri) {
@@ -39,7 +39,7 @@ export const categoriesApi = {
       mockCategoryItems.splice(0, mockCategoryItems.length, ...otherItems, ...ordered);
       return Promise.resolve(structuredClone(mockCategoryItems));
     }
-    return invoke<CategoryItem[]>("reorder_category_items", { categoryId, itemIds });
+    return callStrict<CategoryItem[]>("reorder_category_items", { categoryId, itemIds });
   },
   createCategory(name: string, color: string) {
     return call<Category>("create_category", { name, color }, buildMockCategory(name, color, mockCategories.length));
@@ -55,12 +55,12 @@ export const categoriesApi = {
     if (!isTauri) return structuredClone(fallback);
 
     try {
-      return await invoke<CategoryWithItem>("create_category_with_clip", { name, color, clipId });
+      return await callStrict<CategoryWithItem>("create_category_with_clip", { name, color, clipId });
     } catch (unknownError) {
       if (!isCommandMissing(unknownError, "create_category_with_clip")) throw unknownError;
 
-      const created = await invoke<Category>("create_category", { name, color });
-      const item = await invoke<CategoryItem>("add_clip_to_category", { clipId, categoryId: created.id });
+      const created = await callStrict<Category>("create_category", { name, color });
+      const item = await callStrict<CategoryItem>("add_clip_to_category", { clipId, categoryId: created.id });
       return { category: created, item };
     }
   },

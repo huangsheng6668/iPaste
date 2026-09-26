@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { callStrict } from "./call";
 import type {
   AppSnapshot,
   CategoryHitGroup,
@@ -70,7 +70,7 @@ export const clipsApi = {
       mockClips.splice(0, mockClips.length);
       return Promise.resolve(count);
     }
-    return invoke<number>("clear_clips");
+    return callStrict<number>("clear_clips");
   },
   renameClip(id: string, collection: "history" | "category", displayName: string | null) {
     const normalizedName = displayName?.trim() || null;
@@ -128,7 +128,7 @@ export const clipsApi = {
       return Promise.resolve();
     }
 
-    return invoke<void>("open_clip_viewer", {
+    return callStrict<void>("open_clip_viewer", {
       label,
       title: item.displayName?.trim() || item.previewText || "iPaste",
       autoRecognize,
