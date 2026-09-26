@@ -3,36 +3,40 @@
 // store/settings/{read,write}.rs — 设置读写（Task 32 拆分）
 use rusqlite::{params, Connection};
 
+use super::registry;
 use super::super::Store;
 use crate::models::{AppSettings, AutoPushSettings, CloudOcrSettings, CloudSettings};
-use crate::util::{
-    clean_append_copy_timeout_minutes, clean_language, clean_ocr_engine, clean_ocr_mode,
-    clean_panel_layout, clean_panel_open_behavior, clean_retention_days, clean_shortcut,
-};
+use crate::util::{clean_append_copy_timeout_minutes, clean_retention_days};
 
 impl Store {
-    pub(crate) fn update_shortcut(&self, shortcut: String) -> Result<AppSettings, String> {
-        let shortcut = clean_shortcut(shortcut)?;
+    /// 设置写入的唯一落库动作：upsert 后回填完整 AppSettings。
+    fn write_setting_value(&self, key: &str, value: &str) -> Result<AppSettings, String> {
         let conn = self.connect()?;
         conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('shortcut', ?1)
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![shortcut],
+            params![key, value],
         )
         .map_err(|error| error.to_string())?;
         self.settings_with_conn(&conn)
     }
 
+    /// 按 registry 规格写入字符串型设置：清洗不通过即拒绝（不落库）。
+    fn write_string_setting(
+        &self,
+        spec: &registry::StringSettingSpec,
+        value: String,
+    ) -> Result<AppSettings, String> {
+        let cleaned = (spec.clean)(value)?;
+        self.write_setting_value(spec.key, &cleaned)
+    }
+
+    pub(crate) fn update_shortcut(&self, shortcut: String) -> Result<AppSettings, String> {
+        self.write_string_setting(&registry::SHORTCUT, shortcut)
+    }
+
     pub(crate) fn update_ocr_shortcut(&self, shortcut: String) -> Result<AppSettings, String> {
-        let shortcut = clean_shortcut(shortcut)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('ocr_shortcut', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![shortcut],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_string_setting(&registry::OCR_SHORTCUT, shortcut)
     }
 
     pub(crate) fn update_settings(&self, retention_days: i64) -> Result<AppSettings, String> {
@@ -53,74 +57,27 @@ impl Store {
         minutes: i64,
     ) -> Result<AppSettings, String> {
         let minutes = clean_append_copy_timeout_minutes(minutes)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('append_copy_timeout_minutes', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![minutes.to_string()],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_setting_value("append_copy_timeout_minutes", &minutes.to_string())
     }
 
     pub(crate) fn update_panel_open_behavior(&self, behavior: String) -> Result<AppSettings, String> {
-        let behavior = clean_panel_open_behavior(behavior)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('panel_open_behavior', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![behavior],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_string_setting(&registry::PANEL_OPEN_BEHAVIOR, behavior)
     }
 
     pub(crate) fn update_panel_layout(&self, layout: String) -> Result<AppSettings, String> {
-        let layout = clean_panel_layout(layout)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('panel_layout', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![layout],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_string_setting(&registry::PANEL_LAYOUT, layout)
     }
 
     pub(crate) fn update_ocr_mode(&self, mode: String) -> Result<AppSettings, String> {
-        let mode = clean_ocr_mode(mode)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('ocr_mode', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![mode],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_string_setting(&registry::OCR_MODE, mode)
     }
 
     pub(crate) fn update_ocr_engine(&self, engine: String) -> Result<AppSettings, String> {
-        let engine = clean_ocr_engine(engine)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('ocr_engine', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![engine],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_string_setting(&registry::OCR_ENGINE, engine)
     }
 
     pub(crate) fn update_language(&self, language: String) -> Result<AppSettings, String> {
-        let language = clean_language(language)?;
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('language', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![language],
-        )
-        .map_err(|error| error.to_string())?;
-        self.settings_with_conn(&conn)
+        self.write_string_setting(&registry::LANGUAGE, language)
     }
 
     pub(crate) fn cloud_settings_with_conn(&self, conn: &Connection) -> Result<CloudSettings, String> {

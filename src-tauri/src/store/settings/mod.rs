@@ -9,6 +9,7 @@
 //! 为它单开模块属于"为拆而拆"，故保留在 `read` 内。
 
 mod read;
+mod registry;
 #[cfg(test)]
 mod tests;
 mod write;

@@ -4,15 +4,11 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::super::Store;
+use super::registry;
 use crate::models::{AppSettings, AutoPushSettings, Category, CategoryItem, ClipPage};
 use crate::{
-    DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_LANGUAGE, DEFAULT_OCR_ENGINE, DEFAULT_OCR_MODE,
-    DEFAULT_OCR_SHORTCUT, DEFAULT_PANEL_LAYOUT, DEFAULT_PANEL_OPEN_BEHAVIOR,
-    DEFAULT_RETENTION_DAYS, DEFAULT_SHORTCUT, CLIP_PAGE_SIZE,
-    util::{
-        clean_append_copy_timeout_minutes, clean_language, clean_ocr_engine, clean_ocr_mode,
-        clean_panel_layout, clean_panel_open_behavior, clean_retention_days, clean_shortcut,
-    },
+    DEFAULT_APPEND_COPY_TIMEOUT_MINUTES, DEFAULT_RETENTION_DAYS, CLIP_PAGE_SIZE,
+    util::{clean_append_copy_timeout_minutes, clean_retention_days},
 };
 
 impl Store {
@@ -31,76 +27,79 @@ impl Store {
     }
 
     pub(crate) fn settings_with_conn(&self, conn: &Connection) -> Result<AppSettings, String> {
-        let shortcut = self
-            .setting_value_with_conn(conn, "shortcut")?
-            .and_then(|value| clean_shortcut(value).ok())
-            .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
-        let ocr_shortcut = self
-            .setting_value_with_conn(conn, "ocr_shortcut")?
-            .and_then(|value| clean_shortcut(value).ok())
-            .unwrap_or_else(|| DEFAULT_OCR_SHORTCUT.to_string());
+        // 字符串型设置统一按 registry 循环读取（新增设置项只需登记规格）。
+        let mut strings = std::collections::HashMap::new();
+        for spec in registry::STRING_SETTINGS {
+            strings.insert(spec.key, self.string_setting_with_conn(conn, spec)?);
+        }
+        let value = |key: &str| strings.get(key).cloned().unwrap_or_default();
+
+        let shortcut = value(registry::SHORTCUT.key);
+        let stored_ocr_shortcut = value(registry::OCR_SHORTCUT.key);
         // 防御历史脏数据：与面板快捷键同值时回落默认
-        let ocr_shortcut = if ocr_shortcut == shortcut {
-            DEFAULT_OCR_SHORTCUT.to_string()
+        let ocr_shortcut = if stored_ocr_shortcut == shortcut {
+            crate::DEFAULT_OCR_SHORTCUT.to_string()
         } else {
-            ocr_shortcut
+            stored_ocr_shortcut
         };
-        let retention_days = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'retention_days'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| error.to_string())?
-            .and_then(|value| value.parse::<i64>().ok())
-            .and_then(|value| clean_retention_days(value).ok())
-            .unwrap_or(DEFAULT_RETENTION_DAYS);
-        let append_copy_timeout_minutes = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'append_copy_timeout_minutes'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| error.to_string())?
-            .and_then(|value| value.parse::<i64>().ok())
-            .and_then(|value| clean_append_copy_timeout_minutes(value).ok())
-            .unwrap_or(DEFAULT_APPEND_COPY_TIMEOUT_MINUTES);
-        let panel_open_behavior = self
-            .setting_value_with_conn(conn, "panel_open_behavior")?
-            .and_then(|value| clean_panel_open_behavior(value).ok())
-            .unwrap_or_else(|| DEFAULT_PANEL_OPEN_BEHAVIOR.to_string());
-        let panel_layout = self
-            .setting_value_with_conn(conn, "panel_layout")?
-            .and_then(|value| clean_panel_layout(value).ok())
-            .unwrap_or_else(|| DEFAULT_PANEL_LAYOUT.to_string());
-        let ocr_mode = self
-            .setting_value_with_conn(conn, "ocr_mode")?
-            .and_then(|value| clean_ocr_mode(value).ok())
-            .unwrap_or_else(|| DEFAULT_OCR_MODE.to_string());
-        let ocr_engine = self
-            .setting_value_with_conn(conn, "ocr_engine")?
-            .and_then(|value| clean_ocr_engine(value).ok())
-            .unwrap_or_else(|| DEFAULT_OCR_ENGINE.to_string());
-        let language = self
-            .setting_value_with_conn(conn, "language")?
-            .and_then(|value| clean_language(value).ok())
-            .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string());
 
         Ok(AppSettings {
             shortcut,
             ocr_shortcut,
-            retention_days,
-            append_copy_timeout_minutes,
-            panel_open_behavior,
-            panel_layout,
-            ocr_mode,
-            ocr_engine,
-            language,
+            retention_days: self.number_setting_with_conn(
+                conn,
+                "retention_days",
+                clean_retention_days,
+                DEFAULT_RETENTION_DAYS,
+            )?,
+            append_copy_timeout_minutes: self.number_setting_with_conn(
+                conn,
+                "append_copy_timeout_minutes",
+                clean_append_copy_timeout_minutes,
+                DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
+            )?,
+            panel_open_behavior: value(registry::PANEL_OPEN_BEHAVIOR.key),
+            panel_layout: value(registry::PANEL_LAYOUT.key),
+            ocr_mode: value(registry::OCR_MODE.key),
+            ocr_engine: value(registry::OCR_ENGINE.key),
+            language: value(registry::LANGUAGE.key),
             cloud: self.cloud_settings_with_conn(conn)?,
             cloud_ocr: self.cloud_ocr_settings_with_conn(conn)?,
         })
+    }
+
+    /// 按 registry 规格读取字符串型设置：清洗失败回落默认（与旧逐字段手写版等价）。
+    fn string_setting_with_conn(
+        &self,
+        conn: &Connection,
+        spec: &registry::StringSettingSpec,
+    ) -> Result<String, String> {
+        Ok(self
+            .setting_value_with_conn(conn, spec.key)?
+            .and_then(|value| (spec.clean)(value).ok())
+            .unwrap_or_else(|| spec.default.to_string()))
+    }
+
+    /// 按 registry 规格读取数值型设置：解析或清洗失败回落默认。
+    fn number_setting_with_conn(
+        &self,
+        conn: &Connection,
+        key: &str,
+        clean: fn(i64) -> Result<i64, String>,
+        default: i64,
+    ) -> Result<i64, String> {
+        let raw = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        Ok(raw
+            .and_then(|value| value.parse::<i64>().ok())
+            .and_then(|value| clean(value).ok())
+            .unwrap_or(default))
     }
 
     /// 云 OCR 引擎当前是否可用（引擎已选且配置完整）。preflight 与调度
