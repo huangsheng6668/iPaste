@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { fileSrc } from "../platform/media";
 import { subscribe, type UnlistenFn } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
@@ -11,7 +11,7 @@ import type { OcrOverlaySessionStart } from "../types/generated/OcrOverlaySessio
 
 const monitorIndex = Number(new URLSearchParams(window.location.search).get("monitor") ?? "0");
 const initialFramePath = new URLSearchParams(window.location.search).get("frame");
-const frameSrc = ref(initialFramePath ? convertFileSrc(initialFramePath) : "");
+const frameSrc = ref(initialFramePath ? fileSrc(initialFramePath) : "");
 const { rect, isSelecting, beginSelection, updateSelection, endSelection } = useRegionSelection();
 const submitFailed = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
@@ -71,7 +71,7 @@ onMounted(async () => {
         if (session.monitorIndex !== monitorIndex) return;
         submitFailed.value = false;
         endSelection();
-        frameSrc.value = `${convertFileSrc(session.framePath)}?t=${session.timestamp}`;
+        frameSrc.value = `${fileSrc(session.framePath)}?t=${session.timestamp}`;
       },
     );
   }
