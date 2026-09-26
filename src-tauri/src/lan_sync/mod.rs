@@ -38,7 +38,12 @@ pub(crate) struct TauriEventSink {
 
 impl LanEventSink for TauriEventSink {
     fn emit(&self, event: &str, payload: &serde_json::Value) {
-        let _ = self.app.emit(event, payload);
+        // Task 42 代表点：事件是 LAN 同步状态的唯一出口，这里是全模块的总漏斗。
+        // 此前 emit 失败完全静默——前端会停在旧状态（设备列表不更新、配对弹窗不出），
+        // 排查时没有任何线索。失败仍不打断同步流程，只补一条诊断。
+        if let Err(error) = self.app.emit(event, payload) {
+            eprintln!("[lan-sync] 事件 {event} 发送失败（已忽略）：{error}");
+        }
     }
 }
 
