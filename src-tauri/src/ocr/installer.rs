@@ -42,11 +42,14 @@ mod manifest;
 mod paths;
 
 // 保持原 `ocr::installer::xxx` 调用路径不变（显式再导出，不做 glob 再导出）。
-pub(crate) use manifest::{ocr_install_status, ocr_r2_base_urls};
-pub(crate) use paths::{
-    ensure_path_within, legacy_ocr_paths, ocr_root_dir, paddle_model_paths,
-    paddle_model_paths_under,
-};
+// 再导出必须逐条跟随被导出项自身的 cfg：本模块全平台编译，但 macOS 上只有
+// 基础路径/清单源函数存在（mocr_installer 复用），Paddle 相关项被 cfg 裁掉。
+#[cfg(not(target_os = "macos"))]
+pub(crate) use manifest::ocr_install_status;
+pub(crate) use manifest::ocr_r2_base_urls;
+pub(crate) use paths::{ensure_path_within, ocr_root_dir};
+#[cfg(not(target_os = "macos"))]
+pub(crate) use paths::{legacy_ocr_paths, paddle_model_paths, paddle_model_paths_under};
 
 #[cfg(not(target_os = "macos"))]
 use manifest::{

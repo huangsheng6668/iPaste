@@ -1,6 +1,10 @@
 //! OCR 资源清单：拉取、校验、缓存与下载地址解析（Task 34 从 ocr/installer.rs 拆出）。
 //! 全部为 Windows（非 macOS）路径：macOS 走系统 Vision，不安装 Paddle 资源。
 
+// macOS 上本模块只保留 `ocr_r2_base_urls`（mocr_installer 复用清单源），
+// 其余函数全部 cfg 裁掉，import 因此会大面积变为未使用。
+#![allow(unused_imports)]
+
 use std::path::{Path, PathBuf};
 use std::{fs, time::Duration};
 
@@ -9,10 +13,11 @@ use tauri::Manager;
 
 use super::super::{emit_ocr_install_progress, ocr_platform};
 use super::paths::{ensure_path_within, ocr_root_dir};
+#[cfg(not(target_os = "macos"))]
 use super::{
     OCR_BEST_TOTAL_BYTES, OCR_ENGINE_ID, OCR_FAST_TOTAL_BYTES, OCR_GITHUB_RELEASE_BASE_URL,
-    OCR_R2_BASE_URL, UPDATER_R2_ENDPOINT,
 };
+use super::{OCR_R2_BASE_URL, UPDATER_R2_ENDPOINT};
 use crate::models::{OcrInstallStatus, OcrManifest, OcrManifestFile};
 use crate::util::{clean_ocr_mode, file_sha256, validate_relative_path};
 

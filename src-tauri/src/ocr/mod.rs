@@ -173,6 +173,7 @@ pub(crate) async fn install_mocr_assets(app: tauri::AppHandle) -> Result<OcrInst
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
+        let _ = app;
         Err("Manga-OCR 模型下载不支持当前平台".to_string())
     }
 }
@@ -188,6 +189,7 @@ pub(crate) async fn remove_mocr_assets(app: tauri::AppHandle) -> Result<OcrInsta
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
+        let _ = app;
         Err("Manga-OCR 模型下载不支持当前平台".to_string())
     }
 }

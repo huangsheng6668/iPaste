@@ -381,10 +381,16 @@ fn is_standalone_executable(path: &Path) -> bool {
 /// 候选（conda/App 托管/资源目录）或随应用分发的 mocr_engine sidecar，
 /// argv 数组式传参、不经 shell，无命令注入面。
 fn build_mocr_command(python_bin: &Path) -> TokioCommand {
-    let mut cmd = TokioCommand::new(python_bin);
     #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    cmd
+    {
+        let mut cmd = TokioCommand::new(python_bin);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        TokioCommand::new(python_bin)
+    }
 }
 
 /// 独立引擎一次性调用（argv：图片路径 + 模型路径）。

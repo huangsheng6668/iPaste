@@ -136,6 +136,8 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
         }
     }
 
+    // macOS 分支内部全部路径都已显式 return，此处的 Ok(()) 仅非 macOS 可达。
+    #[cfg(not(target_os = "macos"))]
     Ok(())
 }
 
