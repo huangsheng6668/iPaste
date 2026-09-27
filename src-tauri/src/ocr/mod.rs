@@ -40,9 +40,10 @@ pub(crate) mod mocr_installer;
 pub(crate) mod mocr_onnx;
 
 fn ocr_platform() -> &'static str {
+    // macOS 下本分支即函数尾表达式（其余分支被 cfg 裁掉），无需 return。
     #[cfg(target_os = "macos")]
     {
-        return "macos-system";
+        "macos-system"
     }
 
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]

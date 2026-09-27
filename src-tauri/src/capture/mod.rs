@@ -110,7 +110,8 @@ fn preflight(app: &tauri::AppHandle, state: &AppState) -> Result<(), &'static st
             return Ok(());
         }
         eprintln!("[ipaste] screen capture denied: preflight and capture probe both failed");
-        return Err("screenRecordingPermission");
+        // 本分支是函数在 macOS 下的尾表达式（Ok(()) 分支被 cfg 裁掉），无需 return。
+        Err("screenRecordingPermission")
     }
 
     #[cfg(not(target_os = "macos"))]
