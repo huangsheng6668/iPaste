@@ -87,7 +87,9 @@ export function useClipListScroll(deps: ClipListScrollDeps) {
 
   function scrollSelectedClipIntoView() {
     const list = clipListElement.value;
-    const selectedCard = list?.querySelector<HTMLElement>(".clip-card-selected");
+    // 普通列表卡片选中类是 clip-mini-card-selected，自动化列表沿用 clip-card-selected；
+    // 两个类名都查，改样式类名前先看这里的契约（有单测守护）。
+    const selectedCard = list?.querySelector<HTMLElement>(".clip-mini-card-selected, .clip-card-selected");
     if (!list || !selectedCard) return;
 
     const listRect = list.getBoundingClientRect();

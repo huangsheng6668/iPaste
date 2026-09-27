@@ -33,6 +33,21 @@ function createScroller(state: { scrollHeight: number; scrollTop: number; client
   } as unknown as HTMLElement;
 }
 
+function createSelectedCard(rect: { top: number; bottom: number }) {
+  return {
+    getBoundingClientRect: () =>
+      ({ top: rect.top, bottom: rect.bottom, left: 0, right: 0, height: rect.bottom - rect.top }) as DOMRect,
+  } as unknown as HTMLElement;
+}
+
+/** 让 rAF 回调同步执行，避免测试里等待帧调度。 */
+function useSyncRaf() {
+  return vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    callback(0);
+    return 1;
+  });
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -83,6 +98,54 @@ describe("useClipListScroll 触底加载", () => {
 
     expect(() => scroll.handleClipListScroll()).not.toThrow();
     expect(store.loadMoreClips).not.toHaveBeenCalled();
+  });
+});
+
+describe("useClipListScroll 选中滚动", () => {
+  it("普通列表选中 clip-mini-card-selected 的卡片越界时滚动到可视区", () => {
+    const raf = useSyncRaf();
+    const store = createStore();
+    const scroll = useClipListScroll({ store });
+    const element = createScroller({ scrollHeight: 2000, scrollTop: 0, clientHeight: 400 });
+    element.getBoundingClientRect = () => ({ top: 0, bottom: 400, left: 0, right: 0 }) as DOMRect;
+    // 模拟真实普通列表 DOM：只有新类名，没有旧类名（回归：raycast 重构后旧选择器失配）
+    element.querySelector = ((selector: string) =>
+      selector.includes("clip-mini-card-selected") ? createSelectedCard({ top: 600, bottom: 640 }) : null) as typeof element.querySelector;
+    scroll.clipListElement.value = element;
+
+    scroll.scheduleSelectedClipScroll();
+
+    expect(element.scrollBy).toHaveBeenCalledWith({ top: 640 - (400 - 16), behavior: "auto" });
+    expect(scroll.isClipListScrolling.value).toBe(true);
+    raf.mockRestore();
+  });
+
+  it("自动化列表选中 clip-card-selected 的卡片仍在可视区外顶部时向上滚", () => {
+    const raf = useSyncRaf();
+    const store = createStore({ selectedCategoryId: "automation" });
+    const scroll = useClipListScroll({ store });
+    const element = createScroller({ scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    element.getBoundingClientRect = () => ({ top: 0, bottom: 400, left: 0, right: 0 }) as DOMRect;
+    element.querySelector = ((selector: string) =>
+      selector.includes("clip-card-selected") ? createSelectedCard({ top: -40, bottom: 0 }) : null) as typeof element.querySelector;
+    scroll.clipListElement.value = element;
+
+    scroll.scheduleSelectedClipScroll();
+
+    expect(element.scrollBy).toHaveBeenCalledWith({ top: -40 - 16, behavior: "auto" });
+    raf.mockRestore();
+  });
+
+  it("找不到选中卡片时不滚动", () => {
+    const raf = useSyncRaf();
+    const store = createStore();
+    const scroll = useClipListScroll({ store });
+    const element = createScroller({ scrollHeight: 2000, scrollTop: 0, clientHeight: 400 });
+
+    scroll.scheduleSelectedClipScroll();
+
+    expect(element.scrollBy).not.toHaveBeenCalled();
+    raf.mockRestore();
   });
 });
 
