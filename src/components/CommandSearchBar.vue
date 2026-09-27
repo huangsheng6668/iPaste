@@ -1,35 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import {
-  ClipboardPlus,
-  Clock,
-  Download,
-  Plus,
-  ScanText,
-  Search,
-  Settings,
-  Wifi,
-  X,
-  Zap,
-} from "lucide-vue-next";
+import { computed, ref } from "vue";
+import { ClipboardPlus, Download, ScanText, Search, Settings, Wifi, X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { isMacOs } from "../lib/env";
-import { categoryDisplayName } from "../lib/format";
 import { ipasteApi } from "../lib/ipasteApi";
 import { showError } from "../stores/uiStore";
 import { useWindowDrag } from "../composables/useWindowDrag";
-import type { Category } from "../types";
 
 const logoUrl = new URL("../../src-tauri/icons/32x32.png", import.meta.url).href;
 
-const props = defineProps<{
+defineProps<{
   searchQuery: string;
   shortcut: string;
-  categories: Category[];
-  selectedCategoryId: string;
-  editingCategoryId: string | null;
-  historyCount: number;
-  categoryCounts: Record<string, number>;
   settingsOpen: boolean;
   appendCopyEnabled: boolean;
   appendCopyTimeoutMinutes: number;
@@ -39,12 +21,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:searchQuery": [value: string];
-  selectCategory: [id: string];
-  createCategory: [];
-  editCategory: [id: string];
-  renameCategory: [category: Category, name: string];
-  recolorCategory: [category: Category, color: string];
-  deleteCategory: [id: string];
   toggleSettings: [];
   toggleAppendCopy: [];
   openUpdate: [];
@@ -52,49 +28,11 @@ const emit = defineEmits<{
 }>();
 
 const searchInputRef = ref<HTMLInputElement | null>(null);
-const tabsContainerRef = ref<HTMLElement | null>(null);
 const isSearchFocused = ref(false);
-const hasScrollLeft = ref(false);
-const hasScrollRight = ref(false);
-const editingName = ref("");
 
 const { startWindowDrag } = useWindowDrag({ mainWindow: true });
 
 const searchShortcutHint = computed(() => (isMacOs ? "⌘F" : "Ctrl+F"));
-
-function updateScrollState() {
-  const el = tabsContainerRef.value;
-  if (!el) return;
-  hasScrollLeft.value = el.scrollLeft > 2;
-  hasScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
-}
-
-watch(
-  () => props.editingCategoryId,
-  async (id) => {
-    if (!id) return;
-    const category = props.categories.find((item) => item.id === id);
-    editingName.value = category ? categoryDisplayName(category.name) : "";
-    await nextTick();
-  },
-);
-
-// 滚动箭头只随分类数量增减变化，浅监听 length 即可
-watch(
-  () => props.categories.length,
-  () => {
-    void nextTick(updateScrollState);
-  },
-);
-
-onMounted(() => {
-  updateScrollState();
-  window.addEventListener("resize", updateScrollState);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("resize", updateScrollState);
-});
 
 // 这两条命令此前是裸的 void：失败时点按钮毫无反应。
 // 设备同步尤其糟——面板一失焦就自动隐藏，用户只看到「面板没了、窗口也没出现」，
@@ -233,80 +171,7 @@ defineExpose({
       </div>
     </div>
 
-    <!-- Category Pill Filter Tabs Wrapper with Fade Mask -->
-    <div
-      class="raycast-filter-tabs-wrapper"
-      :class="{
-        'has-scroll-left': hasScrollLeft,
-        'has-scroll-right': hasScrollRight,
-      }"
-      @mousedown.stop
-    >
-      <div
-        ref="tabsContainerRef"
-        class="raycast-filter-tabs"
-        @scroll="updateScrollState"
-      >
-        <!-- All History Tab -->
-        <button
-          type="button"
-          class="raycast-pill-tab"
-          :class="{ 'raycast-pill-tab-active': selectedCategoryId === 'history' }"
-          @click="emit('selectCategory', 'history')"
-        >
-          <Clock class="size-3" />
-          <span>{{ t("category.history") }}</span>
-          <span
-            v-if="historyCount > 0"
-            class="text-[0.625rem] opacity-75 tabular-nums font-mono"
-          >{{ historyCount }}</span>
-        </button>
-
-        <!-- Custom Categories -->
-        <button
-          v-for="cat in categories"
-          :key="cat.id"
-          type="button"
-          class="raycast-pill-tab"
-          :class="{ 'raycast-pill-tab-active': selectedCategoryId === cat.id }"
-          @click="emit('selectCategory', cat.id)"
-        >
-          <span
-            class="size-2 rounded-full shrink-0"
-            :style="{
-              backgroundColor: cat.color,
-              boxShadow: `0 0 6px ${cat.color}90`,
-            }"
-          />
-          <span>{{ categoryDisplayName(cat.name) }}</span>
-          <span
-            v-if="categoryCounts[cat.id]"
-            class="text-[0.625rem] opacity-75 tabular-nums font-mono"
-          >{{ categoryCounts[cat.id] }}</span>
-        </button>
-
-        <!-- Automation Tab -->
-        <button
-          type="button"
-          class="raycast-pill-tab"
-          :class="{ 'raycast-pill-tab-active': selectedCategoryId === 'automation' }"
-          @click="emit('selectCategory', 'automation')"
-        >
-          <Zap class="size-3" />
-          <span>{{ t("automation.entry") }}</span>
-        </button>
-
-        <!-- Add Category Button -->
-        <button
-          type="button"
-          class="raycast-pill-tab hover:text-[var(--accent)]"
-          :aria-label="t('category.newCategory')"
-          :data-tooltip="t('category.newCategory')"
-          @click="emit('createCategory')"
-        >
-          <Plus class="size-3" />
-        </button>
-      </div>
-    </div>
+    <!-- 分类的选中/新建/重命名/改色/删除/拖拽排序统一由 CategoryRail 承担：
+         这里曾并存一份只读胶囊，既重复又没有管理操作。 -->
   </div>
 </template>

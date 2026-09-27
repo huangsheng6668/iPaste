@@ -180,6 +180,19 @@ function commitEditing(category: Category) {
   emit("finishEditing");
 }
 
+/**
+ * 取消改名：**必须先把该行标记为已提交**。
+ *
+ * 取消会让 `editingCategoryId` 归零 → 输入框被卸载 → 浏览器触发 blur →
+ * 输入框上的 `@blur="emit('commit')"` 又跑一次 commitEditing，把用户刚敲的
+ * 名字当作确认结果存下去（Esc 取消实际变成保存）。这里占住 committedEditingId，
+ * 随后的 blur-commit 就会被 commitEditing 的幂等守卫挡掉。
+ */
+function cancelEditing(category: Category) {
+  committedEditingId.value = category.id;
+  emit("finishEditing");
+}
+
 function editCategory(category: Category) {
   pendingDeleteCategoryId.value = null;
   editingColorCategoryId.value = null;
@@ -458,7 +471,7 @@ function countLabel(count: number | undefined) {
         @context-menu="openCategoryMenu(category, $event)"
         @drag-start="startCategoryDrag(category, $event)"
         @commit="commitEditing(category)"
-        @cancel-edit="emit('finishEditing')"
+        @cancel-edit="cancelEditing(category)"
         @recolor="updateColor(category, $event)"
         @close-color-picker="closeColorPicker"
       />

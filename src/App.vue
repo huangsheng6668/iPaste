@@ -14,6 +14,7 @@ import ErrorToast from "./components/ErrorToast.vue";
 import LanSyncPanel from "./components/LanSyncPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import CommandSearchBar from "./components/CommandSearchBar.vue";
+import CategoryRail from "./components/CategoryRail.vue";
 import ClipListPane from "./components/ClipListPane.vue";
 import ClipInspectorPane from "./components/ClipInspectorPane.vue";
 import KeyboardActionBar from "./components/KeyboardActionBar.vue";
@@ -347,6 +348,11 @@ async function deleteCategory(id: string) {
   await store.deleteCategory(id);
 }
 
+/** 分类栏拖拽排序落点（分类栏此前长期未被挂载，这个 handler 是补回的一环）。 */
+async function reorderCategories(categoryIds: string[]) {
+  await store.reorderCategories(categoryIds);
+}
+
 function itemCategoryTags(item: ClipViewItem) {
   if (item.collection === "history") return categoriesByHash.value[item.contentHash] ?? [];
 
@@ -611,31 +617,38 @@ const nextCategoryLabel = computed(() => {
     @click="closeFloatingLayers"
     @contextmenu="suppressDefaultContextMenu"
   >
-    <!-- Top Command Search & Category Pill Tabs -->
+    <!-- Top Command Search -->
     <CommandSearchBar
       :search-query="store.search"
       :shortcut="formattedShortcut"
-      :categories="categoryStore.categories"
-      :selected-category-id="store.selectedCategoryId"
-      :editing-category-id="editingCategoryId"
-      :history-count="store.clipTotalCount"
-      :category-counts="categoryItemCounts"
       :settings-open="false"
       :append-copy-enabled="store.isAppendCopyEnabled"
       :append-copy-timeout-minutes="settingsStore.appendCopyTimeoutMinutes"
       :has-update="updater.hasAvailableUpdate.value"
       :checking-update="updater.updateStatus.value === 'checking'"
       @update:search-query="store.search = $event"
-      @select-category="store.selectCategory"
-      @create-category="createCategory"
-      @edit-category="editCategory"
-      @rename-category="renameCategory"
-      @recolor-category="updateCategoryColor"
-      @delete-category="deleteCategory"
       @toggle-settings="store.showSettings"
       @toggle-append-copy="store.toggleAppendCopy"
       @open-update="updater.openUpdateDialog"
       @close="hidePanelFromUi"
+    />
+
+    <!-- Category Rail：分类的选中/新建/重命名/改色/删除/拖拽排序唯一入口 -->
+    <CategoryRail
+      :categories="categoryStore.categories"
+      :selected-category-id="store.selectedCategoryId"
+      :editing-category-id="editingCategoryId"
+      :history-count="store.clipTotalCount"
+      :category-counts="categoryItemCounts"
+      orientation="horizontal"
+      @select="store.selectCategory"
+      @create="createCategory"
+      @edit="editCategory"
+      @rename="renameCategory"
+      @recolor="updateCategoryColor"
+      @finish-editing="finishEditingCategory"
+      @delete="deleteCategory"
+      @reorder="reorderCategories"
     />
 
     <!-- Update Dialog -->

@@ -25,11 +25,6 @@ function mountBar() {
     props: {
       searchQuery: "",
       shortcut: "Ctrl+Shift+V",
-      categories: [],
-      selectedCategoryId: "history",
-      editingCategoryId: null,
-      historyCount: 0,
-      categoryCounts: {},
       settingsOpen: false,
       appendCopyEnabled: false,
       appendCopyTimeoutMinutes: 1,
