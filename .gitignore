@@ -37,6 +37,9 @@ key/*.key
 .codegraph/
 .mimosa/
 
+# Superdesign canvas workflow state
+.superdesign/
+
 # Isolated development worktrees
 /.worktrees/
 

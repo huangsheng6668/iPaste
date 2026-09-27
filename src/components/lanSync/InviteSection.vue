@@ -44,11 +44,11 @@ const emit = defineEmits<{
         >
           <Check
             v-if="copied === 'ok'"
-            :size="14"
+            class="size-3.5"
           />
           <Copy
             v-else
-            :size="14"
+            class="size-3.5"
           />
           {{ copied === "ok" ? t("deviceSync.invite.copied") : t("deviceSync.invite.copy") }}
         </button>

@@ -1,19 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import {
-  Code,
   CornerDownLeft,
-  FileText,
   GripVertical,
-  Image,
-  Link,
   Maximize2,
-  Palette,
-  Type,
 } from "lucide-vue-next";
 import { clipImageSrc } from "../lib/clipMedia";
+import { clipTypeIcon } from "../lib/clipTypeIcons";
 import { t } from "../i18n";
-import { categoryDisplayName, clipMetricText, formatTime, isCodeText, typeLabel } from "../lib/format";
+import { categoryDisplayName, clipMetricText, formatTime, typeLabel } from "../lib/format";
 import type { Category, ClipViewItem } from "../types";
 
 const props = defineProps<{
@@ -39,7 +34,6 @@ const emit = defineEmits<{
 
 const isImage = computed(() => props.item.clipType === "image");
 const isColor = computed(() => props.item.clipType === "color");
-const isCode = computed(() => isCodeText(props.item.clipType, props.item.text || ""));
 const imageSrc = computed(() => clipImageSrc(props.item));
 const colorPreviewValue = computed(() => props.item.text.trim());
 const displayTitle = computed(() => props.item.displayName?.trim() || "");
@@ -74,14 +68,7 @@ const displayTime = computed(() =>
 
 const metricText = computed(() => clipMetricText(props.item.clipType, props.item.text, props.item.previewText));
 
-const iconComponent = computed(() => {
-  if (props.item.clipType === "link") return Link;
-  if (props.item.clipType === "color") return Palette;
-  if (props.item.clipType === "image") return Image;
-  if (props.item.clipType === "file") return FileText;
-  if (isCode.value) return Code;
-  return Type;
-});
+const iconComponent = computed(() => clipTypeIcon(props.item.clipType, props.item.text || ""));
 
 function openContextMenu(event: MouseEvent) {
   emit("openContextMenu", {

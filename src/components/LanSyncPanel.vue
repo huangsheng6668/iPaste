@@ -171,7 +171,7 @@ onUnmounted(() => {
         :aria-label="t('topBar.closePanel')"
         @click="closeWindow"
       >
-        <X :size="16" />
+        <X class="size-4" />
       </button>
     </header>
 

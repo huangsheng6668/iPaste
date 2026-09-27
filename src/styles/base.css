@@ -52,13 +52,18 @@ textarea:focus-visible {
   outline: none;
 }
 
+/* lucide 图标统一 1.75 线宽（安静工具感）：CSS 会覆盖 svg 根上的 stroke-width 属性 */
+svg.lucide {
+  stroke-width: 1.75;
+}
+
 ::selection {
-  background: rgba(99, 102, 241, 0.28);
+  background: rgba(13, 148, 136, 0.28);
   color: var(--text-1);
 }
 
 html.dark ::selection {
-  background: rgba(129, 140, 248, 0.4);
+  background: rgba(20, 184, 166, 0.4);
 }
 
 /* ---- subtle scrollbars ------------------------------------------------ */

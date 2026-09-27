@@ -48,11 +48,11 @@ function onNotifyChange(event: Event) {
     >
       <ChevronDown
         v-if="relayOpen"
-        :size="14"
+        class="size-3.5"
       />
       <ChevronRight
         v-else
-        :size="14"
+        class="size-3.5"
       />
       {{ t("deviceSync.relay.title") }}
     </button>

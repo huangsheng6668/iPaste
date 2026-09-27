@@ -4,20 +4,16 @@ import {
   Check,
   Clipboard,
   ClipboardCopy,
-  Code,
   CornerDownLeft,
   ExternalLink,
   Eye,
-  FileText,
   Globe,
-  Image as ImageIcon,
   Maximize2,
-  Palette,
   ScanText,
-  Type,
 } from "lucide-vue-next";
 import AutomationDetailPane from "./AutomationDetailPane.vue";
 import { clipImageSrc } from "../lib/clipMedia";
+import { clipTypeIcon } from "../lib/clipTypeIcons";
 import { parseColorFormats } from "../lib/colorFormat";
 import { t } from "../i18n";
 import { clipMetricText, formatTime, isCodeText, lineCountText, textStats, typeLabel } from "../lib/format";
@@ -77,15 +73,7 @@ const displayTime = computed(() => {
   return props.item.collection === "history" ? props.item.lastCapturedAt : props.item.createdAt;
 });
 
-const typeIcon = computed(() => {
-  if (!props.item) return Clipboard;
-  if (props.item.clipType === "image") return ImageIcon;
-  if (props.item.clipType === "color") return Palette;
-  if (props.item.clipType === "link") return ExternalLink;
-  if (props.item.clipType === "file") return FileText;
-  if (isCode.value) return Code;
-  return Type;
-});
+const typeIcon = computed(() => (props.item ? clipTypeIcon(props.item.clipType, props.item.text) : Clipboard));
 
 const linkHostname = computed(() => {
   if (!isLink.value || !props.item?.text) return "";

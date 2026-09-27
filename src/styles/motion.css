@@ -163,16 +163,18 @@ body.ipaste-preserve-current-app .global-tooltip,
 }
 
 @media (max-width: 640px) {
-  .settings-topbar {
-    min-height: auto;
+  .settings-sidebar {
+    width: 3.25rem;
+    padding: 0.875rem 0.5rem;
   }
 
-  .settings-tabs {
-    width: 100%;
+  .settings-nav-item {
+    justify-content: center;
+    padding: 0;
   }
 
-  .settings-tab {
-    flex: 1 0 auto;
+  .settings-nav-item-label {
+    display: none;
   }
 
   .settings-panel {

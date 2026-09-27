@@ -61,27 +61,27 @@ onMounted(async () => {
 <template>
   <main class="settings-shell">
     <section class="settings-window">
-      <header class="settings-topbar">
+      <aside class="settings-sidebar">
         <nav
-          class="settings-tabs"
+          class="settings-nav"
           :aria-label="t('settings.tabsLabel')"
         >
           <button
             v-for="tab in tabs"
             :key="tab.id"
             type="button"
-            class="settings-tab"
-            :class="{ 'settings-tab-active': activeTab === tab.id }"
+            class="settings-nav-item"
+            :class="{ 'settings-nav-item-active': activeTab === tab.id }"
             @click="activeTab = tab.id"
           >
             <component
               :is="tab.icon"
-              class="size-4"
+              class="size-4 shrink-0"
             />
-            <span>{{ tab.label }}</span>
+            <span class="settings-nav-item-label">{{ tab.label }}</span>
           </button>
         </nav>
-      </header>
+      </aside>
 
       <div class="settings-content subtle-scrollbar">
         <GeneralTab v-if="activeTab === 'general'" />
