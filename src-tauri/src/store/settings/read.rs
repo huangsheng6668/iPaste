@@ -114,6 +114,9 @@ impl Store {
 
     /// 云 OCR 引擎当前是否可用（引擎已选且配置完整）。preflight 与调度
     /// 分支共用；凭据库读失败按未配置处理（可用性优先）。
+    /// macOS 的 preflight 走屏幕录制权限分支，此处仅测试引用；
+    /// allow(dead_code) 消除平台性警告。
+    #[allow(dead_code)]
     pub(crate) fn cloud_ocr_engine_ready(&self) -> bool {
         let Ok(settings) = self.settings() else {
             return false;

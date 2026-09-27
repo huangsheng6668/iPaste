@@ -62,12 +62,6 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-#[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
-    static kCFBooleanTrue: CFTypeRef;
-}
-
-#[cfg(target_os = "macos")]
 const SET_FRONT_PROCESS_FRONT_WINDOW_ONLY: u32 = 1;
 #[cfg(target_os = "macos")]
 pub(crate) fn ax_is_process_trusted() -> bool {

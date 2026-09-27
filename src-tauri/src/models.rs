@@ -185,6 +185,9 @@ pub(crate) enum OcrMode {
 }
 
 impl OcrMode {
+    /// macOS 上调用方（Paddle 安装器/识别管线）被 cfg 裁掉，仅测试引用；
+    /// allow(dead_code) 消除平台性警告（与 tokens.rs 同法）。
+    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Fast => "fast",
@@ -214,6 +217,9 @@ pub(crate) enum OcrEngine {
 }
 
 impl OcrEngine {
+    /// 生产调用方 cloud_ocr_engine_ready 只被非 macOS 的 preflight 分支使用，
+    /// macOS 上仅测试引用；allow(dead_code) 消除平台性警告。
+    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Local => "local",

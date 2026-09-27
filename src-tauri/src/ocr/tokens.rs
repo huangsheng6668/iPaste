@@ -5,7 +5,8 @@ pub(crate) struct LineToken {
     pub text: String,
     /// token 首字符在行文本中的 char 索引
     pub char_start: usize,
-    /// token 的 char 数
+    /// token 的 char 数（仅 Windows Paddle 管线读取，macOS 侧只取 text/char_start）
+    #[allow(dead_code)]
     pub char_len: usize,
 }
 
