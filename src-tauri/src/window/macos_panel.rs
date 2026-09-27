@@ -70,7 +70,7 @@ pub(crate) fn show_main_window_with_native_panel(
     let Some(state) = app.try_state::<AppState>() else {
         return Ok(false);
     };
-    let panel_state = state.main_panel_state.clone();
+    let panel_state = state.window.main_panel_state.clone();
 
     with_main_webview(window, move |webview| {
         autoreleasepool(|_| -> Result<bool, String> {
@@ -209,7 +209,7 @@ pub(crate) fn restore_main_webview_to_host_window(
     let Some(state) = app.try_state::<AppState>() else {
         return Ok(());
     };
-    let panel_state = state.main_panel_state.clone();
+    let panel_state = state.window.main_panel_state.clone();
     if panel_state
         .lock()
         .map_err(|error| error.to_string())?
@@ -262,7 +262,7 @@ pub(crate) fn hide_native_main_panel(app: &tauri::AppHandle) -> Result<bool, Str
     let Some(state) = app.try_state::<AppState>() else {
         return Ok(false);
     };
-    let panel_state = state.main_panel_state.clone();
+    let panel_state = state.window.main_panel_state.clone();
     run_on_main_thread_for_paste(app, move || -> Result<bool, String> {
         autoreleasepool(|_| {
             let mut guard = panel_state.lock().map_err(|error| error.to_string())?;
@@ -288,6 +288,7 @@ pub(crate) fn is_native_main_panel_visible(app: &tauri::AppHandle) -> bool {
     app.try_state::<AppState>()
         .and_then(|state| {
             state
+                .window
                 .main_panel_state
                 .lock()
                 .ok()
@@ -403,7 +404,7 @@ pub(crate) fn start_native_main_panel_drag(app: &tauri::AppHandle) -> Result<boo
     let Some(state) = app.try_state::<AppState>() else {
         return Ok(false);
     };
-    let panel_state = state.main_panel_state.clone();
+    let panel_state = state.window.main_panel_state.clone();
     if !panel_state
         .lock()
         .map_err(|error| error.to_string())?
