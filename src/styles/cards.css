@@ -726,6 +726,8 @@
   box-shadow: var(--shadow-card-hover);
 }
 
+/* 选中态四重编码：左侧指示条 + 表面染色 + 强调色描边 + 外发光。
+   全部只动青绿与中性面——青绿专属「焦点」，不兼职类型识别。 */
 .clip-mini-card-selected,
 .clip-mini-card-selected:hover {
   background: var(--surface-active);
@@ -776,9 +778,12 @@
   border: 1px solid var(--border-hairline);
   transition:
     background-color 140ms ease,
-    color 140ms ease;
+    color 140ms ease,
+    border-color 140ms ease;
 }
 
+/* 类型识别靠 lucide 图标本身（Type/Code/Link/Image/Palette/FileText），
+   不引入第二套色相——青绿只留给焦点与操作状态（AGENTS.md 界面系统）。 */
 .clip-mini-card-selected .clip-mini-card-icon {
   background: var(--accent-soft);
   color: var(--accent);
@@ -789,7 +794,8 @@
   flex: 1 1 auto;
   min-width: 0;
   font-size: 0.8125rem;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.006em;
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -880,6 +886,22 @@
   min-width: 0;
 }
 
+/* 检查器类型徽章：与列表卡片的图标底座同构（同圆角、同静默配色），
+   让「左列表 → 右检查器」读起来是同一个物件，而不是两套视觉语言。
+   此处原为 `text-[var(--accent)]`：类型图标既非焦点也非操作状态，
+   不应占用青绿语义（AGENTS.md 界面系统），改回中性。 */
+.clip-inspector-type-chip {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--surface-inset);
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+
 .clip-inspector-title {
   font-size: 0.8125rem;
   font-weight: 600;
@@ -957,6 +979,52 @@
   object-fit: contain;
   border-radius: var(--r-sm);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* 图片预览上的覆盖动作。
+   只留图标：560px 面板下检查器图片区实测仅 208px 宽，而「识别文字 + 预览」两个
+   带文字的按钮需要 239px，从 right 侧向左溢出 42px 后被本容器的 overflow:hidden
+   裁成「cognize text」。文字改走既有的 data-tooltip 机制，与应用其余图标按钮一致。
+   底色不能用主题令牌：图片内容不可控，必须自带高对比底板。 */
+.clip-inspector-image-actions {
+  position: absolute;
+  right: 0.625rem;
+  bottom: 0.625rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.clip-inspector-image-action {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: rgba(0, 0, 0, 0.72);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  transition:
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.clip-inspector-image-action:hover {
+  background: rgba(0, 0, 0, 0.88);
+}
+
+.clip-inspector-image-action:active {
+  transform: scale(0.95);
+}
+
+/* 焦点环用白色而非全局青绿：这两个按钮浮在用户图片上，色相不可控，
+   青绿在暖色或绿色图片上会糊掉。 */
+.clip-inspector-image-action:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }
 
 .clip-inspector-color-card {

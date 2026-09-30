@@ -101,10 +101,12 @@ const linkHostname = computed(() => {
       <!-- Inspector Header -->
       <div class="clip-inspector-header">
         <div class="clip-inspector-header-left">
-          <component
-            :is="typeIcon"
-            class="size-4 text-[var(--accent)]"
-          />
+          <span class="clip-inspector-type-chip">
+            <component
+              :is="typeIcon"
+              class="size-3.5"
+            />
+          </span>
           <span class="clip-inspector-title">{{ detailTitle }}</span>
         </div>
 
@@ -152,24 +154,24 @@ const linkHostname = computed(() => {
             :src="imageSrc"
             :alt="t('common.imagePreviewAlt')"
           >
-          <div class="absolute bottom-2.5 right-2.5 flex items-center gap-1.5">
+          <div class="clip-inspector-image-actions">
             <button
               type="button"
-              class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
+              class="clip-inspector-image-action"
               :aria-label="t('clip.recognizeText')"
               :data-tooltip="t('clip.recognizeText')"
               @click="emit('ocr', item)"
             >
               <ScanText class="size-3.5" />
-              <span>{{ t("clip.recognizeText") }}</span>
             </button>
             <button
               type="button"
-              class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur hover:bg-black/90 transition-transform active:scale-95"
+              class="clip-inspector-image-action"
+              :aria-label="t('clip.expand')"
+              :data-tooltip="t('clip.expand')"
               @click="emit('expand', item)"
             >
               <Eye class="size-3.5" />
-              <span>{{ t("clip.expand") }}</span>
             </button>
           </div>
         </div>

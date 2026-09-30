@@ -591,6 +591,8 @@ html.dark .app-shell {
   place-items: center;
   border-radius: 999px;
   padding: 0 0.1875rem;
+  /* 兜底前景色。用户分类的角标由 CategoryRow 按底色对比度内联覆盖
+     （contrastText），此处只服务 History 的渐变角标。 */
   color: #ffffff;
   font-size: 0.5625rem;
   font-weight: 700;
@@ -602,8 +604,13 @@ html.dark .app-shell {
     0 1px 2px rgba(24, 26, 45, 0.16);
 }
 
+/* History 是默认的、未归类的集合，用中性 slate 表达「无标签」：
+   不占用青绿（焦点/操作），也不占用橙红（破坏性/高强调）。
+   原为靛蓝 → 紫渐变——既属装饰性渐变，也是设计调研中点名的遗留色；
+   且该渐变偏亮，白字角标在其中一段上只有约 4.5:1 出头。
+   现值与白字的对比度：浅端 4.76:1、深端 7.5:1。 */
 .category-count-dot-history {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #64748b, #475569);
 }
 
 .category-chip-label {
@@ -710,6 +717,7 @@ html.dark .app-shell {
   height: 1.4375rem;
   place-items: center;
   border-radius: 0.4375rem;
+  /* 兜底前景色；勾选图标实际颜色由 CategoryRow 按色块底色内联覆盖。 */
   color: #ffffff;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.5),

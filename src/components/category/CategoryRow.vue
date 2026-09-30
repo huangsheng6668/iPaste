@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Palette } from "lucide-vue-next";
 import { t } from "../../i18n";
+import { contrastText } from "../../lib/colorFormat";
 import type { CSSProperties } from "vue";
 import type { Category } from "../../types";
 
@@ -54,7 +55,7 @@ const emit = defineEmits<{
     <span
       v-if="!isEditing"
       class="category-color-dot category-count-dot"
-      :style="{ backgroundColor: category.color }"
+      :style="{ backgroundColor: category.color, color: contrastText(category.color) }"
     >
       {{ count }}
     </span>
@@ -74,45 +75,55 @@ const emit = defineEmits<{
       @keydown.escape.prevent.stop="emit('cancelEdit')"
       @blur="emit('commit')"
     >
-    <div
-      v-if="isColorPickerOpen"
-      class="category-color-popover"
-      :style="{ left: `${colorPopoverPosition.left}px`, top: `${colorPopoverPosition.top}px` }"
-      @click.stop
-      @pointerdown.stop
-      @mouseleave="emit('closeColorPicker')"
-    >
-      <div class="category-color-popover-title">
-        <Palette class="size-3.5" />
-        <span>{{ t("category.color") }}</span>
+    <!-- 必须 Teleport 到 body。
+         宿主 .tag-strip 带 backdrop-filter，这会同时创建层叠上下文、并让 .tag-strip
+         成为 position:fixed 后代的包含块。浮层若留在这里：z-index:80 只在
+         .tag-strip 内部竞争，而 .tag-strip 自身是无定位普通块，在 .raycast-container
+         里绘制层级低于兄弟节点里 position:relative 的卡片 —— 于是被列表盖住；
+         同时 .raycast-container 的 overflow:hidden 还会把它裁掉。
+         移到 body 后包含块回到视口，与 openColorPicker 用 getBoundingClientRect
+         算出的视口坐标一致（此前会被 .tag-strip 的偏移二次叠加）。 -->
+    <Teleport to="body">
+      <div
+        v-if="isColorPickerOpen"
+        class="category-color-popover"
+        :style="{ left: `${colorPopoverPosition.left}px`, top: `${colorPopoverPosition.top}px` }"
+        @click.stop
+        @pointerdown.stop
+        @mouseleave="emit('closeColorPicker')"
+      >
+        <div class="category-color-popover-title">
+          <Palette class="size-3.5" />
+          <span>{{ t("category.color") }}</span>
+        </div>
+        <div class="category-color-grid">
+          <button
+            v-for="color in colorOptions"
+            :key="color"
+            type="button"
+            class="category-color-swatch"
+            :class="{ 'category-color-swatch-active': color.toLowerCase() === category.color.toLowerCase() }"
+            :style="{ backgroundColor: color, color: contrastText(color) }"
+            :aria-label="t('category.selectColor', { color })"
+            tabindex="-1"
+            @click="emit('recolor', color)"
+          >
+            <Check
+              v-if="color.toLowerCase() === category.color.toLowerCase()"
+              class="size-3.5"
+            />
+          </button>
+        </div>
+        <label class="category-custom-color">
+          <input
+            type="color"
+            :value="category.color"
+            tabindex="-1"
+            @change="emit('recolor', ($event.target as HTMLInputElement).value)"
+          >
+          <span>{{ t("category.customColor") }}</span>
+        </label>
       </div>
-      <div class="category-color-grid">
-        <button
-          v-for="color in colorOptions"
-          :key="color"
-          type="button"
-          class="category-color-swatch"
-          :class="{ 'category-color-swatch-active': color.toLowerCase() === category.color.toLowerCase() }"
-          :style="{ backgroundColor: color }"
-          :aria-label="t('category.selectColor', { color })"
-          tabindex="-1"
-          @click="emit('recolor', color)"
-        >
-          <Check
-            v-if="color.toLowerCase() === category.color.toLowerCase()"
-            class="size-3.5"
-          />
-        </button>
-      </div>
-      <label class="category-custom-color">
-        <input
-          type="color"
-          :value="category.color"
-          tabindex="-1"
-          @change="emit('recolor', ($event.target as HTMLInputElement).value)"
-        >
-        <span>{{ t("category.customColor") }}</span>
-      </label>
-    </div>
+    </Teleport>
   </div>
 </template>
