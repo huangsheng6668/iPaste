@@ -100,7 +100,7 @@ defineExpose({
         >{{ searchShortcutHint }}</kbd>
       </div>
 
-      <!-- Quick Action Buttons -->
+      <!-- Quick Action Buttons：情境动作（更新/追加复制/OCR/同步）与窗口动作（设置/关闭）分组 -->
       <div
         class="flex items-center gap-1"
         @mousedown.stop
@@ -147,6 +147,11 @@ defineExpose({
         >
           <Wifi class="size-3.5" />
         </button>
+
+        <span
+          class="top-bar-divider"
+          aria-hidden="true"
+        />
 
         <button
           type="button"

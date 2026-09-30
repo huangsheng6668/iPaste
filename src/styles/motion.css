@@ -154,7 +154,25 @@ body.ipaste-preserve-current-app .global-tooltip,
   transition-duration: 0ms !important;
 }
 
-/* ---- responsive -------------------------------------------------------------- */
+/* ---- responsive --------------------------------------------------------------
+   主面板窗口物理范围 560–720px（src-tauri window/positioning.rs）。
+   640px 以下双栏会让检查器不足 220px、列表也不足 320px，两栏都难以阅读；
+   降级为单栏列表——检查器的复制/粘贴/展开能力仍全部可达
+   （快捷键 Enter/⌃C/Space、右键菜单、卡片按钮），窗口拉宽即恢复双栏。 */
+
+@media (max-width: 639.98px) {
+  .raycast-main-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clip-inspector {
+    display: none;
+  }
+
+  .raycast-search-row {
+    padding: 0.625rem 0.625rem 0.5rem;
+  }
+}
 
 @media (max-width: 900px) {
   .tech-stack-grid {

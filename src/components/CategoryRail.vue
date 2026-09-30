@@ -429,7 +429,7 @@ function countLabel(count: number | undefined) {
   >
     <nav
       ref="categoryScroller"
-      class="category-scroll subtle-scrollbar min-w-0 flex-1 overflow-x-auto py-1"
+      class="category-scroll subtle-scrollbar min-w-0 flex-1 overflow-x-auto py-0.5"
       :class="{
         'category-scroll-vertical': orientation === 'vertical',
         'subtle-scrollbar-active': isCategoryScrolling,
@@ -479,9 +479,9 @@ function countLabel(count: number | undefined) {
       <button
         type="button"
         class="category-chip category-chip-actions"
-        :class="{ 'category-chip-active': selectedCategoryId === 'actions' }"
+        :class="{ 'category-chip-active': selectedCategoryId === 'automation' }"
         tabindex="-1"
-        @click="selectCategory('actions')"
+        @click="selectCategory('automation')"
       >
         <Zap class="size-4" />
         <span class="category-chip-label">{{ t("automation.entry") }}</span>

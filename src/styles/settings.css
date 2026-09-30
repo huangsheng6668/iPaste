@@ -419,7 +419,7 @@ html.dark .settings-shell {
   justify-content: space-between;
   gap: 0.75rem;
   font-size: 0.8125rem;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.2;
 }
 
@@ -484,7 +484,7 @@ html.dark .settings-shell {
   gap: 0.75rem;
   color: var(--text-2);
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .ocr-install-details {
@@ -551,7 +551,7 @@ html.dark .settings-shell {
 
 .settings-field span {
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--text-2);
 }
 
@@ -626,7 +626,7 @@ html.dark .settings-shell {
   background: var(--surface);
   padding: 0 0.875rem;
   font-size: 0.875rem;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--text-2);
   transition:
     background-color 160ms ease,
@@ -759,7 +759,7 @@ html.dark .settings-shell {
   padding: 0 0.625rem 0 0.75rem;
   color: var(--text-2);
   font-size: 0.875rem;
-  font-weight: 650;
+  font-weight: 600;
   text-align: left;
   transition:
     background-color 140ms ease,
@@ -913,7 +913,7 @@ html.dark .settings-shell {
   display: block;
   color: var(--text-3);
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .about-label {
@@ -1045,7 +1045,7 @@ html.dark .settings-shell {
 .tech-stack-item strong {
   color: var(--text-1);
   font-size: 0.875rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .tech-stack-item span {
@@ -1284,7 +1284,7 @@ html.dark .tech-stack-icon-violet {
   margin: 0;
   color: var(--text-1);
   font-size: 1rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .update-dialog-header p {
@@ -1368,7 +1368,7 @@ html.dark .tech-stack-icon-violet {
 .update-progress > span {
   color: var(--text-3);
   font-size: 0.8125rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .update-dialog-actions {

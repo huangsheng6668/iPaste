@@ -68,15 +68,15 @@
   gap: 0.625rem;
   border-radius: var(--r-sm);
   padding: 0.375rem 0.625rem;
-  font-size: 0.875rem;
+  font-size: var(--text-lg);
   color: var(--text-2);
 }
 
 .context-menu-item {
   text-align: left;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
 }
 
 .context-menu-item:hover {
@@ -84,8 +84,12 @@
   color: var(--accent-strong);
 }
 
+.context-menu-item:active {
+  background: var(--accent-soft-2);
+}
+
 .context-menu-item-strong {
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
   color: var(--text-1);
 }
 
@@ -101,7 +105,7 @@
 .context-menu-item-confirm {
   background: var(--danger-soft);
   color: var(--danger-strong);
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 
 .context-menu-item-confirm:hover {
@@ -111,8 +115,8 @@
 
 .context-menu-label {
   min-height: 1.75rem;
-  font-size: 0.75rem;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   color: var(--text-3);
 }
 
@@ -155,7 +159,7 @@
   margin: 0;
   color: var(--text-1);
   font-size: 1rem;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
@@ -222,7 +226,9 @@
   font-weight: 600;
 }
 
-/* ---- shared buttons ----------------------------------------------------- */
+/* ---- shared buttons -----------------------------------------------------
+   三级按钮体系：primary（主操作）/ ghost（次操作）/ danger（破坏操作）。
+   统一：min-height 2.125rem、:active 缩放触觉反馈、明确的 disabled 态。 */
 
 .btn-primary {
   display: inline-flex;
@@ -235,13 +241,14 @@
   background: var(--accent);
   padding: 0 0.875rem;
   color: var(--on-accent);
-  font-size: 0.8125rem;
-  font-weight: 650;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
   box-shadow: 0 4px 14px rgba(13, 148, 136, 0.28);
   transition:
-    filter 150ms ease,
-    box-shadow 150ms ease,
-    opacity 150ms ease;
+    filter var(--dur-base) ease,
+    box-shadow var(--dur-base) ease,
+    opacity var(--dur-base) ease,
+    transform var(--dur-fast) ease;
 }
 
 .btn-primary:hover {
@@ -249,10 +256,15 @@
   box-shadow: 0 6px 18px rgba(13, 148, 136, 0.38);
 }
 
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
 .btn-primary:disabled {
   cursor: not-allowed;
   opacity: 0.5;
   box-shadow: none;
+  transform: none;
 }
 
 .btn-ghost {
@@ -266,16 +278,27 @@
   background: transparent;
   padding: 0 0.875rem;
   color: var(--text-2);
-  font-size: 0.8125rem;
-  font-weight: 650;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
   transition:
-    background-color 150ms ease,
-    color 150ms ease;
+    background-color var(--dur-base) ease,
+    color var(--dur-base) ease,
+    transform var(--dur-fast) ease;
 }
 
 .btn-ghost:hover {
   background: var(--surface-hover);
   color: var(--text-1);
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
 }
 
 .btn-danger {

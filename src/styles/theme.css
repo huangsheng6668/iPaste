@@ -11,13 +11,46 @@
   /* ---- window chrome ---- */
   --window-radius: 0.875rem;
 
-  /* ---- radii ---- */
+  /* ---- radii ----
+     桌面工具气质：卡片与控件最大 8px（r-lg），
+     只有窗口/对话框级浮层使用 r-xl。 */
   --r-xs: 0.25rem;
   --r-sm: 0.375rem;
   --r-md: 0.5rem;
   --r-lg: 0.5rem;
   --r-xl: 0.75rem;
   --r-pill: 999px;
+
+  /* ---- spacing scale（4px 基网格）----
+     组件内边距、间隙统一取自该刻度，不再手写零碎 rem。 */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.25rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+
+  /* ---- type scale（字号阶梯）----
+     xs=11 辅助/徽章, sm=12 次级/meta, md=13 正文（密集列表）,
+     lg=14 强调正文/菜单, xl=16 标题/搜索输入 */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.8125rem;
+  --text-lg: 0.875rem;
+  --text-xl: 1rem;
+
+  /* ---- font weights（收敛 650/750 半档）---- */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* ---- motion（过渡时长 150–200ms 区间内的统一刻度）---- */
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --dur-slow: 220ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* ---- typography ---- */
   --font-sans:

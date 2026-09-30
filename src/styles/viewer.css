@@ -61,7 +61,7 @@ html.dark .clip-viewer-shell {
   padding: 0 0.625rem;
   color: var(--text-2);
   font-size: 0.8125rem;
-  font-weight: 650;
+  font-weight: 600;
   box-shadow: var(--shadow-xs);
   transition:
     background-color 140ms ease,
@@ -462,7 +462,7 @@ html.dark .clip-viewer-shell {
   margin: 0;
   color: var(--text-1);
   font-size: 0.875rem;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.2;
 }
 
@@ -607,7 +607,7 @@ html.dark .clip-viewer-shell {
   padding: 0.3125rem 0.625rem;
   color: #ffffff;
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
   box-shadow: 0 12px 28px rgba(24, 26, 45, 0.24);
 }
 
