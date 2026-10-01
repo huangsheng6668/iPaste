@@ -9,6 +9,8 @@
 // 生成物自带字面量联合，这里不再手写同名联合，直接再导出（Rust 增删枚举值时前端自动跟随）。
 
 export type ClipType = "text" | "link" | "color" | "image" | "file" | "html";
+/** 历史面板的类型筛选："text" 涵盖一切可搜索的文本类（text/link/color/html/file），"image" 仅图片。 */
+export type ClipTypeFilter = "all" | "text" | "image";
 export type AutomationStatus = "idle" | "running" | "success" | "failed" | "timed_out";
 export type SyncState = "local" | "syncing" | "synced" | "conflict";
 

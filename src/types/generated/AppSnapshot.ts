@@ -4,4 +4,8 @@ import type { Category } from "./Category";
 import type { CategoryItem } from "./CategoryItem";
 import type { ClipItem } from "./ClipItem";
 
-export type AppSnapshot = { clips: Array<ClipItem>, hasMoreClips: boolean, clipTotalCount: number, categories: Array<Category>, categoryItems: Array<CategoryItem>, shortcut: string, isListening: boolean, isAppendCopyEnabled: boolean, settings: AppSettings, };
+export type AppSnapshot = { clips: Array<ClipItem>, hasMoreClips: boolean, clipTotalCount: number, 
+/**
+ * 历史类型筛选徽章计数（全部/文本/图片分段控件用；与搜索上下文一致，快照恒为无搜索计数）。
+ */
+clipTextCount: number, clipImageCount: number, categories: Array<Category>, categoryItems: Array<CategoryItem>, shortcut: string, isListening: boolean, isAppendCopyEnabled: boolean, settings: AppSettings, };

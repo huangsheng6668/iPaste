@@ -23,6 +23,7 @@ pub(crate) fn list_clips(
     offset: Option<usize>,
     limit: Option<usize>,
     search: Option<String>,
+    type_filter: Option<String>,
 ) -> Result<ClipPage, AppError> {
     state
         .store
@@ -30,6 +31,7 @@ pub(crate) fn list_clips(
             offset.unwrap_or(0),
             limit.unwrap_or(CLIP_PAGE_SIZE),
             search.unwrap_or_default(),
+            type_filter.unwrap_or_default(),
         )
         .map_err(AppError::from)
 }
@@ -40,10 +42,11 @@ pub(crate) fn search_with_fallback(
     offset: usize,
     limit: usize,
     search: String,
+    type_filter: Option<String>,
 ) -> Result<SearchResult, AppError> {
     state
         .store
-        .search_with_fallback(offset, limit, &search)
+        .search_with_fallback(offset, limit, &search, &type_filter.unwrap_or_default())
         .map_err(AppError::from)
 }
 

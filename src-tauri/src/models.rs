@@ -101,6 +101,11 @@ pub(crate) struct AppSnapshot {
     pub(crate) has_more_clips: bool,
     #[ts(type = "number")]
     pub(crate) clip_total_count: usize,
+    /// 历史类型筛选徽章计数（全部/文本/图片分段控件用；与搜索上下文一致，快照恒为无搜索计数）。
+    #[ts(type = "number")]
+    pub(crate) clip_text_count: usize,
+    #[ts(type = "number")]
+    pub(crate) clip_image_count: usize,
     pub(crate) categories: Vec<Category>,
     pub(crate) category_items: Vec<CategoryItem>,
     pub(crate) shortcut: String,
@@ -126,6 +131,12 @@ pub(crate) struct ClipPage {
     pub(crate) total_count: usize,
     #[ts(type = "number")]
     pub(crate) all_count: usize,
+    /// 当前搜索上下文（不含类型筛选）下的文本类条目数，供类型筛选徽章显示。
+    #[ts(type = "number")]
+    pub(crate) text_count: usize,
+    /// 当前搜索上下文（不含类型筛选）下的图片条目数。
+    #[ts(type = "number")]
+    pub(crate) image_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -602,6 +613,8 @@ mod tests {
             has_more: false,
             total_count: 0,
             all_count: 0,
+            text_count: 0,
+            image_count: 0,
         };
         let json = serde_json::to_string(&SearchResult::History { page }).unwrap();
         assert!(json.contains(r#""kind":"history""#), "got: {json}");

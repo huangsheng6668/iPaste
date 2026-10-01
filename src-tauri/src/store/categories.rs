@@ -12,7 +12,7 @@ use super::Store;
 use crate::models::{Category, CategoryHitGroup, CategoryItem, CategoryWithItem, ClipItem};
 use crate::{
     store::rows::{collect_rows, map_category, map_category_item, map_clip},
-    util::{clean_category_name, clean_color, new_id, now},
+    util::{clean_category_name, clean_clip_type_filter, clean_color, new_id, now},
 };
 
 fn ensure_unique_ids(ids: &[String]) -> Result<(), String> {
@@ -158,31 +158,39 @@ impl Store {
     /// 组间顺序由分类 `sort_order`（见 `list_categories_with_conn`）决定；
     /// 组内条目顺序由 SQL `ORDER BY is_pinned DESC, sort_order ASC,
     /// datetime(created_at) DESC` 决定（与 `list_category_items_with_conn` 一致）。
-    /// 仅返回有命中的分类。
+    /// 仅返回有命中的分类。`type_filter` 与历史搜索同一口径（"all"/"text"/"image"）。
     pub(crate) fn search_all_category_items_with_conn(
         &self,
         conn: &Connection,
         search: &str,
+        type_filter: &str,
     ) -> Result<Vec<CategoryHitGroup>, String> {
         let query = search.trim().to_lowercase();
         if query.is_empty() {
             return Ok(Vec::new());
         }
         let pattern = format!("%{query}%");
+        let type_filter = clean_clip_type_filter(type_filter);
         let mut stmt = conn
             .prepare(
                 "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
                  FROM category_items
-                 WHERE lower(COALESCE(display_name, '')) LIKE ?1
+                 WHERE (lower(COALESCE(display_name, '')) LIKE ?1
                     OR lower(preview_text) LIKE ?1
                     OR lower(clip_type) LIKE ?1
                     OR (clip_type != 'image' AND lower(text) LIKE ?1)
-                    OR (clip_type = 'image' AND '图片 image' LIKE ?1)
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?1))
+                   AND (?2 = 'all'
+                    OR (?2 = 'image' AND clip_type = 'image')
+                    OR (?2 = 'text' AND clip_type != 'image'))
                  ORDER BY is_pinned DESC, sort_order ASC, datetime(created_at) DESC",
             )
             .map_err(|error| error.to_string())?;
         let rows = stmt
-            .query_map(params![pattern.as_str()], map_category_item)
+            .query_map(
+                params![pattern.as_str(), type_filter.as_str()],
+                map_category_item,
+            )
             .map_err(|error| error.to_string())?;
         let items: Vec<CategoryItem> = collect_rows(rows)?;
 

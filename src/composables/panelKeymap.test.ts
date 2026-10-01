@@ -52,6 +52,14 @@ describe("commandFor：组合键（Ctrl/Cmd）", () => {
       commandFor(keyEvent({ key: "c", ...primary }), context({ isSearchTarget: true, hasSearchSelection: true })),
     ).toBeNull();
   });
+
+  it("G：循环切换历史类型筛选；Shift 反向，搜索框内同样生效", () => {
+    expect(commandFor(keyEvent({ key: "g", ...primary }), context())).toEqual({ type: "cycleTypeFilter", delta: 1 });
+    expect(commandFor(keyEvent({ key: "G", metaKey: true }), context())).toEqual({ type: "cycleTypeFilter", delta: 1 });
+    expect(commandFor(keyEvent({ key: "g", ...primary, shiftKey: true }), context())).toEqual({ type: "cycleTypeFilter", delta: -1 });
+    expect(commandFor(keyEvent({ key: "g", ...primary }), context({ isSearchTarget: true }))).toEqual({ type: "cycleTypeFilter", delta: 1 });
+    expect(commandFor(keyEvent({ key: "g", ...primary, altKey: true }), context())).toBeNull();
+  });
 });
 
 describe("commandFor：Tab / Escape / Enter", () => {

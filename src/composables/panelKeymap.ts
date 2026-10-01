@@ -1,7 +1,7 @@
 // 面板键位表（Task 21 从 usePanelKeyboard 抽出）：把"按了什么键 → 做什么"变成纯数据决策。
 // 只做键位判定，不碰 DOM、不碰 store；副作用由 App.vue 注入的 dispatch 执行。
-// 键位集合与原实现逐条对齐，**不得增删**；修饰键条件也照抄（方向键 / Tab / Enter /
-// Escape / Space / Backspace 原实现均不限制修饰键，本表同样不限制）。
+// 键位集合继承原实现并逐条对齐；新增键位（Ctrl/Cmd+G 类型筛选）同样以纯数据命令进入本表。
+// 修饰键条件照抄原实现（方向键 / Tab / Enter / Escape / Space / Backspace 均不限制修饰键）。
 
 /** 每次按键实时求值的面板态（命令决策的唯一输入）。 */
 export type PanelContext = {
@@ -25,6 +25,7 @@ export type PanelCommand =
   | { type: "toggleCategory" }
   | { type: "cycleCategory"; delta: number }
   | { type: "selectCategoryIndex"; index: number }
+  | { type: "cycleTypeFilter"; delta: number }
   | { type: "focusSearch" }
   | { type: "escape" }
   /** 已消费但不动作：保留原实现的 preventDefault 语义（如 automation 页签下的 Space）。 */
@@ -58,6 +59,12 @@ export function commandFor(event: KeyboardEvent, ctx: PanelContext): PanelComman
   // Ctrl/Cmd+F：聚焦搜索
   if (hasPrimaryModifier(event) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
     return { type: "focusSearch" };
+  }
+
+  // Ctrl/Cmd+G：循环切换历史类型筛选（全部 → 文本 → 图片；Shift 反向）。
+  // 允许 Shift（与 cycleCategory 的 Shift+Tab 反向同构），搜索框内同样生效。
+  if (hasPrimaryModifier(event) && !event.altKey && event.key.toLowerCase() === "g") {
+    return { type: "cycleTypeFilter", delta: event.shiftKey ? -1 : 1 };
   }
 
   // Ctrl/Cmd+C：复制选中条目/动作命令；搜索框内有选区时让浏览器复制

@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { ipasteApi } from "../lib/ipasteApi";
-import { clipMatchesSearch } from "../lib/clipSearch";
+import { clipMatchesSearch, clipMatchesTypeFilter } from "../lib/clipSearch";
 import { errorMessage } from "../lib/appError";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
 import { orderCategoryItemsByIds } from "./lib/ordering";
@@ -17,11 +17,15 @@ import type {
   CategoryHitGroup,
   CategoryItem,
   ClipItem,
+  ClipPage,
+  ClipTypeFilter,
   ClipUpdatedEvent,
   ClipViewItem,
 } from "../types";
 
 const CLIP_PAGE_SIZE = 20;
+/** 类型筛选的循环顺序（键盘 Ctrl/Cmd+G 与 selectTypeFilter 共用）。 */
+const TYPE_FILTER_CYCLE: ClipTypeFilter[] = ["all", "text", "image"];
 
 export const useIpasteStore = defineStore("ipaste", () => {
   const settings = useSettingsStore();
@@ -47,6 +51,10 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const fallbackGroups = ref<CategoryHitGroup[]>([]);
   const clipTotalCount = ref(0);
   const visibleHistoryTotalCount = ref(0);
+  /** 历史类型筛选（全部/文本/图片）；实际过滤在 SQL 层，这里只保存视图状态与徽章计数。 */
+  const typeFilter = ref<ClipTypeFilter>("all");
+  const clipTextCount = ref(0);
+  const clipImageCount = ref(0);
   const error = ref<string | null>(null);
   let clipRequestId = 0;
 
@@ -79,11 +87,21 @@ export const useIpasteStore = defineStore("ipaste", () => {
     hasMoreClips.value = snapshot.hasMoreClips;
     clipTotalCount.value = snapshot.clipTotalCount;
     visibleHistoryTotalCount.value = snapshot.clipTotalCount;
+    clipTextCount.value = snapshot.clipTextCount;
+    clipImageCount.value = snapshot.clipImageCount;
     category.categories = snapshot.categories;
     category.categoryItems = snapshot.categoryItems;
     isListening.value = snapshot.isListening;
     isAppendCopyEnabled.value = snapshot.isAppendCopyEnabled;
     settings.applySnapshotSettings(snapshot);
+  }
+
+  /** 分页响应的计数落地（reload/loadMore/backfill 共用）：徽章计数跟随搜索上下文，由后端随页返回。 */
+  function applyClipPageCounts(page: ClipPage) {
+    visibleHistoryTotalCount.value = page.totalCount;
+    clipTotalCount.value = page.allCount;
+    clipTextCount.value = page.textCount;
+    clipImageCount.value = page.imageCount;
   }
 
   async function load() {
@@ -113,15 +131,14 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
     isLoadingMoreClips.value = true;
     try {
-      const page = await ipasteApi.listClips(clips.value.length, CLIP_PAGE_SIZE, search.value);
+      const page = await ipasteApi.listClips(clips.value.length, CLIP_PAGE_SIZE, search.value, typeFilter.value);
       const existingIds = new Set(clips.value.map((clip) => clip.id));
       clips.value = [
         ...clips.value,
         ...page.clips.filter((clip) => !existingIds.has(clip.id)),
       ];
       hasMoreClips.value = page.hasMore;
-      visibleHistoryTotalCount.value = page.totalCount;
-      clipTotalCount.value = page.allCount;
+      applyClipPageCounts(page);
       clampSelection();
     } catch (unknownError) {
       error.value = errorMessage(unknownError);
@@ -136,16 +153,15 @@ export const useIpasteStore = defineStore("ipaste", () => {
     try {
       const isHistorySearch = selectedCategoryId.value === "history" && search.value.trim() !== "";
       const result = isHistorySearch
-        ? await ipasteApi.searchWithFallback(0, CLIP_PAGE_SIZE, search.value)
+        ? await ipasteApi.searchWithFallback(0, CLIP_PAGE_SIZE, search.value, typeFilter.value)
         : null;
-      const page = result ? null : await ipasteApi.listClips(0, CLIP_PAGE_SIZE, search.value);
+      const page = result ? null : await ipasteApi.listClips(0, CLIP_PAGE_SIZE, search.value, typeFilter.value);
       if (requestId !== clipRequestId) return;
 
       if (result?.kind === "history") {
         clips.value = result.page.clips;
         hasMoreClips.value = result.page.hasMore;
-        visibleHistoryTotalCount.value = result.page.totalCount;
-        clipTotalCount.value = result.page.allCount;
+        applyClipPageCounts(result.page);
         fallbackGroups.value = [];
       } else if (result?.kind === "categoryHits") {
         clips.value = [];
@@ -156,8 +172,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       } else if (page) {
         clips.value = page.clips;
         hasMoreClips.value = page.hasMore;
-        visibleHistoryTotalCount.value = page.totalCount;
-        clipTotalCount.value = page.allCount;
+        applyClipPageCounts(page);
         fallbackGroups.value = [];
       }
       selectedIndex.value = 0;
@@ -170,11 +185,16 @@ export const useIpasteStore = defineStore("ipaste", () => {
 
   async function deleteClip(id: string) {
     await ipasteApi.deleteClip(id);
-    const hadClip = clips.value.some((clip) => clip.id === id);
+    const deleted = clips.value.find((clip) => clip.id === id);
     clips.value = clips.value.filter((clip) => clip.id !== id);
-    if (hadClip) {
+    if (deleted) {
       clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
       visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
+      if (deleted.clipType === "image") {
+        clipImageCount.value = Math.max(0, clipImageCount.value - 1);
+      } else {
+        clipTextCount.value = Math.max(0, clipTextCount.value - 1);
+      }
       await backfillClips();
     }
     clampSelection();
@@ -189,12 +209,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (fallbackGroups.value.length > 0 || !hasMoreClips.value) return;
 
     try {
-      const page = await ipasteApi.listClips(clips.value.length, 1, search.value);
+      const page = await ipasteApi.listClips(clips.value.length, 1, search.value, typeFilter.value);
       const existingIds = new Set(clips.value.map((clip) => clip.id));
       clips.value = [...clips.value, ...page.clips.filter((clip) => !existingIds.has(clip.id))];
       hasMoreClips.value = page.hasMore;
-      visibleHistoryTotalCount.value = page.totalCount;
-      clipTotalCount.value = page.allCount;
+      applyClipPageCounts(page);
     } catch (unknownError) {
       error.value = errorMessage(unknownError);
     }
@@ -206,6 +225,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
     hasMoreClips.value = false;
     clipTotalCount.value = 0;
     visibleHistoryTotalCount.value = 0;
+    clipTextCount.value = 0;
+    clipImageCount.value = 0;
     selectedIndex.value = 0;
     return deleted;
   }
@@ -214,8 +235,10 @@ export const useIpasteStore = defineStore("ipaste", () => {
     const hadClip = clips.value.some((item) => item.id === clip.id);
     const hasSearch = Boolean(search.value.trim());
     const matchesCurrentSearch = clipMatchesSearch(clip, search.value);
+    // 与当前视图口径一致才进窗口：搜索词与类型筛选双重约束（类型筛选下非目标类型只记账不进列表）。
+    const matchesCurrentView = (!hasSearch || matchesCurrentSearch) && clipMatchesTypeFilter(clip, typeFilter.value);
 
-    if (!hasSearch || matchesCurrentSearch) {
+    if (matchesCurrentView) {
       clips.value = [clip, ...clips.value.filter((item) => item.id !== clip.id)].slice(0, 120);
     }
 
@@ -229,6 +252,14 @@ export const useIpasteStore = defineStore("ipaste", () => {
     } else if (!hadClip && !hasMoreClips.value) {
       clipTotalCount.value += 1;
       visibleHistoryTotalCount.value += 1;
+    }
+    // 徽章计数跟随搜索上下文（不含类型筛选）：新条目匹配搜索即计入对应分段。
+    if (wasInserted && matchesCurrentSearch) {
+      if (clip.clipType === "image") {
+        clipImageCount.value += 1;
+      } else {
+        clipTextCount.value += 1;
+      }
     }
     if (!hasSearch) {
       hasMoreClips.value = hasMoreClips.value || clips.value.length >= CLIP_PAGE_SIZE;
@@ -392,7 +423,7 @@ export const useIpasteStore = defineStore("ipaste", () => {
       const hasClip = clips.value.some((entry) => entry.id === clip.id);
       if (hasClip) {
         clips.value = clips.value.map((entry) => (entry.id === clip.id ? clip : entry));
-      } else if (clipMatchesSearch(clip, search.value)) {
+      } else if (clipMatchesSearch(clip, search.value) && clipMatchesTypeFilter(clip, typeFilter.value)) {
         clips.value = [clip, ...clips.value].slice(0, 120);
       }
       return;
@@ -415,6 +446,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
         clips.value = clips.value.filter((clip) => clip.id !== payload.mergedFromId);
         clipTotalCount.value = Math.max(0, clipTotalCount.value - 1);
         visibleHistoryTotalCount.value = Math.max(0, visibleHistoryTotalCount.value - 1);
+        // 合并入口只有追加复制（纯文本），被合并条目恒为文本类。
+        clipTextCount.value = Math.max(0, clipTextCount.value - 1);
       } else {
         category.categoryItems = category.categoryItems.filter((item) => item.id !== payload.mergedFromId);
       }
@@ -442,6 +475,32 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (id === "history") {
       void reloadClips();
     }
+  }
+
+  // —— 历史类型筛选（全部/文本/图片）——
+
+  function selectTypeFilter(next: ClipTypeFilter) {
+    if (next === typeFilter.value) return;
+    typeFilter.value = next;
+    selectedIndex.value = 0;
+    fallbackGroups.value = [];
+    if (selectedCategoryId.value === "history") {
+      void reloadClips();
+    }
+  }
+
+  /** Ctrl/Cmd+G 循环切换：all → text → image → all（Shift 反向）。 */
+  function cycleTypeFilter(delta: number) {
+    const length = TYPE_FILTER_CYCLE.length;
+    const current = TYPE_FILTER_CYCLE.indexOf(typeFilter.value);
+    const next = TYPE_FILTER_CYCLE[(current + delta + length) % length] ?? "all";
+    selectTypeFilter(next);
+  }
+
+  /** 面板关闭时复位筛选（与 clearSearch 同节奏）：重新打开始终回到完整历史。 */
+  function resetTypeFilter() {
+    if (typeFilter.value === "all") return;
+    typeFilter.value = "all";
   }
 
   function clearSearch() {
@@ -496,6 +555,9 @@ export const useIpasteStore = defineStore("ipaste", () => {
     fallbackGroups,
     clipTotalCount,
     visibleHistoryTotalCount,
+    typeFilter,
+    clipTextCount,
+    clipImageCount,
     error,
     activeCategory,
     visibleItems,
@@ -525,6 +587,9 @@ export const useIpasteStore = defineStore("ipaste", () => {
     hidePanel,
     showSettings,
     selectCategory,
+    selectTypeFilter,
+    cycleTypeFilter,
+    resetTypeFilter,
     clearSearch,
     activatePanelDefault,
     moveSelection,

@@ -48,6 +48,8 @@ pub(crate) fn build_app_snapshot(
         clips: clip_page.clips,
         has_more_clips: clip_page.has_more,
         clip_total_count: clip_page.all_count,
+        clip_text_count: clip_page.text_count,
+        clip_image_count: clip_page.image_count,
         categories,
         category_items,
         shortcut: settings.shortcut.clone(),

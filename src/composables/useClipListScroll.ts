@@ -122,7 +122,7 @@ export function useClipListScroll(deps: ClipListScrollDeps) {
     );
 
     watch(
-      () => [store.selectedIndex, store.selectedCategoryId, store.search],
+      () => [store.selectedIndex, store.selectedCategoryId, store.search, store.typeFilter],
       () => scheduleSelectedClipScroll(),
       { flush: "post" },
     );

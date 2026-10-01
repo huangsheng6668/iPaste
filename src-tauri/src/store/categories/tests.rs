@@ -11,7 +11,7 @@ fn search_all_category_items_groups_by_category() {
     seed_category_item(&conn, &cat_b, "text", "alpha other", "alpha other");
 
     let groups = store
-        .search_all_category_items_with_conn(&conn, "alpha")
+        .search_all_category_items_with_conn(&conn, "alpha", "all")
         .unwrap();
     assert_eq!(groups.len(), 2, "two categories have alpha hits");
     assert_eq!(groups[0].category.name, "A", "lower sort_order first");
@@ -27,7 +27,7 @@ fn search_all_category_items_empty_query_returns_empty() {
     let cat = create_category(&conn, "A", "#f00", 0);
     seed_category_item(&conn, &cat, "text", "x", "x");
     let groups = store
-        .search_all_category_items_with_conn(&conn, "")
+        .search_all_category_items_with_conn(&conn, "", "all")
         .unwrap();
     assert!(groups.is_empty());
 }

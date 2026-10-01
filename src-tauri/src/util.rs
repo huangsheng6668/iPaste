@@ -71,6 +71,15 @@ pub(crate) fn hash_text(text: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// 历史类型筛选入参清洗：只认 "text" / "image"，其余（含 "all" 与未知值）归一为 "all"（不过滤）。
+/// 归一而非报错：筛选是视图层约束，非法值降级为不筛选比失败更符合面板交互预期。
+pub(crate) fn clean_clip_type_filter(value: &str) -> String {
+    match value {
+        "text" | "image" => value.to_string(),
+        _ => "all".to_string(),
+    }
+}
+
 pub(crate) fn clean_category_name(name: String) -> Result<String, String> {
     let name = name.trim().to_string();
     if name.is_empty() {

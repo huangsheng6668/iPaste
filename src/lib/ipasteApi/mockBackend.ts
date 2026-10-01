@@ -143,6 +143,8 @@ const mockSnapshot: AppSnapshot = {
   clips: mockClips.slice(0, 20),
   hasMoreClips: mockClips.length > 20,
   clipTotalCount: mockClips.length,
+  clipTextCount: mockClips.filter((item) => item.clipType !== "image").length,
+  clipImageCount: mockClips.filter((item) => item.clipType === "image").length,
   categories: mockCategories,
   categoryItems: mockCategoryItems,
   shortcut: "CommandOrControl+Shift+V",

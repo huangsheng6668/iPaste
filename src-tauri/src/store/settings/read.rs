@@ -18,7 +18,7 @@ impl Store {
     pub(crate) fn snapshot(&self) -> Result<(ClipPage, Vec<Category>, Vec<CategoryItem>), String> {
         let conn = self.connect()?;
         Ok((
-            self.list_clips_page_with_conn(&conn, 0, CLIP_PAGE_SIZE, "")?,
+            self.list_clips_page_with_conn(&conn, 0, CLIP_PAGE_SIZE, "", "all")?,
             self.list_categories_with_conn(&conn)?,
             self.list_category_items_with_conn(&conn)?,
         ))

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
-import type { ClipItem, ClipPage } from "../types";
+import type { ClipItem, ClipPage, ClipTypeFilter } from "../types";
+import { clipMatchesTypeFilter } from "../lib/clipSearch";
 
 vi.mock("../lib/ipasteApi", () => ({
   ipasteApi: {
@@ -17,7 +18,7 @@ const listClipsMock = vi.mocked(ipasteApi.listClips);
 const deleteClipMock = vi.mocked(ipasteApi.deleteClip);
 
 // c01 最新、c30 最旧，模拟 last_captured_at DESC 的服务端排序。
-function makeClip(id: string, order: number): ClipItem {
+function makeClip(id: string, order: number, overrides: Partial<ClipItem> = {}): ClipItem {
   const text = `clip ${order}`;
   return {
     id,
@@ -30,20 +31,24 @@ function makeClip(id: string, order: number): ClipItem {
     lastCapturedAt: new Date(Date.now() - order * 60_000).toISOString(),
     favoriteCount: 0,
     isPinned: false,
+    ...overrides,
   };
 }
 
 let allClips: ClipItem[];
 
-/** 与后端 list_clips_page_with_conn 一致的分页实现（OFFSET/LIMIT + has_more）。 */
-function pageOf(offset: number, limit: number, search: string): ClipPage {
+/** 与后端 list_clips_page_with_conn 一致的分页实现（OFFSET/LIMIT + has_more + 类型筛选与徽章计数）。 */
+function pageOf(offset: number, limit: number, search: string, typeFilter: ClipTypeFilter = "all"): ClipPage {
   const query = search.trim().toLowerCase();
-  const source = query ? allClips.filter((clip) => clip.text.toLowerCase().includes(query)) : allClips;
+  const searchSource = query ? allClips.filter((clip) => clip.text.toLowerCase().includes(query)) : allClips;
+  const source = searchSource.filter((clip) => clipMatchesTypeFilter(clip, typeFilter));
   return {
     clips: source.slice(offset, offset + limit),
     hasMore: offset + limit < source.length,
     totalCount: source.length,
     allCount: allClips.length,
+    textCount: searchSource.filter((clip) => clip.clipType !== "image").length,
+    imageCount: searchSource.filter((clip) => clip.clipType === "image").length,
   };
 }
 
@@ -51,8 +56,8 @@ beforeEach(() => {
   setActivePinia(createPinia());
   vi.clearAllMocks();
   allClips = Array.from({ length: 30 }, (_, index) => makeClip(`c${String(index + 1).padStart(2, "0")}`, index));
-  listClipsMock.mockImplementation((offset = 0, limit = 20, search = "") =>
-    Promise.resolve(pageOf(offset, limit, search)),
+  listClipsMock.mockImplementation((offset = 0, limit = 20, search = "", typeFilter: ClipTypeFilter = "all") =>
+    Promise.resolve(pageOf(offset, limit, search, typeFilter)),
   );
   deleteClipMock.mockImplementation(async (id: string) => {
     allClips = allClips.filter((clip) => clip.id !== id);
@@ -81,7 +86,7 @@ describe("deleteClip 删除补位", () => {
       "c21",
     ]);
     expect(store.clips).toHaveLength(20);
-    expect(listClipsMock).toHaveBeenCalledWith(19, 1, "");
+    expect(listClipsMock).toHaveBeenCalledWith(19, 1, "", "all");
     expect(store.hasMoreClips).toBe(true);
   });
 
@@ -123,7 +128,7 @@ describe("deleteClip 删除补位", () => {
 
     await store.deleteClip("c05");
 
-    expect(listClipsMock).toHaveBeenCalledWith(19, 1, "clip");
+    expect(listClipsMock).toHaveBeenCalledWith(19, 1, "clip", "all");
     expect(store.clips).toHaveLength(20);
   });
 });
@@ -166,7 +171,7 @@ describe("reloadClips 竞态守卫", () => {
 
     const first = store.reloadClips();
     const second = store.reloadClips();
-    resolveFirst({ clips: [makeClip("stale", 99)], hasMore: false, totalCount: 1, allCount: 1 });
+    resolveFirst({ clips: [makeClip("stale", 99)], hasMore: false, totalCount: 1, allCount: 1, textCount: 1, imageCount: 0 });
     await Promise.all([first, second]);
 
     expect(store.clips.some((clip) => clip.id === "stale")).toBe(false);
@@ -187,5 +192,100 @@ describe("reloadClips 竞态守卫", () => {
 
     expect(store.error).toBeNull();
     expect(store.clips).toHaveLength(20);
+  });
+});
+
+describe("类型筛选（全部/文本/图片）", () => {
+  function hydrateMixedWindow() {
+    const store = useIpasteStore();
+    store.selectedCategoryId = "history";
+    allClips = [
+      makeClip("t1", 0),
+      makeClip("i1", 1, { clipType: "image", previewText: "图片" }),
+      makeClip("t2", 2),
+      makeClip("i2", 3, { clipType: "image", previewText: "图片" }),
+    ];
+    store.clips = pageOf(0, 20, "").clips;
+    store.hasMoreClips = false;
+    store.clipTotalCount = 4;
+    store.visibleHistoryTotalCount = 4;
+    store.clipTextCount = 2;
+    store.clipImageCount = 2;
+    return store;
+  }
+
+  it("selectTypeFilter 触发重载并携带筛选值，窗口只保留目标类型，徽章计数不受筛选影响", async () => {
+    const store = hydrateMixedWindow();
+
+    store.selectTypeFilter("image");
+    await vi.waitFor(() => expect(store.clips.map((clip) => clip.id)).toEqual(["i1", "i2"]));
+
+    expect(listClipsMock).toHaveBeenCalledWith(0, 20, "", "image");
+    expect(store.visibleHistoryTotalCount).toBe(2);
+    expect(store.clipTextCount).toBe(2);
+    expect(store.clipImageCount).toBe(2);
+  });
+
+  it("cycleTypeFilter 按 all → text → image → all 循环，delta -1 反向", async () => {
+    const store = hydrateMixedWindow();
+    expect(store.typeFilter).toBe("all");
+
+    store.cycleTypeFilter(1);
+    expect(store.typeFilter).toBe("text");
+    await vi.waitFor(() => expect(store.clips.every((clip) => clip.clipType !== "image")).toBe(true));
+
+    store.cycleTypeFilter(1);
+    expect(store.typeFilter).toBe("image");
+
+    store.cycleTypeFilter(1);
+    expect(store.typeFilter).toBe("all");
+
+    store.cycleTypeFilter(-1);
+    expect(store.typeFilter).toBe("image");
+  });
+
+  it("相同筛选重复选择不触发重载", () => {
+    const store = hydrateMixedWindow();
+    listClipsMock.mockClear();
+
+    store.selectTypeFilter("all");
+
+    expect(listClipsMock).not.toHaveBeenCalled();
+  });
+
+  it("图片筛选下新捕获的文本条目只记账不进窗口，图片条目正常置顶", () => {
+    const store = hydrateMixedWindow();
+    store.typeFilter = "image";
+
+    store.upsertClip(makeClip("t3", -1), 5, true);
+    expect(store.clips.some((clip) => clip.id === "t3")).toBe(false);
+    expect(store.clipTextCount).toBe(3);
+
+    store.upsertClip(makeClip("i3", -2, { clipType: "image", previewText: "图片" }), 6, true);
+    expect(store.clips[0]?.id).toBe("i3");
+    expect(store.clipImageCount).toBe(3);
+  });
+
+  it("筛选态下删除图片条目递减图片计数", async () => {
+    const store = hydrateMixedWindow();
+    store.typeFilter = "image";
+    store.clips = store.clips.filter((clip) => clip.clipType === "image");
+
+    await store.deleteClip("i1");
+
+    expect(store.clipImageCount).toBe(1);
+    expect(store.clipTextCount).toBe(2);
+    expect(store.clipTotalCount).toBe(3);
+  });
+
+  it("resetTypeFilter 归位 all 且不触发重载（面板隐藏路径）", () => {
+    const store = hydrateMixedWindow();
+    store.typeFilter = "image";
+    listClipsMock.mockClear();
+
+    store.resetTypeFilter();
+
+    expect(store.typeFilter).toBe("all");
+    expect(listClipsMock).not.toHaveBeenCalled();
   });
 });

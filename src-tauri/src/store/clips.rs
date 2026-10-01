@@ -10,7 +10,7 @@ use crate::models::{CapturedClipboardItem, ClipItem, ClipPage, ClipUpdate, Searc
 use crate::{
     clipboard::image_bytes_from_data_url,
     store::rows::{collect_rows, map_clip},
-    util::{clean_display_name, hash_text, new_id, now, preview, safe_filename},
+    util::{clean_clip_type_filter, clean_display_name, hash_text, new_id, now, preview, safe_filename},
     IMAGE_DIR,
 };
 
@@ -193,9 +193,10 @@ impl Store {
         offset: usize,
         limit: usize,
         search: String,
+        type_filter: String,
     ) -> Result<ClipPage, String> {
         let conn = self.connect()?;
-        self.list_clips_page_with_conn(&conn, offset, limit, &search)
+        self.list_clips_page_with_conn(&conn, offset, limit, &search, &type_filter)
     }
 
     pub(super) fn list_clips_page_with_conn(
@@ -204,35 +205,44 @@ impl Store {
         offset: usize,
         limit: usize,
         search: &str,
+        type_filter: &str,
     ) -> Result<ClipPage, String> {
         let limit = limit.clamp(1, 100);
         let query = search.trim().to_lowercase();
         let pattern = format!("%{query}%");
+        let type_filter = clean_clip_type_filter(type_filter);
         let total_count = conn
             .query_row(
                 "SELECT COUNT(*)
                  FROM clips
-                 WHERE ?1 = ''
+                 WHERE (?1 = ''
                     OR lower(COALESCE(display_name, '')) LIKE ?2
                     OR lower(preview_text) LIKE ?2
                     OR lower(clip_type) LIKE ?2
                     OR (clip_type != 'image' AND lower(text) LIKE ?2)
-                    OR (clip_type = 'image' AND '图片 image' LIKE ?2)",
-                params![query.as_str(), pattern.as_str()],
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?2))
+                   AND (?3 = 'all'
+                    OR (?3 = 'image' AND clip_type = 'image')
+                    OR (?3 = 'text' AND clip_type != 'image'))",
+                params![query.as_str(), pattern.as_str(), type_filter.as_str()],
                 |row| row.get::<_, i64>(0),
             )
             .map_err(|error| error.to_string())? as usize;
         let all_count = self.clip_total_count_with_conn(conn)?;
+        let (text_count, image_count) = self.clip_type_counts_with_conn(conn, &query)?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned
                  FROM clips
-                 WHERE ?3 = ''
+                 WHERE (?3 = ''
                     OR lower(COALESCE(display_name, '')) LIKE ?4
                     OR lower(preview_text) LIKE ?4
                     OR lower(clip_type) LIKE ?4
                     OR (clip_type != 'image' AND lower(text) LIKE ?4)
-                    OR (clip_type = 'image' AND '图片 image' LIKE ?4)
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?4))
+                   AND (?5 = 'all'
+                    OR (?5 = 'image' AND clip_type = 'image')
+                    OR (?5 = 'text' AND clip_type != 'image'))
                  ORDER BY datetime(last_captured_at) DESC LIMIT ?1 OFFSET ?2",
             )
             .map_err(|error| error.to_string())?;
@@ -243,7 +253,8 @@ impl Store {
                     (limit + 1) as i64,
                     offset as i64,
                     query.as_str(),
-                    pattern.as_str()
+                    pattern.as_str(),
+                    type_filter.as_str()
                 ],
                 map_clip,
             )
@@ -260,7 +271,38 @@ impl Store {
             has_more,
             total_count,
             all_count,
+            text_count,
+            image_count,
         })
+    }
+
+    /// 类型筛选徽章计数：与搜索上下文一致，但不施加类型筛选本身，
+    /// 让「全部/文本/图片」三段在切换前就能展示各自会有多少条。
+    pub(super) fn clip_type_counts_with_conn(
+        &self,
+        conn: &Connection,
+        query: &str,
+    ) -> Result<(usize, usize), String> {
+        let pattern = format!("%{query}%");
+        conn.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN clip_type != 'image' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN clip_type = 'image' THEN 1 ELSE 0 END), 0)
+             FROM clips
+             WHERE ?1 = ''
+                OR lower(COALESCE(display_name, '')) LIKE ?2
+                OR lower(preview_text) LIKE ?2
+                OR lower(clip_type) LIKE ?2
+                OR (clip_type != 'image' AND lower(text) LIKE ?2)
+                OR (clip_type = 'image' AND '图片 image' LIKE ?2)",
+            params![query, pattern.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)? as usize,
+                    row.get::<_, i64>(1)? as usize,
+                ))
+            },
+        )
+        .map_err(|error| error.to_string())
     }
 
     pub(super) fn clip_total_count_with_conn(&self, conn: &Connection) -> Result<usize, String> {
@@ -273,20 +315,25 @@ impl Store {
         &self,
         conn: &Connection,
         search: &str,
+        type_filter: &str,
     ) -> Result<usize, String> {
         let query = search.trim().to_lowercase();
         let pattern = format!("%{query}%");
+        let type_filter = clean_clip_type_filter(type_filter);
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*)
                  FROM clips
-                 WHERE ?1 = ''
+                 WHERE (?1 = ''
                     OR lower(COALESCE(display_name, '')) LIKE ?2
                     OR lower(preview_text) LIKE ?2
                     OR lower(clip_type) LIKE ?2
                     OR (clip_type != 'image' AND lower(text) LIKE ?2)
-                    OR (clip_type = 'image' AND '图片 image' LIKE ?2)",
-                params![query.as_str(), pattern.as_str()],
+                    OR (clip_type = 'image' AND '图片 image' LIKE ?2))
+                   AND (?3 = 'all'
+                    OR (?3 = 'image' AND clip_type = 'image')
+                    OR (?3 = 'text' AND clip_type != 'image'))",
+                params![query.as_str(), pattern.as_str(), type_filter.as_str()],
                 |row| row.get(0),
             )
             .map_err(|error| error.to_string())?;
@@ -294,19 +341,21 @@ impl Store {
     }
 
     /// 跨"历史/分类"搜索的统一入口：先查历史，历史无命中时回退到分类。
+    /// 类型筛选同时约束两侧——历史命中与分类回退组看到的是同一个视图口径。
     pub(crate) fn search_with_fallback(
         &self,
         offset: usize,
         limit: usize,
         search: &str,
+        type_filter: &str,
     ) -> Result<SearchResult, String> {
         let conn = self.connect()?;
-        let total = self.count_clips_matching_with_conn(&conn, search)?;
+        let total = self.count_clips_matching_with_conn(&conn, search, type_filter)?;
         if total > 0 {
-            let page = self.list_clips_page_with_conn(&conn, offset, limit, search)?;
+            let page = self.list_clips_page_with_conn(&conn, offset, limit, search, type_filter)?;
             Ok(SearchResult::History { page })
         } else {
-            let groups = self.search_all_category_items_with_conn(&conn, search)?;
+            let groups = self.search_all_category_items_with_conn(&conn, search, type_filter)?;
             Ok(SearchResult::CategoryHits { groups })
         }
     }
@@ -615,17 +664,123 @@ mod tests {
         seed_clip(&conn, "text", "rust lang", "rust lang");
         assert_eq!(
             store
-                .count_clips_matching_with_conn(&conn, "hello")
+                .count_clips_matching_with_conn(&conn, "hello", "all")
                 .unwrap(),
             1
         );
-        assert_eq!(store.count_clips_matching_with_conn(&conn, "").unwrap(), 2);
+        assert_eq!(
+            store.count_clips_matching_with_conn(&conn, "", "all").unwrap(),
+            2
+        );
         assert_eq!(
             store
-                .count_clips_matching_with_conn(&conn, "nomatch")
+                .count_clips_matching_with_conn(&conn, "nomatch", "all")
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn list_clips_type_filter_splits_image_and_text() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello", "hello");
+        seed_clip(&conn, "link", "https://example.com", "https://example.com");
+        seed_clip(&conn, "image", "图片预览", "/tmp/ipaste-image.png");
+
+        let image_page = store
+            .list_clips_page_with_conn(&conn, 0, 20, "", "image")
+            .unwrap();
+        assert_eq!(image_page.clips.len(), 1);
+        assert_eq!(image_page.clips[0].clip_type, "image");
+        assert_eq!(image_page.total_count, 1);
+        // 徽章计数不受类型筛选影响：三段都能看到各自条数。
+        assert_eq!(image_page.text_count, 2);
+        assert_eq!(image_page.image_count, 1);
+
+        let text_page = store
+            .list_clips_page_with_conn(&conn, 0, 20, "", "text")
+            .unwrap();
+        assert_eq!(text_page.clips.len(), 2);
+        assert!(text_page.clips.iter().all(|clip| clip.clip_type != "image"));
+
+        // 未知筛选值归一为 all（不过滤）。
+        let all_page = store
+            .list_clips_page_with_conn(&conn, 0, 20, "", "bogus")
+            .unwrap();
+        assert_eq!(all_page.clips.len(), 3);
+    }
+
+    #[test]
+    fn list_clips_type_filter_composes_with_search() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        seed_clip(&conn, "text", "hello", "hello");
+        seed_clip(&conn, "image", "图片预览", "/tmp/ipaste-image.png");
+
+        // 搜索词命中文本、但筛选只要图片 → 空。
+        let page = store
+            .list_clips_page_with_conn(&conn, 0, 20, "hello", "image")
+            .unwrap();
+        assert_eq!(page.clips.len(), 0);
+        assert_eq!(page.total_count, 0);
+        // 计数仍跟随搜索上下文（hello 只命中文本）。
+        assert_eq!(page.text_count, 1);
+        assert_eq!(page.image_count, 0);
+
+        // 图片可通过 "image" 关键字命中，配合图片筛选成立。
+        let page = store
+            .list_clips_page_with_conn(&conn, 0, 20, "image", "image")
+            .unwrap();
+        assert_eq!(page.clips.len(), 1);
+        assert_eq!(page.clips[0].clip_type, "image");
+    }
+
+    #[test]
+    fn fallback_type_filter_applies_to_category_hits() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        let cat = crate::store::test_support::create_category(&conn, "A", "#f00", 0);
+        crate::store::test_support::seed_category_item(
+            &conn,
+            &cat,
+            "text",
+            "secret token",
+            "secret token",
+        );
+        crate::store::test_support::seed_category_item(
+            &conn,
+            &cat,
+            "image",
+            "secret image",
+            "/tmp/secret.png",
+        );
+
+        // 历史无命中，回退到分类；图片筛选只保留图片条目。
+        let res = store
+            .search_with_fallback(0, 20, "secret", "image")
+            .unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => {
+                assert_eq!(groups.len(), 1);
+                assert_eq!(groups[0].items.len(), 1);
+                assert_eq!(groups[0].items[0].clip_type, "image");
+            }
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
+
+        // 文本筛选下图片条目被滤掉。
+        let res = store
+            .search_with_fallback(0, 20, "secret", "text")
+            .unwrap();
+        match res {
+            SearchResult::CategoryHits { groups } => {
+                assert_eq!(groups.len(), 1);
+                assert_eq!(groups[0].items.len(), 1);
+                assert_eq!(groups[0].items[0].clip_type, "text");
+            }
+            other => panic!("expected CategoryHits, got {:?}", other),
+        }
     }
 
     #[test]
@@ -634,7 +789,7 @@ mod tests {
         let conn = store.connect().unwrap();
         seed_clip(&conn, "text", "hello", "hello");
         seed_clip(&conn, "image", "图片预览", "/tmp/ipaste-image.png");
-        let res = store.search_with_fallback(0, 20, "image").unwrap();
+        let res = store.search_with_fallback(0, 20, "image", "all").unwrap();
         match res {
             SearchResult::History { page } => assert_eq!(page.clips.len(), 1),
             other => panic!("expected History, got {:?}", other),
@@ -653,7 +808,7 @@ mod tests {
             "secret token",
             "secret token",
         );
-        let res = store.search_with_fallback(0, 20, "secret").unwrap();
+        let res = store.search_with_fallback(0, 20, "secret", "all").unwrap();
         match res {
             SearchResult::CategoryHits { groups } => {
                 assert_eq!(groups.len(), 1);
@@ -667,7 +822,7 @@ mod tests {
     fn fallback_returns_empty_category_hits_when_nowhere_matches() {
         let store = temp_store();
         let _conn = store.connect();
-        let res = store.search_with_fallback(0, 20, "ghost").unwrap();
+        let res = store.search_with_fallback(0, 20, "ghost", "all").unwrap();
         match res {
             SearchResult::CategoryHits { groups } => assert!(groups.is_empty()),
             other => panic!("expected CategoryHits, got {:?}", other),
@@ -712,7 +867,9 @@ mod tests {
         let conn = store.connect().unwrap();
         seed_n_clips(&conn, 1000);
         let start = Instant::now();
-        let _ = store.list_clips(0, 20, "".to_string()).unwrap();
+        let _ = store
+            .list_clips(0, 20, "".to_string(), "all".to_string())
+            .unwrap();
         let elapsed = start.elapsed();
         assert!(elapsed.as_millis() < 250, "list_clips 1k took {elapsed:?}");
     }
@@ -723,7 +880,9 @@ mod tests {
         let conn = store.connect().unwrap();
         seed_n_clips(&conn, 5000);
         let start = Instant::now();
-        let _ = store.list_clips(0, 20, "".to_string()).unwrap();
+        let _ = store
+            .list_clips(0, 20, "".to_string(), "all".to_string())
+            .unwrap();
         let elapsed = start.elapsed();
         assert!(elapsed.as_millis() < 750, "list_clips 5k took {elapsed:?}");
     }
@@ -734,7 +893,7 @@ mod tests {
         let conn = store.connect().unwrap();
         seed_n_clips(&conn, 5000);
         let start = Instant::now();
-        let _ = store.search_with_fallback(0, 20, "hello").unwrap();
+        let _ = store.search_with_fallback(0, 20, "hello", "all").unwrap();
         let elapsed = start.elapsed();
         assert!(elapsed.as_millis() < 1000, "search 5k took {elapsed:?}");
     }

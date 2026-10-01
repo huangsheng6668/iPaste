@@ -15,6 +15,7 @@ import LanSyncPanel from "./components/LanSyncPanel.vue";
 import SettingsWindow from "./components/SettingsWindow.vue";
 import CommandSearchBar from "./components/CommandSearchBar.vue";
 import CategoryRail from "./components/CategoryRail.vue";
+import TypeFilterBar from "./components/TypeFilterBar.vue";
 import ClipListPane from "./components/ClipListPane.vue";
 import ClipInspectorPane from "./components/ClipInspectorPane.vue";
 import KeyboardActionBar from "./components/KeyboardActionBar.vue";
@@ -307,6 +308,7 @@ function applyPanelVisibility(
   isPreservingCurrentApp.value = payload.visible && payload.preservesCurrentApp && !nativePanel;
   if (!payload.visible) {
     store.clearSearch();
+    store.resetTypeFilter();
     resetClipListScroll();
     blurActiveElement();
     return;
@@ -513,6 +515,10 @@ function dispatchPanelCommand(command: PanelCommand, ctx: PanelContext) {
       focusSearchInput();
       return;
 
+    case "cycleTypeFilter":
+      store.cycleTypeFilter(command.delta);
+      return;
+
     case "escape":
       if (ctx.isSearchTarget && store.search.trim()) {
         store.clearSearch();
@@ -651,6 +657,16 @@ const nextCategoryLabel = computed(() => {
       @reorder="reorderCategories"
     />
 
+    <!-- 类型筛选（全部/文本/图片）：仅历史页签——分类是用户手动整理的小集合，不再细分 -->
+    <TypeFilterBar
+      v-if="store.selectedCategoryId === 'history'"
+      :filter="store.typeFilter"
+      :total-count="store.clipTextCount + store.clipImageCount"
+      :text-count="store.clipTextCount"
+      :image-count="store.clipImageCount"
+      @select="store.selectTypeFilter"
+    />
+
     <!-- Update Dialog -->
     <UpdateDialog
       :open="updater.updateDialogOpen.value"
@@ -682,6 +698,8 @@ const nextCategoryLabel = computed(() => {
         :items="store.visibleItems"
         :selected-index="store.selectedCategoryId === 'automation' ? automationStore.selectedActionIndex : store.selectedIndex"
         :selected-category-id="store.selectedCategoryId"
+        :type-filter="store.typeFilter"
+        :has-search-query="store.search.trim() !== ''"
         :is-loading-more="store.isLoadingMoreClips"
         :can-reorder="canReorderVisibleItems"
         :editing-clip-key="editingClipKey"

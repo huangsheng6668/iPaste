@@ -107,6 +107,8 @@ function makeSnapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
     clips: [],
     hasMoreClips: false,
     clipTotalCount: 0,
+    clipTextCount: 0,
+    clipImageCount: 0,
     categories: [],
     categoryItems: [],
     shortcut: "CommandOrControl+Shift+V",
@@ -219,11 +221,13 @@ describe("特征：历史分页", () => {
       hasMore: false,
       totalCount: 3,
       allCount: 4,
+      textCount: 3,
+      imageCount: 0,
     } satisfies ClipPage);
 
     await store.loadMoreClips();
 
-    expect(listClipsMock).toHaveBeenCalledWith(2, 20, "");
+    expect(listClipsMock).toHaveBeenCalledWith(2, 20, "", "all");
     expect(store.clips.map((clip) => clip.id)).toEqual(["a", "b", "c"]);
     expect(store.hasMoreClips).toBe(false);
     expect(store.visibleHistoryTotalCount).toBe(3);
@@ -232,8 +236,8 @@ describe("特征：历史分页", () => {
 
   it("reloadClips 竞态守卫：先发的旧请求返回后不覆盖新结果", async () => {
     const store = await hydrate(makeSnapshot());
-    const stalePage: ClipPage = { clips: [makeClip("stale", 1)], hasMore: false, totalCount: 1, allCount: 1 };
-    const freshPage: ClipPage = { clips: [makeClip("fresh", 1)], hasMore: false, totalCount: 1, allCount: 1 };
+    const stalePage: ClipPage = { clips: [makeClip("stale", 1)], hasMore: false, totalCount: 1, allCount: 1, textCount: 1, imageCount: 0 };
+    const freshPage: ClipPage = { clips: [makeClip("fresh", 1)], hasMore: false, totalCount: 1, allCount: 1, textCount: 1, imageCount: 0 };
 
     let releaseStale!: (page: ClipPage) => void;
     const stalePromise = new Promise<ClipPage>((resolve) => {
@@ -265,6 +269,8 @@ describe("特征：历史分页", () => {
       hasMore: true,
       totalCount: 2,
       allCount: 2,
+      textCount: 2,
+      imageCount: 0,
     } satisfies ClipPage);
 
     await store.deleteClip("a");

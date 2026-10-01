@@ -5,57 +5,73 @@ import type {
   CategoryItem,
   ClipItem,
   ClipPage,
+  ClipTypeFilter,
   ClipViewItem,
   ClipViewerPayload,
   SearchResult,
 } from "../../types";
-import { clipMatchesSearch } from "../clipSearch";
+import { clipMatchesSearch, clipMatchesTypeFilter } from "../clipSearch";
 import { isTauri } from "../env";
 import { writeStored } from "../../platform/storage";
 import { call } from "./call";
 import { mockCategories, mockCategoryItems, mockClips, mockSnapshot } from "./mockBackend";
+
+/** 浏览器 dev 下的徽章计数：与 Rust clip_type_counts_with_conn 同口径（跟随搜索、不含类型筛选）。 */
+function mockTypeCounts(searchSource: ClipItem[]) {
+  return {
+    textCount: searchSource.filter((item) => item.clipType !== "image").length,
+    imageCount: searchSource.filter((item) => item.clipType === "image").length,
+  };
+}
 
 /** 剪贴板历史域：快照引导、分页/搜索、条目编辑与删除、复制与回贴、主面板与放大预览窗口。 */
 export const clipsApi = {
   snapshot() {
     return call<AppSnapshot>("get_snapshot", undefined, mockSnapshot);
   },
-  listClips(offset = 0, limit = 20, search = "") {
+  listClips(offset = 0, limit = 20, search = "", typeFilter: ClipTypeFilter = "all") {
     const query = search.trim().toLowerCase();
-    const source = query
+    const searchSource = query
       ? mockClips.filter((item) => clipMatchesSearch(item, search))
       : mockClips;
-    return call<ClipPage>("list_clips", { offset, limit, search }, {
+    const source = searchSource.filter((item) => clipMatchesTypeFilter(item, typeFilter));
+    return call<ClipPage>("list_clips", { offset, limit, search, typeFilter }, {
       clips: source.slice(offset, offset + limit),
       hasMore: offset + limit < source.length,
       totalCount: source.length,
       allCount: mockClips.length,
+      ...mockTypeCounts(searchSource),
     });
   },
-  searchWithFallback(offset = 0, limit = 20, search = "") {
+  searchWithFallback(offset = 0, limit = 20, search = "", typeFilter: ClipTypeFilter = "all") {
     const query = search.trim().toLowerCase();
-    const matchedClips = query
+    const searchSource = query
       ? mockClips.filter((item) => clipMatchesSearch(item, search))
       : mockClips;
+    const matchedClips = searchSource.filter((item) => clipMatchesTypeFilter(item, typeFilter));
     if (matchedClips.length > 0) {
-      return call<SearchResult>("search_with_fallback", { offset, limit, search }, {
+      return call<SearchResult>("search_with_fallback", { offset, limit, search, typeFilter }, {
         kind: "history",
         page: {
           clips: matchedClips.slice(offset, offset + limit),
           hasMore: offset + limit < matchedClips.length,
           totalCount: matchedClips.length,
           allCount: mockClips.length,
+          ...mockTypeCounts(searchSource),
         },
       });
     }
     const groups: CategoryHitGroup[] = [];
     for (const cat of mockCategories) {
       const items = mockCategoryItems.filter(
-        (item) => item.categoryId === cat.id && clipMatchesSearch(item, search),
+        (item) =>
+          item.categoryId === cat.id &&
+          clipMatchesSearch(item, search) &&
+          clipMatchesTypeFilter(item, typeFilter),
       );
       if (items.length > 0) groups.push({ category: cat, items });
     }
-    return call<SearchResult>("search_with_fallback", { offset, limit, search }, { kind: "categoryHits", groups });
+    return call<SearchResult>("search_with_fallback", { offset, limit, search, typeFilter }, { kind: "categoryHits", groups });
   },
   deleteClip(id: string) {
     if (!isTauri) {

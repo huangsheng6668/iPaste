@@ -1,19 +1,21 @@
 <script setup lang="ts">
-import { type CSSProperties, type ComponentPublicInstance } from "vue";
-import { Inbox, Zap } from "lucide-vue-next";
+import { computed, type CSSProperties, type ComponentPublicInstance } from "vue";
+import { Image, Inbox, Type, Zap } from "lucide-vue-next";
 import ClipCard from "./ClipCard.vue";
 import AutomationCard from "./AutomationCard.vue";
 import { t } from "../i18n";
 import { contextItemKey } from "../lib/clipKeys";
 import { categoryDisplayName } from "../lib/format";
-import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "../types";
+import type { AutomationAction, Category, CategoryItem, ClipTypeFilter, ClipViewItem } from "../types";
 
-const { listRef } = defineProps<{
+const props = defineProps<{
   // 根节点 .raycast-left-pane 是滚动容器；父组件经此拿到 DOM 以做触底加载与选中滚动
   listRef: (el: HTMLElement | null) => void;
   items: ClipViewItem[];
   selectedIndex: number;
   selectedCategoryId: string;
+  typeFilter?: ClipTypeFilter;
+  hasSearchQuery?: boolean;
   isLoadingMore: boolean;
   canReorder: boolean;
   editingClipKey: string | null;
@@ -52,8 +54,26 @@ const emit = defineEmits<{
 }>();
 
 function forwardListRef(el: Element | ComponentPublicInstance | null) {
-  listRef(el instanceof HTMLElement ? el : null);
+  props.listRef(el instanceof HTMLElement ? el : null);
 }
+
+/**
+ * 空态文案与图标：类型筛选激活且无搜索词时给出筛选语境
+ * （"没有图片"能确认筛选在工作，而不是历史为空）；
+ * 搜索中或全部段回落到通用空态。
+ */
+const emptyState = computed(() => {
+  if (props.selectedCategoryId !== "history") {
+    return { icon: Inbox, title: t("empty.categoryTitle"), description: t("empty.categoryDescription") };
+  }
+  if (!props.hasSearchQuery && props.typeFilter === "image") {
+    return { icon: Image, title: t("empty.noImageTitle"), description: t("empty.noImageDescription") };
+  }
+  if (!props.hasSearchQuery && props.typeFilter === "text") {
+    return { icon: Type, title: t("empty.noTextTitle"), description: t("empty.noTextDescription") };
+  }
+  return { icon: Inbox, title: t("empty.title"), description: t("empty.description") };
+});
 </script>
 
 <template>
@@ -185,13 +205,16 @@ function forwardListRef(el: Element | ComponentPublicInstance | null) {
       class="empty-state py-12"
     >
       <div class="empty-state-icon">
-        <Inbox class="size-6 text-[var(--text-3)]" />
+        <component
+          :is="emptyState.icon"
+          class="size-6 text-[var(--text-3)]"
+        />
       </div>
       <h2 class="text-sm font-medium text-[var(--text-1)]">
-        {{ selectedCategoryId === "history" ? t("empty.title") : t("empty.categoryTitle") }}
+        {{ emptyState.title }}
       </h2>
       <p class="text-xs text-[var(--text-3)]">
-        {{ selectedCategoryId === "history" ? t("empty.description") : t("empty.categoryDescription") }}
+        {{ emptyState.description }}
       </p>
     </div>
   </div>

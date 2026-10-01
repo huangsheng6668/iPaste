@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { clipMatchesSearch } from "./clipSearch";
+import { clipMatchesSearch, clipMatchesTypeFilter } from "./clipSearch";
 
 const baseItem = {
   previewText: "Hello World",
@@ -47,5 +47,24 @@ describe("clipMatchesSearch", () => {
 
   it("returns false when no field matches", () => {
     expect(clipMatchesSearch(baseItem, "zzz-not-present")).toBe(false);
+  });
+});
+
+describe("clipMatchesTypeFilter", () => {
+  it("all 放行全部类型", () => {
+    expect(clipMatchesTypeFilter({ clipType: "text" }, "all")).toBe(true);
+    expect(clipMatchesTypeFilter({ clipType: "image" }, "all")).toBe(true);
+  });
+
+  it("text 涵盖一切非图片类型（与 Rust SQL 同口径）", () => {
+    for (const clipType of ["text", "link", "color", "html", "file"]) {
+      expect(clipMatchesTypeFilter({ clipType }, "text")).toBe(true);
+    }
+    expect(clipMatchesTypeFilter({ clipType: "image" }, "text")).toBe(false);
+  });
+
+  it("image 仅匹配图片", () => {
+    expect(clipMatchesTypeFilter({ clipType: "image" }, "image")).toBe(true);
+    expect(clipMatchesTypeFilter({ clipType: "text" }, "image")).toBe(false);
   });
 });

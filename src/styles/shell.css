@@ -683,6 +683,81 @@ html.dark .app-shell {
   color: var(--text-1);
 }
 
+/* ---- history type filter (segmented control) -----------------------------
+   分类栏与列表之间的安静一行：图片无法被搜索命中，
+   全部/文本/图片三段让稀疏图片一屏可达。
+   视觉上是"导航带的附属筛选"，不是第二条工具栏——
+   容器用 inset 表面下沉，活动段用 surface 浮起 + 一级阴影。 */
+
+.type-filter-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 0 0.625rem 0.375rem;
+}
+
+.type-filter-segment {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.125rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+  padding: 0.125rem;
+}
+
+.type-filter-option {
+  display: inline-flex;
+  min-height: 1.375rem;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: var(--r-sm);
+  background: transparent;
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  transition:
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+
+.type-filter-option:hover {
+  color: var(--text-1);
+}
+
+.type-filter-option-active,
+.type-filter-option-active:hover {
+  background: var(--surface);
+  color: var(--text-1);
+  box-shadow: var(--shadow-xs);
+}
+
+/* 青绿只给当前段的图标：焦点/操作状态语义，不承担文字层级。 */
+.type-filter-option-active svg {
+  color: var(--accent);
+}
+
+.type-filter-count {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.type-filter-option-active .type-filter-count {
+  color: var(--text-2);
+}
+
+.type-filter-hint {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  opacity: 0.55;
+}
+
 /* ---- category color popover ------------------------------------------- */
 
 .category-color-popover {
