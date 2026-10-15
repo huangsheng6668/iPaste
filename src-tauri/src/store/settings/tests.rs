@@ -377,9 +377,10 @@ mod cloud_ocr_keyring_tests {
         store.update_ocr_engine("local".to_string()).unwrap();
     }
 
-    /// 历史遗留：库里有已移除引擎的 bigmodel_api_key 占位行时，读取设置会顺带清掉。
+    /// 历史遗留：库里残留已移除引擎的 bigmodel_api_key 占位行时，由迁移期
+    /// （Store::new / migrate）清掉，不再挂在每次读设置的路径上。
     #[test]
-    fn legacy_bigmodel_row_is_cleaned_on_read() {
+    fn legacy_bigmodel_row_is_cleaned_on_migrate() {
         let store = temp_store();
         {
             let conn = store.connect().unwrap();
@@ -390,8 +391,9 @@ mod cloud_ocr_keyring_tests {
             )
             .unwrap();
         }
-        let _ = store.settings().unwrap();
+        // 重跑迁移：模拟老用户带着遗留行升级后首次启动走的那一遍
         let conn = store.connect().unwrap();
+        store.migrate(&conn).unwrap();
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM settings WHERE key = 'bigmodel_api_key'",
@@ -399,7 +401,7 @@ mod cloud_ocr_keyring_tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 0, "遗留占位行应被清除");
+        assert_eq!(count, 0, "遗留占位行应在迁移期被清除");
     }
 }
 

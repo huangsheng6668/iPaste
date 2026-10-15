@@ -211,25 +211,48 @@ impl Store {
         let query = search.trim().to_lowercase();
         let pattern = format!("%{query}%");
         let type_filter = clean_clip_type_filter(type_filter);
-        let total_count = conn
+        // 四个计数（命中数 / 全量 / 文本徽章 / 图片徽章）合并为一次全表扫描：
+        // 原先各是一次独立 COUNT，分页视图每次多付 3 遍全表遍历。
+        // SUM 在无行时返回 NULL，用 COALESCE 兜 0。
+        let (total_count, all_count, text_count, image_count) = conn
             .query_row(
-                "SELECT COUNT(*)
-                 FROM clips
-                 WHERE (?1 = ''
-                    OR lower(COALESCE(display_name, '')) LIKE ?2
-                    OR lower(preview_text) LIKE ?2
-                    OR lower(clip_type) LIKE ?2
-                    OR (clip_type != 'image' AND lower(text) LIKE ?2)
-                    OR (clip_type = 'image' AND '图片 image' LIKE ?2))
-                   AND (?3 = 'all'
-                    OR (?3 = 'image' AND clip_type = 'image')
-                    OR (?3 = 'text' AND clip_type != 'image'))",
+                "SELECT
+                    COALESCE(SUM(CASE WHEN (?1 = ''
+                        OR lower(COALESCE(display_name, '')) LIKE ?2
+                        OR lower(preview_text) LIKE ?2
+                        OR lower(clip_type) LIKE ?2
+                        OR (clip_type != 'image' AND lower(text) LIKE ?2)
+                        OR (clip_type = 'image' AND '图片 image' LIKE ?2))
+                        AND (?3 = 'all'
+                            OR (?3 = 'image' AND clip_type = 'image')
+                            OR (?3 = 'text' AND clip_type != 'image')) THEN 1 ELSE 0 END), 0),
+                    COUNT(*),
+                    COALESCE(SUM(CASE WHEN (?1 = ''
+                        OR lower(COALESCE(display_name, '')) LIKE ?2
+                        OR lower(preview_text) LIKE ?2
+                        OR lower(clip_type) LIKE ?2
+                        OR (clip_type != 'image' AND lower(text) LIKE ?2)
+                        OR (clip_type = 'image' AND '图片 image' LIKE ?2))
+                        AND clip_type != 'image' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN (?1 = ''
+                        OR lower(COALESCE(display_name, '')) LIKE ?2
+                        OR lower(preview_text) LIKE ?2
+                        OR lower(clip_type) LIKE ?2
+                        OR (clip_type != 'image' AND lower(text) LIKE ?2)
+                        OR (clip_type = 'image' AND '图片 image' LIKE ?2))
+                        AND clip_type = 'image' THEN 1 ELSE 0 END), 0)
+                 FROM clips",
                 params![query.as_str(), pattern.as_str(), type_filter.as_str()],
-                |row| row.get::<_, i64>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)? as usize,
+                        row.get::<_, i64>(1)? as usize,
+                        row.get::<_, i64>(2)? as usize,
+                        row.get::<_, i64>(3)? as usize,
+                    ))
+                },
             )
-            .map_err(|error| error.to_string())? as usize;
-        let all_count = self.clip_total_count_with_conn(conn)?;
-        let (text_count, image_count) = self.clip_type_counts_with_conn(conn, &query)?;
+            .map_err(|error| error.to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned
@@ -276,68 +299,10 @@ impl Store {
         })
     }
 
-    /// 类型筛选徽章计数：与搜索上下文一致，但不施加类型筛选本身，
-    /// 让「全部/文本/图片」三段在切换前就能展示各自会有多少条。
-    pub(super) fn clip_type_counts_with_conn(
-        &self,
-        conn: &Connection,
-        query: &str,
-    ) -> Result<(usize, usize), String> {
-        let pattern = format!("%{query}%");
-        conn.query_row(
-            "SELECT COALESCE(SUM(CASE WHEN clip_type != 'image' THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN clip_type = 'image' THEN 1 ELSE 0 END), 0)
-             FROM clips
-             WHERE ?1 = ''
-                OR lower(COALESCE(display_name, '')) LIKE ?2
-                OR lower(preview_text) LIKE ?2
-                OR lower(clip_type) LIKE ?2
-                OR (clip_type != 'image' AND lower(text) LIKE ?2)
-                OR (clip_type = 'image' AND '图片 image' LIKE ?2)",
-            params![query, pattern.as_str()],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)? as usize,
-                    row.get::<_, i64>(1)? as usize,
-                ))
-            },
-        )
-        .map_err(|error| error.to_string())
-    }
-
     pub(super) fn clip_total_count_with_conn(&self, conn: &Connection) -> Result<usize, String> {
         conn.query_row("SELECT COUNT(*) FROM clips", [], |row| row.get::<_, i64>(0))
             .map(|count| count as usize)
             .map_err(|error| error.to_string())
-    }
-
-    pub(crate) fn count_clips_matching_with_conn(
-        &self,
-        conn: &Connection,
-        search: &str,
-        type_filter: &str,
-    ) -> Result<usize, String> {
-        let query = search.trim().to_lowercase();
-        let pattern = format!("%{query}%");
-        let type_filter = clean_clip_type_filter(type_filter);
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM clips
-                 WHERE (?1 = ''
-                    OR lower(COALESCE(display_name, '')) LIKE ?2
-                    OR lower(preview_text) LIKE ?2
-                    OR lower(clip_type) LIKE ?2
-                    OR (clip_type != 'image' AND lower(text) LIKE ?2)
-                    OR (clip_type = 'image' AND '图片 image' LIKE ?2))
-                   AND (?3 = 'all'
-                    OR (?3 = 'image' AND clip_type = 'image')
-                    OR (?3 = 'text' AND clip_type != 'image'))",
-                params![query.as_str(), pattern.as_str(), type_filter.as_str()],
-                |row| row.get(0),
-            )
-            .map_err(|error| error.to_string())?;
-        Ok(count as usize)
     }
 
     /// 跨"历史/分类"搜索的统一入口：先查历史，历史无命中时回退到分类。
@@ -350,9 +315,10 @@ impl Store {
         type_filter: &str,
     ) -> Result<SearchResult, String> {
         let conn = self.connect()?;
-        let total = self.count_clips_matching_with_conn(&conn, search, type_filter)?;
-        if total > 0 {
-            let page = self.list_clips_page_with_conn(&conn, offset, limit, search, type_filter)?;
+        // 命中数直接取分页结果里的 total_count（与原先单独 COUNT 同一口径）：
+        // 少一次全表扫描；无命中再回退分类搜索。
+        let page = self.list_clips_page_with_conn(&conn, offset, limit, search, type_filter)?;
+        if page.total_count > 0 {
             Ok(SearchResult::History { page })
         } else {
             let groups = self.search_all_category_items_with_conn(&conn, search, type_filter)?;
@@ -662,22 +628,16 @@ mod tests {
         let conn = store.connect().unwrap();
         seed_clip(&conn, "text", "hello world", "hello world");
         seed_clip(&conn, "text", "rust lang", "rust lang");
-        assert_eq!(
+        // total_count 即原 count_clips_matching_with_conn 的口径（合并进分页查询）
+        let matching = |search: &str| {
             store
-                .count_clips_matching_with_conn(&conn, "hello", "all")
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            store.count_clips_matching_with_conn(&conn, "", "all").unwrap(),
-            2
-        );
-        assert_eq!(
-            store
-                .count_clips_matching_with_conn(&conn, "nomatch", "all")
-                .unwrap(),
-            0
-        );
+                .list_clips_page_with_conn(&conn, 0, 100, search, "all")
+                .unwrap()
+                .total_count
+        };
+        assert_eq!(matching("hello"), 1);
+        assert_eq!(matching(""), 2);
+        assert_eq!(matching("nomatch"), 0);
     }
 
     #[test]

@@ -154,59 +154,72 @@ pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) 
             cy_a.partial_cmp(&cy_b).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // 将 Y 坐标重叠相近的框聚合成同一横行
-        let mut rows: Vec<Vec<PaddleLine>> = Vec::new();
+        // 将 Y 坐标重叠相近的框聚合成同一横行。行内均值（中心 Y / 平均高）用
+        // 增量维护：原先每考察一个候选行就整行重算一遍求和，长图（数百框）下
+        // 是 O(N²·行长) 的重复劳动。
+        struct RowAcc {
+            lines: Vec<PaddleLine>,
+            sum_cy: f64,
+            sum_height: f64,
+        }
+        let mut rows: Vec<RowAcc> = Vec::new();
         for line in sorted {
             let cy = line.top + line.height / 2.0;
             let target_row = rows.iter_mut().find(|row| {
-                let row_cy: f64 =
-                    row.iter().map(|it| it.top + it.height / 2.0).sum::<f64>() / row.len() as f64;
-                let avg_h: f64 = col_avg_h(row);
+                let row_cy = row.sum_cy / row.lines.len() as f64;
+                let avg_h = row.sum_height / row.lines.len() as f64;
                 let tolerance = avg_h.max(line.height) * 0.6;
                 (cy - row_cy).abs() <= tolerance
             });
-            if let Some(row) = target_row {
-                row.push(line);
-            } else {
-                rows.push(vec![line]);
+            match target_row {
+                Some(row) => {
+                    row.sum_cy += cy;
+                    row.sum_height += line.height;
+                    row.lines.push(line);
+                }
+                None => rows.push(RowAcc {
+                    sum_cy: cy,
+                    sum_height: line.height,
+                    lines: vec![line],
+                }),
             }
         }
 
         // 每行内部按 X 坐标从左向右（升序）
         let mut result = Vec::new();
-        for mut row in rows {
-            row.sort_by(|a, b| {
+        for row in rows {
+            let mut row_lines = row.lines;
+            row_lines.sort_by(|a, b| {
                 a.left
                     .partial_cmp(&b.left)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            result.extend(row);
+            result.extend(row_lines);
         }
         result
     }
 }
 
-fn col_avg_h(items: &[PaddleLine]) -> f64 {
-    items.iter().map(|it| it.height).sum::<f64>() / items.len() as f64
-}
-
 /// 进程级引擎缓存：键为 "{mode}:{is_manga}"，模式变更时重建。
+/// 存 `Arc` 而非 `Box::leak` 出的 `&'static`：模式切换（或设置里换引擎配置）
+/// 后旧引擎随缓存替换而释放——MNN 会话持着模型权重，leak 版每切一次模式
+/// 就永久多占一份。在飞识别持有的 Arc 克隆会推迟到底层 Drop，安全。
 #[cfg(not(target_os = "macos"))]
-static ENGINE: std::sync::Mutex<Option<(String, &'static ocr_rs::OcrEngine)>> =
+static ENGINE: std::sync::Mutex<Option<(String, std::sync::Arc<ocr_rs::OcrEngine>)>> =
     std::sync::Mutex::new(None);
 
-/// 取当前模式的引擎：命中缓存直接返回；否则校验模型齐全后构建并缓存。
+/// 取当前模式的引擎：命中缓存直接返回 Arc 克隆；否则校验模型齐全后构建并缓存。
 #[cfg(not(target_os = "macos"))]
 fn ensure_engine(
     app: &tauri::AppHandle,
     mode: &str,
     is_manga: bool,
-) -> Result<&'static ocr_rs::OcrEngine, String> {
+) -> Result<std::sync::Arc<ocr_rs::OcrEngine>, String> {
     let cache_key = format!("{mode}:{is_manga}");
     let mut cache = ENGINE.lock().map_err(|error| error.to_string())?;
     if let Some((cached_key, engine)) = cache.as_ref() {
         if cached_key == &cache_key {
-            return Ok(engine);
+            return Ok(engine.clone());
         }
     }
 
@@ -225,8 +238,8 @@ fn ensure_engine(
 
     let engine = ocr_rs::OcrEngine::new(&paths.det, &paths.rec, &paths.charset, Some(config))
         .map_err(|error| format!("初始化 PaddleOCR 引擎失败：{error}"))?;
-    let engine: &'static ocr_rs::OcrEngine = Box::leak(Box::new(engine));
-    *cache = Some((cache_key, engine));
+    let engine = std::sync::Arc::new(engine);
+    *cache = Some((cache_key, engine.clone()));
     Ok(engine)
 }
 

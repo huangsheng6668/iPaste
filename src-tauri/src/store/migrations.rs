@@ -59,6 +59,15 @@ impl Store {
                 is_pinned INTEGER NOT NULL DEFAULT 0
             );
 
+            -- 历史列表 ORDER BY datetime(last_captured_at) DESC 的表达式索引。
+            -- 列里混有两种格式：now() 写 RFC3339（Z 后缀），旧版迁移回填写
+            -- datetime('now') 的 'YYYY-MM-DD HH:MM:SS'——裸列排序会乱序，
+            -- datetime() 归一化后入索引才能正确比较。同时替掉没有任何查询
+            -- 使用者的裸列索引 idx_clips_last_captured_at（每次捕获都白维护它）。
+            DROP INDEX IF EXISTS idx_clips_last_captured_at;
+            CREATE INDEX IF NOT EXISTS idx_clips_last_captured_at_dt
+                ON clips(datetime(last_captured_at) DESC);
+
             CREATE TABLE IF NOT EXISTS categories (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -158,7 +167,12 @@ impl Store {
         )?;
 
         self.migrate_image_data_urls(conn)?;
-        self.remove_empty_default_categories(conn)
+        self.remove_empty_default_categories(conn)?;
+        // 清理已移除的智谱专用 OCR 引擎（≤0.9.9）遗留的凭据库条目与 settings
+        // 占位行。收敛到迁移期一次执行：原先挂在 cloud_ocr_settings_with_conn
+        // 的读路径上，每次读设置都要白付一次 keyring delete + 一条 DELETE。
+        self.remove_legacy_bigmodel_ocr(conn);
+        Ok(())
     }
 
     pub(super) fn seed_default_clips(&self, conn: &Connection) -> Result<(), String> {
@@ -194,6 +208,13 @@ impl Store {
     fn migrate_image_data_urls(&self, conn: &Connection) -> Result<(), String> {
         self.migrate_image_data_urls_for_table(conn, "clips")?;
         self.migrate_image_data_urls_for_table(conn, "category_items")
+    }
+
+    /// 一次性清理（幂等、尽力而为）：智谱专用引擎移除后已无读写方，
+    /// 凭据条目不存在、凭据库不可用或 SQL 失败都直接忽略。
+    fn remove_legacy_bigmodel_ocr(&self, conn: &Connection) {
+        super::secrets::remove_legacy_bigmodel_api_key();
+        let _ = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", []);
     }
 
     fn migrate_image_data_urls_for_table(
@@ -309,8 +330,9 @@ impl Store {
             .map_err(|error| error.to_string())?;
         conn.execute("ALTER TABLE clips_next RENAME TO clips", [])
             .map_err(|error| error.to_string())?;
+        // 表重建会带走旧索引；datetime() 表达式索引必须随之重建（见 migrate 批次）。
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_clips_last_captured_at ON clips(last_captured_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_clips_last_captured_at_dt ON clips(datetime(last_captured_at) DESC)",
             [],
         )
         .map_err(|error| error.to_string())?;
@@ -342,7 +364,7 @@ impl Store {
         )
         .map_err(|error| error.to_string())?;
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_clips_last_captured_at ON clips(last_captured_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_clips_last_captured_at_dt ON clips(datetime(last_captured_at) DESC)",
             [],
         )
         .map_err(|error| error.to_string())?;

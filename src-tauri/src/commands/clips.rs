@@ -12,42 +12,61 @@ use crate::CLIP_PAGE_SIZE;
 
 use super::build_app_snapshot;
 
+// 同步命令跑在主线程（wry IPC handler 的调用线程）：下面三个读路径是滚动/
+// 搜索/启动的高频入口，DB 读取改走 spawn_blocking，避免每次分页都冻结窗口。
 #[tauri::command]
-pub(crate) fn get_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
-    build_app_snapshot(state)
+pub(crate) async fn get_snapshot(
+    state: tauri::State<'_, AppState>,
+) -> Result<AppSnapshot, AppError> {
+    let store = state.store.clone();
+    let is_listening = state.capture.is_listening.clone();
+    let append_copy_state = state.capture.append_copy_state.clone();
+    tokio::task::spawn_blocking(move || {
+        build_app_snapshot(&store, &is_listening, &append_copy_state)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("快照任务失败：{error}")))?
 }
 
 #[tauri::command]
-pub(crate) fn list_clips(
+pub(crate) async fn list_clips(
     state: tauri::State<'_, AppState>,
     offset: Option<usize>,
     limit: Option<usize>,
     search: Option<String>,
     type_filter: Option<String>,
 ) -> Result<ClipPage, AppError> {
-    state
-        .store
-        .list_clips(
-            offset.unwrap_or(0),
-            limit.unwrap_or(CLIP_PAGE_SIZE),
-            search.unwrap_or_default(),
-            type_filter.unwrap_or_default(),
-        )
-        .map_err(AppError::from)
+    let store = state.store.clone();
+    let offset = offset.unwrap_or(0);
+    let limit = limit.unwrap_or(CLIP_PAGE_SIZE);
+    let search = search.unwrap_or_default();
+    let type_filter = type_filter.unwrap_or_default();
+    tokio::task::spawn_blocking(move || {
+        store
+            .list_clips(offset, limit, search, type_filter)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("列表查询任务失败：{error}")))?
 }
 
 #[tauri::command]
-pub(crate) fn search_with_fallback(
+pub(crate) async fn search_with_fallback(
     state: tauri::State<'_, AppState>,
     offset: usize,
     limit: usize,
     search: String,
     type_filter: Option<String>,
 ) -> Result<SearchResult, AppError> {
-    state
-        .store
-        .search_with_fallback(offset, limit, &search, &type_filter.unwrap_or_default())
-        .map_err(AppError::from)
+    let store = state.store.clone();
+    let type_filter = type_filter.unwrap_or_default();
+    tokio::task::spawn_blocking(move || {
+        store
+            .search_with_fallback(offset, limit, &search, &type_filter)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("搜索任务失败：{error}")))?
 }
 
 #[tauri::command]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type CSSProperties, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties, type ComponentPublicInstance } from "vue";
 import { Image, Inbox, Type, Zap } from "lucide-vue-next";
 import ClipCard from "./ClipCard.vue";
 import AutomationCard from "./AutomationCard.vue";
@@ -54,8 +54,125 @@ const emit = defineEmits<{
 }>();
 
 function forwardListRef(el: Element | ComponentPublicInstance | null) {
-  props.listRef(el instanceof HTMLElement ? el : null);
+  listElement.value = el instanceof HTMLElement ? el : null;
+  props.listRef(listElement.value);
 }
+
+// —— 列表虚拟化（窗口化渲染）——
+// 历史条目可达数千条：全量渲染时几千个 ClipCard 实例 + 数万事件监听同时
+// 挂载，且任何一次 store 写入都要 patch 整棵列表。卡片是定高双行迷你卡
+// （clip-mini-card：固定 padding + 两行 nowrap 文本 + 固定图标尺寸，
+// delete-confirming 只改描边/阴影不影响布局），按"实测高度 + 容器 gap"
+// 做窗口化：只渲染视口 ± OVERSCAN 条，上下用 spacer 撑起总高度，
+// 滚动/选中跳转行为对使用者不可见。
+const ITEM_FALLBACK_HEIGHT = 52;
+const OVERSCAN = 6;
+const LIST_GAP = 6; // .raycast-left-pane 的 gap: 0.375rem
+
+const listElement = ref<HTMLElement | null>(null);
+const viewportHeight = ref(0);
+const scrollTop = ref(0);
+const itemHeight = ref(ITEM_FALLBACK_HEIGHT);
+let viewportObserver: ResizeObserver | null = null;
+let scrollFrame: number | null = null;
+
+const itemStride = computed(() => itemHeight.value + LIST_GAP);
+
+const virtualRange = computed(() => {
+  const total = props.items.length;
+  if (total === 0) return { start: 0, end: 0, topSpacer: 0, bottomSpacer: 0 };
+  const stride = itemStride.value;
+  const first = Math.floor(Math.max(0, scrollTop.value) / stride);
+  const visibleCount = Math.ceil(Math.max(0, viewportHeight.value) / stride) + 1;
+  const start = Math.max(0, first - OVERSCAN);
+  const end = Math.min(total, first + visibleCount + OVERSCAN);
+  // 容器是 flex column + gap：spacer 与首卡之间也会计入一个 gap，
+  // 故 topSpacer 减一个 gap、bottomSpacer 按 (剩余条数) × stride 计算。
+  const topSpacer = start > 0 ? start * stride - LIST_GAP : 0;
+  const bottomSpacer = (total - end) * stride;
+  return { start, end, topSpacer, bottomSpacer };
+});
+
+const renderedItems = computed(() => {
+  const { start, end } = virtualRange.value;
+  return props.items.slice(start, end);
+});
+
+function measureViewport() {
+  const list = listElement.value;
+  if (list) viewportHeight.value = list.clientHeight;
+}
+
+function measureItemHeight() {
+  const list = listElement.value;
+  if (!list) return;
+  const card = list.querySelector<HTMLElement>(".clip-mini-card");
+  if (!card) return;
+  const height = card.getBoundingClientRect().height;
+  if (height > 0 && Math.abs(height - itemHeight.value) > 0.5) {
+    itemHeight.value = height;
+  }
+}
+
+function handleScroll(event: Event) {
+  emit("scroll", event);
+  const list = listElement.value;
+  if (!list || scrollFrame !== null) return;
+  // rAF 节流：一帧最多更新一次滚动位置（窗口重算依赖它）。
+  scrollFrame = window.requestAnimationFrame(() => {
+    scrollFrame = null;
+    scrollTop.value = list.scrollTop;
+  });
+}
+
+onMounted(() => {
+  measureViewport();
+  void nextTick(() => {
+    measureItemHeight();
+    measureViewport();
+  });
+  if (typeof ResizeObserver !== "undefined" && listElement.value) {
+    viewportObserver = new ResizeObserver(() => measureViewport());
+    viewportObserver.observe(listElement.value);
+  }
+});
+
+onBeforeUnmount(() => {
+  viewportObserver?.disconnect();
+  viewportObserver = null;
+  if (scrollFrame !== null) {
+    window.cancelAnimationFrame(scrollFrame);
+    scrollFrame = null;
+  }
+});
+
+// 新条目到达（首条渲染出来）后按实际高度校准一次。
+watch(
+  () => props.items.length,
+  () => {
+    void nextTick(measureItemHeight);
+  },
+  { flush: "post" },
+);
+
+// 选中项落在渲染窗口外时直接滚动容器让其进入视口：虚拟化下未渲染的卡片
+// 无法被 scrollSelectedClipIntoView 的 querySelector 找到，键盘连续导航
+// （尤其 Jump/End 类跳转）会失去滚动跟随。窗口内的精细边缘留白仍由
+// useClipListScroll.scrollSelectedClipIntoView 负责。
+watch(
+  () => [props.selectedIndex, props.items.length],
+  () => {
+    const { start, end } = virtualRange.value;
+    if (props.selectedIndex >= start && props.selectedIndex < end) return;
+    const list = listElement.value;
+    if (!list) return;
+    const target =
+      props.selectedIndex * itemStride.value - list.clientHeight / 2 + itemHeight.value / 2;
+    list.scrollTop = Math.max(0, target);
+    scrollTop.value = list.scrollTop;
+  },
+  { flush: "post" },
+);
 
 /**
  * 空态文案与图标：类型筛选激活且无搜索词时给出筛选语境
@@ -80,7 +197,7 @@ const emptyState = computed(() => {
   <div
     :ref="forwardListRef"
     class="raycast-left-pane"
-    @scroll="emit('scroll', $event)"
+    @scroll="handleScroll"
   >
     <!-- Automations list if automation category selected -->
     <template v-if="selectedCategoryId === 'automation'">
@@ -159,16 +276,21 @@ const emptyState = computed(() => {
       </div>
     </template>
 
-    <!-- Normal Clip List -->
+    <!-- Normal Clip List（虚拟化：仅渲染视口窗口，spacer 撑起总高度） -->
     <template v-else-if="items.length">
+      <div
+        v-if="virtualRange.topSpacer > 0"
+        :style="{ height: `${virtualRange.topSpacer}px`, flexShrink: 0 }"
+        aria-hidden="true"
+      />
       <ClipCard
-        v-for="(item, index) in items"
+        v-for="(item, index) in renderedItems"
         :key="`${item.collection}-${item.id}`"
         :item="item"
-        :index="index"
+        :index="virtualRange.start + index"
         :data-item-key="contextItemKey(item)"
         :data-item-id="item.id"
-        :selected="selectedIndex === index"
+        :selected="selectedIndex === virtualRange.start + index"
         :category-tags="itemCategoryTags(item)"
         :editing-name="editingClipKey === contextItemKey(item) ? editingClipName : null"
         :reorder-enabled="canReorder && item.collection === 'category'"
@@ -180,7 +302,7 @@ const emptyState = computed(() => {
           'clip-card-drop-after': itemDropTargetKey === contextItemKey(item) && itemDropSide === 'after',
           'clip-card-delete-confirming': pendingDeleteKey === contextItemKey(item),
         }"
-        @select="emit('select', index)"
+        @select="emit('select', virtualRange.start + index)"
         @apply="emit('apply', item)"
         @expand="emit('expand', item)"
         @open-context-menu="emit('openContextMenu', $event)"
@@ -190,6 +312,11 @@ const emptyState = computed(() => {
         @reorder-pointer-down="emit('reorderPointerDown', $event)"
         @pointerenter="emit('hoverPreview', item)"
         @pointerleave="emit('leavePreview', item)"
+      />
+      <div
+        v-if="virtualRange.bottomSpacer > 0"
+        :style="{ height: `${virtualRange.bottomSpacer}px`, flexShrink: 0 }"
+        aria-hidden="true"
       />
 
       <!-- Infinite scroll loading shimmer -->

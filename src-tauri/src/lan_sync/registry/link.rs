@@ -31,6 +31,15 @@ const RECONNECT_BACKOFF: [Duration; 6] = [
 ];
 const RECONNECT_BACKOFF_CAP: Duration = Duration::from_secs(300);
 
+/// 重拨退避的抖动幅度 ±25%（实际落在 [0.75, 1.25] 倍基准）。
+/// 休眠唤醒/网络抖动会让所有配对设备同时掉线：固定退避下各 link_task
+/// 永远同步到点，形成打向中继与对端的重拨风暴。
+const RECONNECT_JITTER: f64 = 0.25;
+
+/// 启动首拨随机延迟上限（0–2s）：多台配对设备在 app 启动时同时首拨，会把
+/// 中继连接与认证握手挤成一团；随机摊薄（期间状态已是 Connecting，用户无感）。
+const STARTUP_DIAL_DELAY_MAX: Duration = Duration::from_secs(2);
+
 /// 入站会话在线时 link_task 的轮询间隔：对端会话死亡后由下一轮接管重拨。
 const INBOUND_SESSION_POLL: Duration = Duration::from_secs(5);
 
@@ -40,6 +49,29 @@ pub(super) fn reconnect_backoff(attempt: usize) -> Duration {
         .get(attempt)
         .copied()
         .unwrap_or(RECONNECT_BACKOFF_CAP)
+}
+
+/// 抖动种子：进程内单调计数器。同种子会产出同一串「随机」数，那就没起到
+/// 打散各设备重拨节奏的作用。
+static JITTER_SEED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// splitmix64 单步 → [0, 1)。jitter 与启动延迟共用的轻量 PRNG
+/// （非密码学用途；为此引一个 rand 依赖不值当）。
+fn unit_random() -> f64 {
+    use std::sync::atomic::Ordering;
+    let mut z = JITTER_SEED
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    (z ^ (z >> 31)) as f64 / u64::MAX as f64
+}
+
+/// 退避基准叠 ±25% 抖动。仅 link_task 的睡眠处使用——`reconnect_backoff`
+/// 保持纯函数供测试锁定档位本身。
+pub(super) fn jittered_backoff(attempt: usize) -> Duration {
+    reconnect_backoff(attempt)
+        .mul_f64(1.0 - RECONNECT_JITTER + 2.0 * RECONNECT_JITTER * unit_random())
 }
 
 impl DeviceLinkRegistry {
@@ -109,10 +141,17 @@ impl DeviceLinkRegistry {
     /// 每轮从 store 刷新信任态与地址线索（运行中可能被更新/撤销）。
     pub(super) async fn link_task(self: Arc<Self>, node_id: String) {
         let mut attempt: usize = 0;
+        let mut first_dial = true;
         // store 查不到（已删除）或已撤销 → 循环结束（撤销即断链）
         while let Some(device) = self.inner.store.get_paired_device(&node_id).ok().flatten() {
             if device.revoked_at.is_some() {
                 break;
+            }
+            if first_dial {
+                // 启动首拨随机延迟：仅本任务第一次真正进入拨号前付一次
+                // （之后 attempt 归零重来也不再延迟——那已不是启动突发）。
+                first_dial = false;
+                tokio::time::sleep(STARTUP_DIAL_DELAY_MAX.mul_f64(unit_random())).await;
             }
             // 对端拨来的会话已在本端在线（收编后的入站登记）：跳过本端拨号。
             // 否则双向 link_task 互踢——A 重拨收编 B 的会话 → B 的会话死 →
@@ -165,7 +204,7 @@ impl DeviceLinkRegistry {
                     }
                 }
             }
-            tokio::time::sleep(reconnect_backoff(attempt)).await;
+            tokio::time::sleep(jittered_backoff(attempt)).await;
             attempt += 1;
         }
         // 任务退出：清掉自己的登记（仅当无活跃会话占用时）

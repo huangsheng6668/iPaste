@@ -20,14 +20,6 @@ pub struct CaptureState {
 }
 
 impl CaptureState {
-    /// 读取监听开关（锁中毒 → Err，与原调用点一致）。
-    pub(crate) fn is_listening(&self) -> Result<bool, String> {
-        self.is_listening
-            .lock()
-            .map(|value| *value)
-            .map_err(|error| error.to_string())
-    }
-
     /// 写入监听开关。
     pub(crate) fn set_listening(&self, enabled: bool) -> Result<(), String> {
         *self

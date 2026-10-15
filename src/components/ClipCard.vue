@@ -141,6 +141,8 @@ function startReorder(event: PointerEvent) {
           class="size-3.5 rounded object-cover"
           :src="imageSrc"
           alt=""
+          loading="lazy"
+          decoding="async"
         >
         <component
           :is="iconComponent"

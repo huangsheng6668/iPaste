@@ -3,101 +3,137 @@
 //! 不触碰真实系统库。
 
 use keyring::Entry;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 const SERVICE: &str = "iPaste";
 const ACCOUNT: &str = "cloud_api_key";
 const ACCOUNT_DEVICE: &str = "device_sync_secret";
 const ACCOUNT_OPENAI_OCR: &str = "openai_ocr_api_key";
 
-fn entry() -> Result<Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| format!("无法访问系统凭据库：{e}"))
+/// 进程内读缓存。凭据库单次读取是跨进程 IPC（Windows 凭据管理器尤其明显），
+/// 而每次读设置（设置面板打开、状态刷新）都会回填 Key——把最近一次成功读到的
+/// 值按账户名缓存，写入口（put_*/delete_*）落库后立即失效对应条目，保证进程内
+/// 读写一致。失败读取不缓存（允许下轮重试）；这些条目的唯一写方就是本 app
+/// （设置保存 / 云同步开关），外部进程改库不在处理范围。
+fn cache() -> &'static Mutex<HashMap<&'static str, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<&'static str, Option<String>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn entry_for(account: &str) -> Result<Entry, String> {
+    keyring::Entry::new(SERVICE, account).map_err(|e| format!("无法访问系统凭据库：{e}"))
+}
+
+/// 读缓存 → 未命中回源凭据库；仅成功结果入缓存。
+fn read_cached(account: &'static str) -> Result<Option<String>, String> {
+    if let Some(hit) = cache()
+        .lock()
+        .expect("secrets 缓存锁中毒")
+        .get(account)
+        .cloned()
+    {
+        return Ok(hit);
+    }
+    let value = match entry_for(account)?.get_password() {
+        Ok(v) => Some(v),
+        Err(keyring::Error::NoEntry) => None,
+        Err(e) => return Err(format!("读取系统凭据库失败：{e}")),
+    };
+    cache()
+        .lock()
+        .expect("secrets 缓存锁中毒")
+        .insert(account, value.clone());
+    Ok(value)
+}
+
+/// 写路径调用：丢弃缓存条目，下次读重新回源。删除即使失败也失效——
+/// 缓存只是读穿透层，失效最多多付一次读取，不会返回与库不符的值。
+fn invalidate_cached(account: &'static str) {
+    cache()
+        .lock()
+        .expect("secrets 缓存锁中毒")
+        .remove(account);
 }
 
 pub(crate) fn put_api_key(value: &str) -> Result<(), String> {
-    entry()?
+    entry_for(ACCOUNT)?
         .set_password(value)
-        .map_err(|e| format!("写入系统凭据库失败：{e}"))
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))?;
+    invalidate_cached(ACCOUNT);
+    Ok(())
 }
 
 pub(crate) fn get_api_key() -> Result<Option<String>, String> {
-    match entry()?.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
-    }
+    read_cached(ACCOUNT)
 }
 
 /// 幂等删除：条目不存在视为成功（如从未配置过云同步）。
 pub(crate) fn delete_api_key() -> Result<(), String> {
-    match entry()?.delete_credential() {
+    let result = match entry_for(ACCOUNT)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
-    }
-}
-
-fn device_entry() -> Result<Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT_DEVICE).map_err(|e| format!("无法访问系统凭据库：{e}"))
+    };
+    invalidate_cached(ACCOUNT);
+    result
 }
 
 pub(crate) fn put_device_secret(value: &str) -> Result<(), String> {
-    device_entry()?
+    entry_for(ACCOUNT_DEVICE)?
         .set_password(value)
-        .map_err(|e| format!("写入系统凭据库失败：{e}"))
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))?;
+    invalidate_cached(ACCOUNT_DEVICE);
+    Ok(())
 }
 
 pub(crate) fn get_device_secret() -> Result<Option<String>, String> {
-    match device_entry()?.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
-    }
+    read_cached(ACCOUNT_DEVICE)
 }
 
 /// 测试清理用；生产代码不调用（设备身份条目跟随 app 卸载清除）。
 #[cfg(test)]
 pub(crate) fn delete_device_secret() -> Result<(), String> {
-    match device_entry()?.delete_credential() {
+    let result = match entry_for(ACCOUNT_DEVICE)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
-    }
+    };
+    invalidate_cached(ACCOUNT_DEVICE);
+    result
 }
 
 /// 清理已移除的智谱专用 OCR 引擎（≤0.9.9）遗留的凭据库条目。
 /// 幂等、尽力而为：条目不存在或凭据库不可用都直接忽略。
+/// 该账户没有读入口（不缓存），无需失效。
 pub(crate) fn remove_legacy_bigmodel_api_key() {
     if let Ok(entry) = keyring::Entry::new(SERVICE, "bigmodel_api_key") {
         let _ = entry.delete_credential();
     }
 }
 
-fn openai_ocr_entry() -> Result<Entry, String> {
-    keyring::Entry::new(SERVICE, ACCOUNT_OPENAI_OCR).map_err(|e| format!("无法访问系统凭据库：{e}"))
-}
-
 /// 通用 OpenAI 兼容接口的 API Key（与智谱 Key 分账户，切换引擎互不影响）。
 pub(crate) fn put_openai_ocr_api_key(value: &str) -> Result<(), String> {
-    openai_ocr_entry()?
+    entry_for(ACCOUNT_OPENAI_OCR)?
         .set_password(value)
-        .map_err(|e| format!("写入系统凭据库失败：{e}"))
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))?;
+    invalidate_cached(ACCOUNT_OPENAI_OCR);
+    Ok(())
 }
 
 pub(crate) fn get_openai_ocr_api_key() -> Result<Option<String>, String> {
-    match openai_ocr_entry()?.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("读取系统凭据库失败：{e}")),
-    }
+    read_cached(ACCOUNT_OPENAI_OCR)
 }
 
 /// 幂等删除（从未配置过视为成功）。
 pub(crate) fn delete_openai_ocr_api_key() -> Result<(), String> {
-    match openai_ocr_entry()?.delete_credential() {
+    let result = match entry_for(ACCOUNT_OPENAI_OCR)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
-    }
+    };
+    invalidate_cached(ACCOUNT_OPENAI_OCR);
+    result
 }
 
 /// 测试专用：把默认凭据后端切换为进程内内存 mock（幂等，进程内一次）。

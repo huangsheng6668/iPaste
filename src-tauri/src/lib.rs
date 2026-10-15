@@ -352,9 +352,11 @@ pub fn run() {
             };
 
             // 跨设备同步：加载设备身份 → 起 iroh endpoint（中继：自定义优先，否则
-            // n0 默认）。setup 是同步闭包而 start 是 async——block_on 对齐现有
-            // async 初始化模式。任何一步失败都只记日志、不 manage registry：
-            // 应用继续运行，命令层对缺失的 registry 优雅报错（见 DeviceRegistryExt）。
+            // n0 默认）。endpoint bind 含中继连接与 DNS 发现（网络 I/O，可达数百
+            // 毫秒），而 setup 是同步闭包——改为后台 spawn：托盘/窗口/快捷键先就
+            // 绪，registry 就绪后再 manage。就绪前的窗口内命令层经
+            // DeviceRegistryExt 优雅报错（前端设备面板降级为横幅，不在启动路径）。
+            // 任何一步失败都只记日志、不 manage registry：应用继续运行。
             match lan_sync::identity::load_or_create_device_secret() {
                 Ok(secret) => {
                     // 存储的中继地址无效/读取失败时回落 n0 默认——不因一条坏设置
@@ -382,8 +384,9 @@ pub fn run() {
                     // 追加复制会话状态与 watcher 共享同一实例：活跃期间 auto 接收
                     // 跳过剪贴板写（防对端内容被 merge 进本地追加缓冲）。
                     let append_state = state.capture.append_copy_state.clone();
-                    let registry = tauri::async_runtime::block_on(async move {
-                        lan_sync::DeviceLinkRegistry::start(
+                    let sync_app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        match lan_sync::DeviceLinkRegistry::start(
                             secret,
                             sync_store,
                             sink,
@@ -391,17 +394,17 @@ pub fn run() {
                             append_state,
                         )
                         .await
+                        {
+                            Ok(registry) => {
+                                sync_app_handle.manage(registry);
+                            }
+                            Err(reason) => {
+                                eprintln!(
+                                    "[lan-sync] 同步服务启动失败（应用继续运行，同步不可用）：{reason}"
+                                );
+                            }
+                        }
                     });
-                    match registry {
-                        Ok(registry) => {
-                            app.manage(registry);
-                        }
-                        Err(reason) => {
-                            eprintln!(
-                                "[lan-sync] 同步服务启动失败（应用继续运行，同步不可用）：{reason}"
-                            );
-                        }
-                    }
                 }
                 Err(reason) => {
                     eprintln!("[lan-sync] 设备身份加载失败（应用继续运行，同步不可用）：{reason}");

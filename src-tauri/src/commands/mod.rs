@@ -10,9 +10,12 @@ pub(crate) mod screenshot;
 pub(crate) mod settings;
 pub(crate) mod window_cmds;
 
+use std::sync::{Arc, Mutex};
+
 use crate::error::AppError;
-use crate::models::{AppSettings, AppSnapshot, AppState};
+use crate::models::{AppSettings, AppSnapshot, AppendCopyState};
 use crate::shortcut::emit_settings_changed;
+use crate::store::Store;
 
 /// settings 更新命令统一收尾：落库 → 广播设置变更。多处样板收敛于此。
 /// store 侧设置方法返回 `Result<AppSettings, String>`，这里以泛型错误吸收
@@ -31,16 +34,20 @@ where
 
 /// get_snapshot 与 sync_cloud_now 共用的 AppSnapshot 组装
 /// （原两处逐行重复约 22 行）。prune_expired 统一在读取前执行。
+/// 收 store + 两个 Arc 句柄而非 `State`：调用方在 spawn_blocking 里跑，
+/// `State` 的借用进不去阻塞闭包。
 pub(crate) fn build_app_snapshot(
-    state: tauri::State<'_, AppState>,
+    store: &Store,
+    is_listening: &Arc<Mutex<bool>>,
+    append_copy_state: &Arc<Mutex<AppendCopyState>>,
 ) -> Result<AppSnapshot, AppError> {
-    state.store.prune_expired()?;
-    let (clip_page, categories, category_items) = state.store.snapshot()?;
-    let settings = state.store.settings()?;
-    let is_listening = state.capture.is_listening()?;
-    let is_append_copy_enabled = state
-        .capture
-        .append_copy_state
+    store.prune_expired()?;
+    let (clip_page, categories, category_items) = store.snapshot()?;
+    let settings = store.settings()?;
+    let is_listening = *is_listening
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    let is_append_copy_enabled = append_copy_state
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .is_enabled;

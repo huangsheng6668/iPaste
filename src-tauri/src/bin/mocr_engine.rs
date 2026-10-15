@@ -195,12 +195,14 @@ mod engine_impl {
                 .map_err(|error| error.to_string())?,
             ])
             .map_err(|error| format!("encoder run: {error}"))?;
-        let (hidden_shape, hidden) = encoder_outputs["last_hidden_state"]
-            .try_extract_tensor::<f32>()
-            .map_err(|error| format!("encoder output: {error}"))?;
-        let encoder_hidden_states: Vec<f32> = hidden.to_vec();
-        let hidden_len = shape_dim(hidden_shape, 1)?;
-        let hidden_dim = shape_dim(hidden_shape, 2)?;
+        // encoder 输出直接作为 decoder 每步的输入（SessionInputValue::View，
+        // 零拷贝）：OrtValue 由 encoder_outputs 持有，整个识别函数期间有效。
+        // 此前每个解码步都 `encoder_hidden_states.clone()` 把约 605KB
+        // （1×197×768 f32）整份拷进 ONNX，最长 299 步累计约 180MB 无谓
+        // 分配 churn。
+        let encoder_hidden_states = encoder_outputs
+            .get("last_hidden_state")
+            .ok_or_else(|| "encoder output: missing last_hidden_state".to_string())?;
 
         let mut tokens: Vec<i64> = vec![DECODER_START_TOKEN_ID];
         for _ in 0..(MAX_LENGTH - 1) {
@@ -210,11 +212,7 @@ mod engine_impl {
                 .run(ort::inputs![
                     "input_ids" => Tensor::from_array(([1usize, seq_len], tokens.clone()))
                         .map_err(|error| error.to_string())?,
-                    "encoder_hidden_states" => Tensor::from_array((
-                        [1usize, hidden_len, hidden_dim],
-                        encoder_hidden_states.clone(),
-                    ))
-                    .map_err(|error| error.to_string())?,
+                    "encoder_hidden_states" => encoder_hidden_states,
                 ])
                 .map_err(|error| format!("decoder run: {error}"))?;
             let (logits_shape, logits) = decoder_outputs["logits"]

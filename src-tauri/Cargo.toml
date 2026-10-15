@@ -84,3 +84,16 @@ objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSApplication", "NSEvent", "NSGraphics", "NSPanel", "NSPasteboard", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes", "objc2"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSError", "NSGeometry", "NSRange", "NSString", "NSURL", "objc2-core-foundation"] }
+
+# 发布产物优化（此前无 profile 段，868 crate 依赖树走 cargo 默认值）：
+# - lto="thin"：跨 crate 内联与死代码消除，iroh/quinn/rustls/hyper 热路径受益；
+# - codegen-units=1：单 CGU 换取最大优化空间；
+# - strip="symbols"：剥符号表，Windows 发布 exe 通常减 5–15MB。
+# panic 保持默认 unwind：tokio task harness 依赖 catch_unwind 隔离 panic 任务，
+# abort 会把单任务 panic 升级为整进程崩溃。崩溃堆栈调试需另存未 strip 副本。
+# 代价：release 构建时间 +30~100%。
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

@@ -22,7 +22,7 @@ use crate::lan_sync::{ControlMsg, LanEventSink};
 use crate::models::{AutoSyncMode, ClipItem, DeviceOnline};
 use crate::store::test_support::temp_store;
 
-use super::link::reconnect_backoff;
+use super::link::{jittered_backoff, reconnect_backoff};
 use super::pairing::PendingPair;
 use super::sender::try_send_auto;
 use super::{
@@ -99,6 +99,26 @@ fn reconnect_backoff_progression() {
     );
     assert_eq!(reconnect_backoff(6), Duration::from_secs(300));
     assert_eq!(reconnect_backoff(100), Duration::from_secs(300));
+}
+
+/// 抖动退避：始终落在基准的 [0.75, 1.25] 倍内，且同一档位能产出不同值
+/// （恒定同一「随机」数等于没打散）。
+#[test]
+fn jittered_backoff_stays_within_band_and_varies() {
+    for attempt in [0, 1, 3, 6] {
+        let base = reconnect_backoff(attempt);
+        let low = base.mul_f64(0.75);
+        let high = base.mul_f64(1.25);
+        let samples: Vec<Duration> = (0..64).map(|_| jittered_backoff(attempt)).collect();
+        assert!(
+            samples.iter().all(|d| *d >= low && *d <= high),
+            "attempt {attempt} 抖动越界：{samples:?}"
+        );
+        assert!(
+            samples.windows(2).any(|pair| pair[0] != pair[1]),
+            "attempt {attempt} 抖动无变化，起不到打散作用"
+        );
+    }
 }
 
 /// build_send_payload：文本条目直接转 UTF-8 字节。

@@ -4,7 +4,10 @@
 //! category_items、不触碰剪贴板。会话编排在父模块 session.rs。
 
 use super::{emit, emit_clip_receive_failed, SessionCtx};
-use crate::clipboard::{captured_item_from_payload, write_clipboard_image, write_clipboard_text};
+use crate::clipboard::{
+    captured_item_and_clipboard_image, captured_item_from_payload, write_clipboard_image,
+    write_clipboard_image_data, write_clipboard_text,
+};
 use crate::events::{DeviceClipReceived, EVENT_DEVICE_CLIP_RECEIVED};
 use crate::models::AppendCopyState;
 use crate::store::Store;
@@ -54,23 +57,45 @@ pub(super) fn apply_received(
     auto: bool,
     origin_node_id: Option<&str>,
 ) -> bool {
-    // 图片 = data url（utf-8）；文本 = 原文 utf-8
-    let text = String::from_utf8_lossy(payload).to_string();
-    let mut item = match captured_item_from_payload(clip_type, &text) {
-        Ok(Some(item)) => item,
-        // 空文本（trim 后为空）：不诊断（对端发空 payload 是合法的「清空」语义之外的罕见情况）
-        Ok(None) => {
-            if !silent {
-                emit_clip_receive_failed(ctx, "收到空内容，已忽略".to_string());
+    // 图片 = data url（utf-8）；文本 = 原文 utf-8。
+    // 用 Cow 承接而非 to_string：图片 data url 可达数 MB，整段复制纯属浪费
+    // （本函数只以 &str 消费它）。
+    let text = String::from_utf8_lossy(payload);
+    // 图片把「落库条目」与「写剪贴板位图」一次解码同时取出：auto 路径随后复用
+    // 位图写剪贴板，不再把同一张图的 data url 解码第二遍；其余类型没有第二位
+    // 消费者，照旧单解码。
+    let mut clipboard_image = None;
+    let mut item = if clip_type == "image" {
+        match captured_item_and_clipboard_image(&text) {
+            Ok((item, image)) => {
+                clipboard_image = Some(image);
+                item
             }
-            return false;
+            // 解析失败（如图片 data url 损坏 / 对端发了本地路径读不到）：暴露原因
+            Err(reason) => {
+                if !silent {
+                    emit_clip_receive_failed(ctx, format!("解析收到的内容失败：{reason}"));
+                }
+                return false;
+            }
         }
-        // 解析失败（如图片 data url 损坏 / 对端发了本地路径读不到）：暴露原因
-        Err(reason) => {
-            if !silent {
-                emit_clip_receive_failed(ctx, format!("解析收到的内容失败：{reason}"));
+    } else {
+        match captured_item_from_payload(clip_type, &text) {
+            Ok(Some(item)) => item,
+            // 空文本（trim 后为空）：不诊断（对端发空 payload 是合法的「清空」语义之外的罕见情况）
+            Ok(None) => {
+                if !silent {
+                    emit_clip_receive_failed(ctx, "收到空内容，已忽略".to_string());
+                }
+                return false;
             }
-            return false;
+            // 解析失败（如图片 data url 损坏 / 对端发了本地路径读不到）：暴露原因
+            Err(reason) => {
+                if !silent {
+                    emit_clip_receive_failed(ctx, format!("解析收到的内容失败：{reason}"));
+                }
+                return false;
+            }
         }
     };
 
@@ -89,8 +114,8 @@ pub(super) fn apply_received(
     match category_name {
         // 分组条目：不触碰系统剪贴板，直接落到 category_items
         Some(name) => {
-            // 图片条目：captured_item_from_payload 解码出的是内存字节（text 为空串），
-            // 先落盘成文件路径（与历史条目 insert_captured_item 的处理一致），
+            // 图片条目：顶部解码产出的是内存字节（text 为空串），先落盘成
+            // 文件路径（与历史条目 insert_captured_item 的处理一致），
             // 否则 B 端 category_items/clips 里存的 text 是空串，图片内容等于丢失。
             let stored_text = if clip_type == "image" {
                 match item.image_bytes.as_deref() {
@@ -173,7 +198,12 @@ pub(super) fn apply_received(
                 let write_result = if append_active {
                     Ok(())
                 } else if clip_type == "image" {
-                    write_clipboard_image(&text)
+                    // 复用顶部一次解码取出的位图直接写剪贴板（append 跳过时随手
+                    // 丢弃）；缺位图（理论不可达：图片入口必同时产出）才回退解码。
+                    match clipboard_image.take() {
+                        Some(image) => write_clipboard_image_data(image),
+                        None => write_clipboard_image(&text),
+                    }
                 } else {
                     write_clipboard_text(item_text.trim())
                 };

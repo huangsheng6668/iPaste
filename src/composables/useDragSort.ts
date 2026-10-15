@@ -60,6 +60,10 @@ type DragSession = {
   targetKey: string | null;
   targetId: string | null;
   side: "before" | "after" | null;
+  /** ghost 卡片元素：变换直接写它的 style，绕开 reactive 重渲染。 */
+  element: HTMLElement | null;
+  offsetX: number;
+  offsetY: number;
 };
 
 /**
@@ -94,6 +98,14 @@ export function useDragSort<T>(config: DragSortConfig<T>) {
     return typeof config.orientation === "function" ? config.orientation() : config.orientation;
   }
 
+  function ghostTransform(x: number, y: number): string {
+    return config.lockAxis
+      ? orientation() === "vertical"
+        ? `translate3d(0, ${y}px, 0)`
+        : `translate3d(${x}px, 0, 0)`
+      : `translate(${x}px, ${y}px)`;
+  }
+
   function start(payload: { item: T; event: PointerEvent }) {
     if (!config.canStart(payload)) return;
 
@@ -113,7 +125,11 @@ export function useDragSort<T>(config: DragSortConfig<T>) {
       targetKey: null,
       targetId: null,
       side: null,
+      element: card ?? null,
+      offsetX: 0,
+      offsetY: 0,
     };
+    if (card) card.style.willChange = "transform";
     dragOffset.value = { x: 0, y: 0 };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", finishDrag);
@@ -133,10 +149,12 @@ export function useDragSort<T>(config: DragSortConfig<T>) {
     }
     if (!state.hasMoved) return;
 
-    dragOffset.value = {
-      x: event.clientX - state.startX,
-      y: event.clientY - state.startY,
-    };
+    state.offsetX = event.clientX - state.startX;
+    state.offsetY = event.clientY - state.startY;
+    // ghost 变换直接写 DOM：每个 pointermove 都更新 reactive dragOffset 会
+    // 让整列卡片重渲染（每张卡重算 itemDragStyle），大列表拖动掉帧。drop
+    // 指示器仍走 reactive——它只在跨越卡片边界时变化，不是每帧。
+    state.element?.style.setProperty("transform", ghostTransform(state.offsetX, state.offsetY));
 
     const target = config.targetFromPoint(event.clientX, event.clientY);
     if (!target || target.key === state.key) {
@@ -213,6 +231,9 @@ export function useDragSort<T>(config: DragSortConfig<T>) {
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", finishDrag);
     window.removeEventListener("pointercancel", cancelDrag);
+    // 清掉直接写在 ghost 元素上的 inline 变换，避免拖拽结束后残留位移。
+    session?.element?.style.removeProperty("transform");
+    session?.element?.style.removeProperty("will-change");
     session = null;
     draggingKey.value = null;
     dropTargetKey.value = null;
@@ -223,12 +244,10 @@ export function useDragSort<T>(config: DragSortConfig<T>) {
   function dragStyle(item: T): CSSProperties | undefined {
     if (draggingKey.value !== config.itemKey(item)) return undefined;
 
-    const { x, y } = dragOffset.value;
-    const transform = config.lockAxis
-      ? orientation() === "vertical"
-        ? `translate3d(0, ${y}px, 0)`
-        : `translate3d(${x}px, 0, 0)`
-      : `translate(${x}px, ${y}px)`;
+    // 变换值来自 session 的普通字段（非 reactive）：拖动过程中由
+    // handlePointerMove 直接写 DOM 更新，这里只在重渲染时（如 drop 指示器
+    // 变化）读当前值保持一致性。
+    const transform = ghostTransform(session?.offsetX ?? 0, session?.offsetY ?? 0);
     return {
       transform,
       width: session?.width ? `${session.width}px` : undefined,

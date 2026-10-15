@@ -6,7 +6,7 @@ use std::{
 
 use arboard::{Clipboard, Error as ClipboardError, ImageData};
 use base64::{engine::general_purpose, Engine as _};
-use image::{ImageBuffer, ImageEncoder, Rgba};
+use image::ImageEncoder;
 use tauri::Emitter;
 
 use crate::error::AppError;
@@ -82,7 +82,7 @@ fn read_clipboard_item() -> Result<ClipboardRead, String> {
     }
 
     match clipboard.get_image() {
-        Ok(image) => return captured_item_from_image(image).map(ClipboardRead::Item),
+        Ok(image) => return captured_item_from_image(&image).map(ClipboardRead::Item),
         Err(error) if format_not_available(&error) => {}
         Err(ClipboardError::ClipboardOccupied) => return Ok(ClipboardRead::Occupied),
         Err(error) => return Err(error.to_string()),
@@ -270,18 +270,23 @@ pub(crate) fn write_clipboard_text(text: &str) -> Result<(), String> {
 }
 
 pub(crate) fn write_clipboard_image(data_url: &str) -> Result<(), String> {
-    let image = image_from_source(data_url)?;
+    write_clipboard_image_data(image_from_source(data_url)?)
+}
+
+/// 直接写已解码的 RGBA 位图。LAN auto 接收路径复用落库时的那份解码
+/// （见 `captured_item_and_clipboard_image`），避免把同一张图的 data url
+/// 再 base64 + 图像解码一遍。
+pub(crate) fn write_clipboard_image_data(image: ImageData<'static>) -> Result<(), String> {
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
     clipboard
         .set_image(image)
         .map_err(|error| error.to_string())
 }
 
-fn captured_item_from_image(image: ImageData<'static>) -> Result<CapturedClipboardItem, String> {
+fn captured_item_from_image(image: &ImageData<'_>) -> Result<CapturedClipboardItem, String> {
     let width = image.width;
     let height = image.height;
-    let bytes = image.bytes.into_owned();
-    let png = image_png_bytes(width, height, bytes)?;
+    let png = image_png_bytes(width, height, &image.bytes)?;
     let hash = hash_bytes(&png);
 
     Ok(CapturedClipboardItem {
@@ -292,6 +297,18 @@ fn captured_item_from_image(image: ImageData<'static>) -> Result<CapturedClipboa
         image_bytes: Some(png),
         display_name: None,
     })
+}
+
+/// LAN auto 接收图片专用：data url 只解码一遍——同一份 RGBA 位图既编码 PNG
+/// 供落库（`CapturedClipboardItem::image_bytes`），又原样返回供写系统剪贴板
+/// （配 `write_clipboard_image_data`）。否则落库与剪贴板各要把 data url
+/// base64 + 图像解码一遍，是大图接收链上最重的重复劳动。
+pub(crate) fn captured_item_and_clipboard_image(
+    data_url: &str,
+) -> Result<(CapturedClipboardItem, ImageData<'static>), String> {
+    let image = image_from_source(data_url)?;
+    let item = captured_item_from_image(&image)?;
+    Ok((item, image))
 }
 
 fn captured_item_from_file_list(
@@ -306,7 +323,7 @@ fn captured_item_from_file_list(
     }
 
     image_from_source_path(path)
-        .and_then(captured_item_from_image)
+        .and_then(|image| captured_item_from_image(&image))
         .map(Some)
 }
 
@@ -327,7 +344,7 @@ pub(crate) fn captured_item_from_payload(
 ) -> Result<Option<CapturedClipboardItem>, String> {
     if clip_type == "image" {
         let image = image_from_source(text)?;
-        return captured_item_from_image(image).map(Some);
+        return captured_item_from_image(&image).map(Some);
     }
 
     let normalized = text.trim();
@@ -350,7 +367,7 @@ pub(crate) fn captured_item_from_payload(
     }))
 }
 
-fn image_png_bytes(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>, String> {
+fn image_png_bytes(width: usize, height: usize, rgba: &[u8]) -> Result<Vec<u8>, String> {
     let expected_len = width
         .checked_mul(height)
         .and_then(|pixels| pixels.checked_mul(4))
@@ -359,12 +376,10 @@ fn image_png_bytes(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>
         return Err("图片数据不完整".to_string());
     }
 
-    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, rgba)
-        .ok_or_else(|| "无法读取图片数据".to_string())?;
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
         .write_image(
-            image.as_raw(),
+            rgba,
             width as u32,
             height as u32,
             image::ColorType::Rgba8.into(),
@@ -471,7 +486,11 @@ mod tests {
     }
 
     fn encode_png(width: u32, height: u32) -> Vec<u8> {
-        let img = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_pixel(width, height, Rgba([0, 0, 0, 255]));
+        let img = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_pixel(
+            width,
+            height,
+            image::Rgba([0, 0, 0, 255]),
+        );
         let mut png = Vec::new();
         image::codecs::png::PngEncoder::new(&mut png)
             .write_image(img.as_raw(), width, height, image::ColorType::Rgba8.into())

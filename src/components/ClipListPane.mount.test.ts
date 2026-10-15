@@ -69,3 +69,77 @@ describe("ClipListPane 滚动接线（挂载行为）", () => {
     wrapper.unmount();
   });
 });
+
+describe("ClipListPane 虚拟化（窗口化渲染）", () => {
+  function mountWithItems(count: number) {
+    const items = Array.from({ length: count }, (_, index) => ({
+      id: `clip-${index}`,
+      collection: "history" as const,
+      clipType: "text" as const,
+      contentHash: `hash-${index}`,
+      previewText: `preview ${index}`,
+      text: `text ${index}`,
+      displayName: null,
+      sourceApp: "Test",
+      isPinned: false,
+      lastCapturedAt: new Date(index).toISOString(),
+      favoriteCount: 0,
+    }));
+    const wrapper = mount(ClipListPane, {
+      props: {
+        listRef: () => {},
+        items,
+        selectedIndex: 0,
+        selectedCategoryId: "history",
+        isLoadingMore: false,
+        canReorder: false,
+        editingClipKey: null,
+        editingClipName: "",
+        pendingDeleteKey: null,
+        draggingItemKey: null,
+        itemDropTargetKey: null,
+        itemDropSide: null,
+        visibleActions: [],
+        fallbackGroups: [],
+        itemCategoryTags: () => [],
+        itemDragStyle: () => undefined,
+        toCategoryClipViewItem: (item) => ({ ...item, collection: "category" as const }),
+      },
+    });
+    return wrapper;
+  }
+
+  it("上千条历史只挂载视口窗口内的卡片（jsdom 无布局，窗口为 Overscan 兜底值）", () => {
+    const wrapper = mountWithItems(2000);
+
+    // jsdom 下 clientHeight / getBoundingClientRect 均为 0，visibleCount 退化为
+    // 1，窗口 = 首条 + 上下各 OVERSCAN(6) = 7 张；关键是绝不渲染全量 2000 张。
+    const cards = wrapper.findAllComponents({ name: "ClipCard" });
+    expect(cards.length).toBeGreaterThan(0);
+    expect(cards.length).toBeLessThan(20);
+    expect(cards.length).toBe(7);
+
+    // 顶部 spacer 不存在（窗口从首条开始）；底部 spacer 撑起剩余高度。
+    const spacers = wrapper.element.querySelectorAll("div[aria-hidden='true']");
+    expect(spacers.length).toBe(1);
+
+    wrapper.unmount();
+  });
+
+  it("卡片的 index prop 与 select 事件都是绝对索引（窗口起点已加回）", async () => {
+    const wrapper = mountWithItems(50);
+
+    const cards = wrapper.findAllComponents({ name: "ClipCard" });
+    // 窗口从首条开始：index prop 即 v-for 位置。
+    expect(cards.map((card) => card.props("index"))).toEqual(
+      Array.from({ length: cards.length }, (_, index) => index),
+    );
+
+    await cards[3].vm.$emit("select", 3);
+
+    const selectEvents = wrapper.emitted("select");
+    expect(selectEvents?.[selectEvents.length - 1]?.[0]).toBe(3);
+
+    wrapper.unmount();
+  });
+});

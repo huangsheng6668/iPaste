@@ -132,13 +132,10 @@ impl Store {
     /// 云 OCR 配置读取：Key 与云同步同法——settings 列只留空串占位，
     /// 实际值从系统凭据库回填；Base URL 与模型名是普通 KV。
     /// 凭据库读失败按未配置处理（不阻断整个设置读取），原因落 stderr 供排查。
-    /// 另外顺手清理已移除的智谱专用引擎（≤0.9.9）遗留的凭据与占位行。
     pub(super) fn cloud_ocr_settings_with_conn(
         &self,
         conn: &Connection,
     ) -> Result<CloudOcrSettings, String> {
-        super::super::secrets::remove_legacy_bigmodel_api_key();
-        let _ = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", []);
         let openai_api_key = match super::super::secrets::get_openai_ocr_api_key() {
             Ok(v) => v.unwrap_or_default(),
             Err(reason) => {
