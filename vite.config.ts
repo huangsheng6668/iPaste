@@ -16,6 +16,19 @@ export default defineConfig(async () => ({
     setupFiles: ["./src/test/setup.ts"],
   },
 
+  // 构建产物拆分：框架层单独成 chunk，不随业务代码改动而失效（本地应用
+  // 收益主要在窗口启动时的解析粒度；辅助窗口组件已在 App.vue 侧按
+  // defineAsyncComponent 拆成按需 chunk）。
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["vue", "pinia", "@tauri-apps/api"],
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

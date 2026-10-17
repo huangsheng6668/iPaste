@@ -1,7 +1,8 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { ipasteApi } from "../lib/ipasteApi";
-import { clipMatchesSearch, clipMatchesTypeFilter } from "../lib/clipSearch";
+import { clipMatchesNormalized, clipMatchesSearch, clipMatchesTypeFilter, normalizeSearchQuery } from "../lib/clipSearch";
+import { categoryViewItem, historyViewItem } from "../lib/clipViewItems";
 import { errorMessage } from "../lib/appError";
 import { contextItemKey, originalClipId } from "../lib/clipKeys";
 import { orderCategoryItemsByIds } from "./lib/ordering";
@@ -85,6 +86,27 @@ export const useIpasteStore = defineStore("ipaste", () => {
   const clipImageCount = ref(0);
   const error = ref<string | null>(null);
   let clipRequestId = 0;
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** load() 的 in-flight 句柄：并发快照请求复用同一次 IPC（见 load）。 */
+  let loadInFlight: Promise<void> | null = null;
+
+  // 本地过滤用的防抖搜索词：每按键同步跑全量本地过滤，在长历史/大文本下是
+  // O(已加载条数 × 全文长度) 的 toLowerCase 分配，连续按键会掉帧。120ms
+  // 合并窗口短于后端搜索重载防抖（useClipListScroll.scheduleSearchReload
+  // 的 160ms），本地 narrowing 先落地、后端权威结果随后替换。
+  const debouncedSearch = ref("");
+
+  watch(search, (value) => {
+    if (searchDebounceTimer !== null) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+    searchDebounceTimer = setTimeout(() => {
+      searchDebounceTimer = null;
+      debouncedSearch.value = value;
+      clampSelection();
+    }, 120);
+  });
 
   const activeCategory = computed(() =>
     category.categories.find((entry) => entry.id === selectedCategoryId.value),
@@ -93,19 +115,21 @@ export const useIpasteStore = defineStore("ipaste", () => {
   /** 键盘循环切换分类用的完整顺序：history → 自定义分类 → automation。 */
   const allCategoryIds = computed(() => ["history", ...category.categories.map((entry) => entry.id), "automation"]);
 
+  // 包装对象走 WeakMap 缓存（lib/clipViewItems）：底层条目不变则引用不变，
+  // 避免每次重算生成全新对象导致全列表卡片重渲染。
+  // 本地过滤走防抖搜索词 + 归一化外提（lib/clipSearch），见 debouncedSearch。
   const visibleItems = computed<ClipViewItem[]>(() => {
-    const query = search.value.trim().toLowerCase();
+    const query = normalizeSearchQuery(debouncedSearch.value);
     const source =
       selectedCategoryId.value === "history"
-        ? clips.value.map(toHistoryViewItem)
+        ? clips.value.map(historyViewItem)
         : category.categoryItems
             .filter((item) => item.categoryId === selectedCategoryId.value)
-            .map(toCategoryViewItem);
+            .map(categoryViewItem);
 
     if (!query) return source;
 
-    // filter 路径保持元素身份不变（配合上面的包装缓存）。
-    return source.filter((item) => clipMatchesSearch(item, query));
+    return source.filter((item) => clipMatchesNormalized(item, query));
   });
 
   const selectedItem = computed(() => visibleItems.value[selectedIndex.value]);
@@ -134,22 +158,32 @@ export const useIpasteStore = defineStore("ipaste", () => {
   }
 
   async function load() {
+    // in-flight 复用：面板可见性与设备同步事件可能并发触发全量快照，
+    // 合并为一次 IPC + 一次全量数组替换（此前 N 条设备事件 = N 次并发
+    // 快照，互相 race）。
+    if (loadInFlight) return loadInFlight;
     isLoading.value = true;
     error.value = null;
 
-    try {
-      const snapshot = await ipasteApi.snapshot();
-      hydrateFromSnapshot(snapshot);
+    const request = (async () => {
+      try {
+        const snapshot = await ipasteApi.snapshot();
+        hydrateFromSnapshot(snapshot);
 
-      if (!category.categories.some((entry) => entry.id === selectedCategoryId.value)) {
-        selectedCategoryId.value = "history";
+        if (!category.categories.some((entry) => entry.id === selectedCategoryId.value)) {
+          selectedCategoryId.value = "history";
+        }
+        clampSelection();
+      } catch (unknownError) {
+        error.value = errorMessage(unknownError);
+      } finally {
+        isLoading.value = false;
       }
-      clampSelection();
-    } catch (unknownError) {
-      error.value = errorMessage(unknownError);
-    } finally {
-      isLoading.value = false;
-    }
+    })();
+    loadInFlight = request.finally(() => {
+      loadInFlight = null;
+    });
+    return loadInFlight;
   }
 
   // —— 历史分页 ——
@@ -268,7 +302,10 @@ export const useIpasteStore = defineStore("ipaste", () => {
     const matchesCurrentView = (!hasSearch || matchesCurrentSearch) && clipMatchesTypeFilter(clip, typeFilter.value);
 
     if (matchesCurrentView) {
-      clips.value = [clip, ...clips.value.filter((item) => item.id !== clip.id)].slice(0, 120);
+      // 不截断窗口：列表渲染已虚拟化（ClipListPane 只挂载视口内卡片），
+      // 窗口长度由用户滚动驱动的分页决定。此前的 slice(0, 120) 会在滚深
+      // 加载后遇到一次捕获就把列表突然打回 120 条。
+      clips.value = [clip, ...clips.value.filter((item) => item.id !== clip.id)];
     }
 
     if (typeof totalCount === "number") {
@@ -453,7 +490,8 @@ export const useIpasteStore = defineStore("ipaste", () => {
       if (hasClip) {
         clips.value = clips.value.map((entry) => (entry.id === clip.id ? clip : entry));
       } else if (clipMatchesSearch(clip, search.value) && clipMatchesTypeFilter(clip, typeFilter.value)) {
-        clips.value = [clip, ...clips.value].slice(0, 120);
+        // 与 upsertClip 一致：不截断窗口（渲染已虚拟化，窗口长度由分页驱动）。
+        clips.value = [clip, ...clips.value];
       }
       return;
     }
@@ -502,6 +540,11 @@ export const useIpasteStore = defineStore("ipaste", () => {
     selectedIndex.value = 0;
     fallbackGroups.value = [];
     if (id === "history") {
+      // 面板打开路径：load() 的全量快照正落地，其中已含 history 第一页
+      // （无搜索/筛选时与 reloadClips 拉取的内容相同）——跳过重复请求，
+      // 消除"面板打开双重取数"。用户主动点击分类栏时无 in-flight 加载，
+      // 行为与此前一致。
+      if (loadInFlight) return;
       void reloadClips();
     }
   }
@@ -536,6 +579,12 @@ export const useIpasteStore = defineStore("ipaste", () => {
     if (!search.value) return;
 
     search.value = "";
+    // 清空同步落地防抖词：否则列表会保持过滤态 120ms，Esc 的反馈变钝。
+    if (searchDebounceTimer !== null) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+    debouncedSearch.value = "";
     fallbackGroups.value = [];
     selectedIndex.value = 0;
   }

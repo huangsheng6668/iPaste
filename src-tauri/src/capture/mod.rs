@@ -40,6 +40,9 @@ pub(crate) struct CaptureSession {
     pub(crate) main_was_visible: bool,
     /// 每显示器整屏冻结帧（触发时捕获）；提交时按索引取出裁剪。
     pub(crate) frozen_frames: Vec<Option<image::RgbaImage>>,
+    /// 触发时枚举的显示器拓扑：提交时按同一索引取 scale_factor——中途增删
+    /// 显示器不能让索引错位到另一块屏（rect 的逻辑→物理换算会失真）。
+    pub(crate) monitors: Vec<tauri::Monitor>,
 }
 
 /// 冻结帧显示目录：先清空（吞掉崩溃残留）再重建。
@@ -56,20 +59,31 @@ fn overlay_frame_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
     Ok(dir)
 }
 
+/// RGBA → 24 位 RGB 字节。BMP 要编码 24 位（WKWebView 渲染 32 位带 alpha 的
+/// BMP 会全黑）。单遍完成、不整帧克隆：4K 帧克隆一遍是 33MB 内存加一次全帧
+/// memcpy（8K 帧 132MB），是遮罩弹出卡顿的大头。
+fn rgba_to_rgb_bytes(frame: &image::RgbaImage) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity(frame.as_raw().len() / 4 * 3);
+    for pixel in frame.as_raw().chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+    }
+    rgb
+}
+
 /// 冻结帧写盘：BMP 无压缩（像素直拷）。此前用 JPEG 时纯软编码整屏帧单帧可达数秒，
 /// 是截图遮罩出现的卡顿主因；BMP 仅作遮罩背景显示，OCR 裁剪仍取内存无损帧。
 /// encoder 逐像素小写入，必须套大缓冲聚合系统调用，否则 4K 帧写入仍需数秒。
 /// 注意编码 24 位 RGB：32 位带 alpha 的 BMP 在 WKWebView 中会渲染成全黑。
 fn write_frame_bmp(path: &std::path::Path, frame: &image::RgbaImage) -> Result<(), String> {
-    let rgb_frame = image::DynamicImage::ImageRgba8(frame.clone()).to_rgb8();
+    let rgb_frame = rgba_to_rgb_bytes(frame);
     let file = std::fs::File::create(path).map_err(|error| error.to_string())?;
     let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
     let mut encoder = image::codecs::bmp::BmpEncoder::new(&mut writer);
     encoder
         .encode(
-            rgb_frame.as_raw(),
-            rgb_frame.width(),
-            rgb_frame.height(),
+            &rgb_frame,
+            frame.width(),
+            frame.height(),
             image::ExtendedColorType::Rgb8,
         )
         .map_err(|error| format!("冻结帧编码失败：{error}"))?;
@@ -214,6 +228,7 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
             overlay_labels: Vec::new(),
             main_was_visible,
             frozen_frames: Vec::new(),
+            monitors: Vec::new(),
         });
     }
 
@@ -296,9 +311,12 @@ pub(crate) fn start_screenshot_ocr(app: &tauri::AppHandle) -> Result<(), String>
         overlay_labels: labels.clone(),
         main_was_visible,
         frozen_frames,
+        // 拓扑存会话：提交时复用同一份（增删屏不错位），也顺带省掉提交时
+        // 的二次枚举。
+        monitors: monitors.clone(),
     });
 
-    if let Err(error) = overlay::show_overlay_windows(app, &labels) {
+    if let Err(error) = overlay::show_overlay_windows(app, &labels, &monitors) {
         end_session(app, &state.ocr.capture_session, true);
         return Err(error);
     }
@@ -335,19 +353,18 @@ pub(crate) async fn submit_screenshot_selection(
         }
     }
 
-    let monitor = match app
-        .available_monitors()
-        .map_err(|error| AppError::internal(error.to_string()))
-        .and_then(|monitors| {
-            monitors
-                .get(selection.monitor_index)
-                .cloned()
-                .ok_or_else(|| AppError::internal("无效的显示器索引"))
-        }) {
-        Ok(monitor) => monitor,
-        Err(error) => {
+    // 显示器拓扑取触发时枚举、存在会话里的那份：提交时重新枚举会在中途增删
+    // 显示器后让 monitor_index 错位到另一块屏，rect 的 scale_factor 换算失真。
+    let monitor = capture_session.lock().ok().and_then(|guard| {
+        guard
+            .as_ref()
+            .and_then(|session| session.monitors.get(selection.monitor_index).cloned())
+    });
+    let monitor = match monitor {
+        Some(monitor) => monitor,
+        None => {
             end_session(&app, &capture_session, true);
-            return Err(error);
+            return Err(AppError::internal("无效的显示器索引"));
         }
     };
 

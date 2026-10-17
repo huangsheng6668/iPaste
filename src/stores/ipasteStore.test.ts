@@ -133,8 +133,8 @@ describe("deleteClip 删除补位", () => {
   });
 });
 
-describe("upsertClip 窗口截断与计数", () => {
-  it("新条目置顶并截断到 120 条", () => {
+describe("upsertClip 窗口与计数", () => {
+  it("新条目置顶且不截断窗口（虚拟化渲染后无需硬上限）", () => {
     const store = useIpasteStore();
     store.selectedCategoryId = "history";
     store.clips = Array.from({ length: 120 }, (_, index) => makeClip(`c${String(index).padStart(3, "0")}`, index));
@@ -143,7 +143,8 @@ describe("upsertClip 窗口截断与计数", () => {
     store.upsertClip(makeClip("new-clip", -1), 121, true);
 
     expect(store.clips[0]?.id).toBe("new-clip");
-    expect(store.clips).toHaveLength(120);
+    expect(store.clips).toHaveLength(121);
+    expect(store.clips[120]?.id).toBe("c119");
   });
 
   it("无 totalCount 且已到页尾时递增两个计数", () => {
@@ -192,6 +193,34 @@ describe("reloadClips 竞态守卫", () => {
 
     expect(store.error).toBeNull();
     expect(store.clips).toHaveLength(20);
+  });
+});
+
+describe("搜索防抖（本地过滤走 debouncedSearch）", () => {
+  it("连续按键合并为一次本地过滤：防抖窗口内 visibleItems 不跟随搜索词", async () => {
+    const store = hydrateLoadedWindow();
+
+    store.search = "clip 1";
+    // 同步视角：防抖词未落地，列表仍是全量窗口（每按键不再触发 O(n) 过滤）。
+    expect(store.visibleItems).toHaveLength(20);
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const filtered = store.visibleItems;
+    expect(filtered.length).toBeGreaterThan(0);
+    expect(filtered.length).toBeLessThan(20);
+    expect(filtered.every((item) => item.text.includes("clip 1"))).toBe(true);
+  });
+
+  it("清空搜索同步落地防抖词（Esc 的反馈不钝化）", async () => {
+    const store = hydrateLoadedWindow();
+
+    store.search = "clip 1";
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(store.visibleItems.length).toBeLessThan(20);
+
+    store.clearSearch();
+    expect(store.visibleItems).toHaveLength(20);
   });
 });
 

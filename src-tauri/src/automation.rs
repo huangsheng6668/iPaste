@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+use rusqlite::Connection;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -15,6 +16,10 @@ use crate::models::{AutomationAction, AutomationRunSummary};
 use crate::store::Store;
 
 pub(crate) const AUTOMATION_TIMEOUT_SECS: u64 = 600; // 10 分钟
+
+/// 运行输出写库的批量阈值：攒够这么多行，或距上次落盘超过这么久，就 flush 一次。
+const LOG_FLUSH_LINES: usize = 16;
+const LOG_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 
 pub(crate) fn command_program() -> (&'static str, Vec<String>) {
     #[cfg(target_os = "windows")]
@@ -146,39 +151,6 @@ pub(crate) async fn execute_automation(
     Ok(summary)
 }
 
-/// 输出行的合并阈值：行数 / 字节数任一达到即落库下发；另由
-/// FLUSH_INTERVAL 兜底，慢速输出也保持流式展示节奏。
-const STREAM_BUFFER_MAX_LINES: usize = 64;
-const STREAM_BUFFER_MAX_BYTES: usize = 64 * 1024;
-const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(300);
-
-#[allow(clippy::too_many_arguments)]
-async fn flush_stream_buffer(
-    app: &tauri::AppHandle,
-    store: &Store,
-    run_id: &str,
-    automation_id: &str,
-    stream: &str,
-    pending: &mut String,
-) {
-    if pending.is_empty() {
-        return;
-    }
-    let chunk = std::mem::take(pending);
-    let _ = app.emit(
-        EVENT_AUTOMATION_RUN_OUTPUT,
-        serde_json::json!({
-            "runId": run_id,
-            "automationId": automation_id,
-            "stream": stream,
-            "chunk": chunk,
-        }),
-    );
-    if let Ok(conn) = store.connect() {
-        let _ = store.append_automation_run_output(&conn, run_id, stream, &chunk);
-    }
-}
-
 async fn drain_stream<R>(
     app: tauri::AppHandle,
     store: Store,
@@ -190,48 +162,58 @@ async fn drain_stream<R>(
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     let mut lines = BufReader::new(reader).lines();
-    // 逐行处理是「每行一条事件 + 一次 connect + 全量读改写」（整轮 O(n²)），
-    // 高输出命令会拖垮落库并刷屏事件通道；按行数/字节/时间三阈值合并成批。
+    // 连接按流复用：原实现每行都 store.connect() 一次——WAL / foreign_keys /
+    // busy_timeout 三个 pragma 加上文件打开，每行都重付一遍。
+    let conn = store.connect().ok();
     let mut pending = String::new();
-    let mut buffered_lines = 0usize;
-    let mut flush_tick = tokio::time::interval(STREAM_FLUSH_INTERVAL);
-    flush_tick
-        .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut pending_lines = 0usize;
+    let mut last_flush = std::time::Instant::now();
 
-    loop {
-        tokio::select! {
-            line = lines.next_line() => {
-                match line {
-                    Ok(Some(line)) => {
-                        pending.push_str(&line);
-                        pending.push('\n');
-                        buffered_lines += 1;
-                        if buffered_lines >= STREAM_BUFFER_MAX_LINES
-                            || pending.len() >= STREAM_BUFFER_MAX_BYTES
-                        {
-                            flush_stream_buffer(
-                                &app, &store, &run_id, &automation_id, stream, &mut pending,
-                            )
-                            .await;
-                            buffered_lines = 0;
-                        }
-                    }
-                    Ok(None) | Err(_) => break,
-                }
-            }
-            _ = flush_tick.tick() => {
-                // 慢速输出按固定节奏下发，保持面板里的流式观感。
-                if !pending.is_empty() {
-                    flush_stream_buffer(
-                        &app, &store, &run_id, &automation_id, stream, &mut pending,
-                    )
-                    .await;
-                    buffered_lines = 0;
-                }
-            }
+    while let Ok(Some(line)) = lines.next_line().await {
+        let chunk = format!("{line}\n");
+        // 前端输出保持逐行实时；批量只作用于 DB 落盘。
+        let _ = app.emit(
+            EVENT_AUTOMATION_RUN_OUTPUT,
+            serde_json::json!({
+                "runId": run_id,
+                "automationId": automation_id,
+                "stream": stream,
+                "chunk": chunk,
+            }),
+        );
+        if conn.is_none() {
+            continue;
+        }
+        pending.push_str(&chunk);
+        pending_lines += 1;
+        // 攒够行数或距上次落盘够久就 flush：逐行落盘时每行都要全量读改
+        // 整段日志（O(n^2)），批量后写库次数降一个量级。
+        if pending_lines >= LOG_FLUSH_LINES || last_flush.elapsed() >= LOG_FLUSH_INTERVAL {
+            flush_pending(conn.as_ref(), &store, &run_id, stream, &mut pending);
+            pending_lines = 0;
+            last_flush = std::time::Instant::now();
         }
     }
-    flush_stream_buffer(&app, &store, &run_id, &automation_id, stream, &mut pending).await;
+    // 流结束把残余一次写完。
+    flush_pending(conn.as_ref(), &store, &run_id, stream, &mut pending);
+}
+
+/// 把攒批的输出一次性追加进运行记录。无连接可写时静默丢弃（前端已实时收到，
+/// 与原先每行 connect 失败即跳过的行为一致）。
+fn flush_pending(
+    conn: Option<&Connection>,
+    store: &Store,
+    run_id: &str,
+    stream: &str,
+    pending: &mut String,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    if let Some(conn) = conn {
+        let _ = store.append_automation_run_output(conn, run_id, stream, pending);
+    }
+    pending.clear();
 }
 
 #[cfg(test)]

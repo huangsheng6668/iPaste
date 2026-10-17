@@ -90,9 +90,12 @@ pub(crate) fn sync_overlay_windows(
 }
 
 /// 显示所有指定的遮罩窗口并置顶，将焦点赋予鼠标指针所在的屏幕窗口。
+/// `monitors` 传触发时枚举的拓扑：labels 与它同一次枚举产出，索引才能对上
+/// （中途增删屏后重新枚举会让索引错位到另一块屏）。
 pub(crate) fn show_overlay_windows(
     app: &tauri::AppHandle,
     labels: &[String],
+    monitors: &[tauri::Monitor],
 ) -> Result<(), String> {
     for label in labels {
         if let Some(window) = app.get_webview_window(label) {
@@ -105,7 +108,7 @@ pub(crate) fn show_overlay_windows(
 
     if let Ok(cursor) = app.cursor_position() {
         let focus_label = focus_label_for(
-            app,
+            monitors,
             cursor.x.round() as i32,
             cursor.y.round() as i32,
             labels,
@@ -136,15 +139,12 @@ pub(crate) fn create_overlay_windows(
         .available_monitors()
         .map_err(|error| error.to_string())?;
     let labels = sync_overlay_windows(app, &monitors)?;
-    show_overlay_windows(app, &labels)?;
+    show_overlay_windows(app, &labels, &monitors)?;
     Ok(labels)
 }
 
 /// 计算鼠标坐标落在哪台显示器上，返回对应遮罩窗口的 label；若未命中则回退到首个 label。
-fn focus_label_for(app: &tauri::AppHandle, x: i32, y: i32, labels: &[String]) -> String {
-    let Ok(monitors) = app.available_monitors() else {
-        return labels.first().cloned().unwrap_or_default();
-    };
+fn focus_label_for(monitors: &[tauri::Monitor], x: i32, y: i32, labels: &[String]) -> String {
     for (index, monitor) in monitors.iter().enumerate() {
         if point_in_monitor(monitor, x, y) {
             if let Some(label) = labels.get(index) {

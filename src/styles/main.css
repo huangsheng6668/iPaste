@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* 显式限定类名扫描范围为 src：Tailwind v4 默认从仓库根自动探测，会把
+   docs/（284KB）、8 个 README 等无关文件纳入扫描，拖慢 dev 首启与 HMR。 */
+@source "../";
 @import "./theme.css";
 @import "./base.css";
 @import "./shell.css";

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use super::Store;
 use crate::models::{CapturedClipboardItem, ClipItem, ClipPage, ClipUpdate, SearchResult};
@@ -49,8 +49,11 @@ impl Store {
 
         if let Some(clip) = existing {
             // 去重命中路径单事务收口：原先 UPDATE（+可选 UPDATE）+ 回读 + COUNT
-            // 各自 autocommit，每次捕获付 3-4 次独立提交。
-            let tx = conn.transaction().map_err(|error| error.to_string())?;
+            // 各自 autocommit，每次捕获付 3-4 次独立提交。IMMEDIATE 开写锁，
+            // 避免多写方并发下 DEFERRED 升级撞 BUSY_SNAPSHOT（绕过 busy_timeout）。
+            let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
             let captured_at = now();
             tx.execute(
                 "UPDATE clips SET last_captured_at = ?1 WHERE id = ?2",
@@ -99,7 +102,11 @@ impl Store {
         };
 
         // INSERT + COUNT 同事务：图片文件已在上方落盘（IO 不占数据库写锁）。
-        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        // IMMEDIATE：开写锁再执行——防御性规避 DEFERRED 事务内先读后写
+        // 在 WAL 快照过期时收到绕过 busy_timeout 的 SQLITE_BUSY_SNAPSHOT。
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
         tx.execute(
             "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -620,7 +627,9 @@ impl Store {
     /// 命令层据此判断被删内容是否正是系统剪贴板当前内容，以联动清空。
     pub(crate) fn delete_clip_returning_hash(&self, id: String) -> Result<Option<String>, String> {
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
         let hash = tx
             .query_row(
                 "SELECT content_hash FROM clips WHERE id = ?1",
@@ -684,7 +693,9 @@ impl Store {
         match collection.as_str() {
             "history" => {
                 let mut conn = self.connect()?;
-                let tx = conn.transaction().map_err(|error| error.to_string())?;
+                let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
                 let current = self.get_clip_with_conn(&tx, &id)?;
 
                 if let Some(existing) =
@@ -725,7 +736,9 @@ impl Store {
             }
             "category" => {
                 let mut conn = self.connect()?;
-                let tx = conn.transaction().map_err(|error| error.to_string())?;
+                let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
                 let current = self.get_category_item_with_conn(&tx, &id)?;
 
                 if let Some(existing) = self.get_category_item_by_content_hash_with_conn(

@@ -30,6 +30,9 @@ mod tests;
 
 use self::dispatch::{handle_frame, BatchState};
 
+/// 会话心跳间隔：到点发一帧 Ping 保活（中继/NAT 路径的中间设备会掐空闲流）。
+const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// 单个会话的固定上下文：事件出口、落库句柄与对端标识。
 /// DeviceLinkRegistry 在建立双向流后构造它并调用 `run_session_loop`。
 /// Clone 全部是 Arc/Store(PathBuf)/String 句柄的浅拷贝：单条接收的落库/
@@ -188,6 +191,18 @@ pub(crate) async fn run_session_loop<R, W>(
         read_signal.notify_one();
     });
 
+    // 心跳：固定 30s 日程发一帧 Ping。用 interval 而非循环内 sleep——后者每轮
+    // 迭代都重建 30s 睡眠，任何控制消息到达都会把心跳计时器重置，收发频繁时
+    // 心跳会被无限推迟（正好是该保活的连接最先被饿死）。interval 的固定日程
+    // 同时保证定期唤醒 select!，避免因漏注册 waker 而长期沉睡（v4 曾以此 1s
+    // 空唤醒自愈过 park 问题）。错过的 tick 不补发（Delay）：只要「大约每 30s
+    // 一跳」，不要卡顿后的突发连跳。
+    let mut heartbeat = tokio::time::interval_at(
+        tokio::time::Instant::now() + HEARTBEAT_INTERVAL,
+        HEARTBEAT_INTERVAL,
+    );
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
     loop {
         tokio::select! {
             biased;
@@ -245,9 +260,8 @@ pub(crate) async fn run_session_loop<R, W>(
             _ = peer_gone.notified() => break,
             // registry 侧连接死亡（conn.closed() watcher）：立即结束。
             _ = &mut dead => break,
-            // 心跳：每 30s 发一帧 Ping。同时定期唤醒 select!，避免因漏注册
-            // waker 而长期沉睡（v4 曾以此 1s 空唤醒自愈过 park 问题）。
-            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+            // 心跳：到点发一帧 Ping（固定日程，见上）。
+            _ = heartbeat.tick() => {
                 let mut wh = writer.lock().await;
                 if wh.write_message(&LanMessage::Ping, None).await.is_err() {
                     break;

@@ -159,7 +159,7 @@ impl Store {
     /// 云 OCR 配置读取：Key 与云同步同法——settings 列只留空串占位，
     /// 实际值从系统凭据库回填；Base URL 与模型名是普通 KV。
     /// 凭据库读失败按未配置处理（不阻断整个设置读取），原因落 stderr 供排查。
-    /// 纯读路径：遗留清理在启动期的 cleanup_legacy_secrets，不再顺带写库。
+    /// 纯读路径：遗留清理在启动期的迁移与 cleanup_legacy_secrets，不再顺带写库。
     pub(super) fn cloud_ocr_settings_with_conn(
         &self,
         conn: &Connection,

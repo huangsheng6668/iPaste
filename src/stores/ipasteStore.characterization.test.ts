@@ -197,15 +197,17 @@ describe("特征：upsertClip（捕获事件入口）", () => {
     expect(store.visibleHistoryTotalCount).toBe(2);
   });
 
-  it("已加载窗口截断为 120 条（新条目挤掉最旧一条）", async () => {
+  it("已加载窗口不截断（新条目置顶，旧条目保留由分页驱动）", async () => {
     const windowed = Array.from({ length: 120 }, (_, index) => makeClip(`c${index}`, index));
     const store = await hydrate(makeSnapshot({ clips: windowed, hasMoreClips: true, clipTotalCount: 150 }));
 
     store.upsertClip(makeClip("fresh", 0));
 
-    expect(store.clips).toHaveLength(120);
+    // 窗口不设硬上限：列表渲染已虚拟化（ClipListPane 只挂载视口内卡片），
+    // 截断只会让滚深加载后遇到一次捕获就把列表突然打回 120 条。
+    expect(store.clips).toHaveLength(121);
     expect(store.clips[0].id).toBe("fresh");
-    expect(store.clips[119].id).toBe("c118");
+    expect(store.clips[120].id).toBe("c119");
     // hasMoreClips 为 true 时不做推断计数，保持服务端值。
     expect(store.clipTotalCount).toBe(150);
   });
@@ -505,5 +507,72 @@ describe("特征：applyClipUpdate（clip-updated 事件入口）", () => {
     expect(store.clips.map((clip) => clip.id)).toEqual(["a"]);
     expect(store.clips[0].text).toBe("edited");
     expect(store.clipTotalCount).toBe(1);
+  });
+});
+
+describe("load in-flight 复用与面板打开双重取数消除", () => {
+  it("并发 load() 合并为一次快照 IPC", async () => {
+    const store = useIpasteStore();
+    let resolveSnapshot!: (snapshot: AppSnapshot) => void;
+    snapshotMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+    );
+
+    const first = store.load();
+    const second = store.load();
+    resolveSnapshot(makeSnapshot({ clips: [makeClip("c1", 1)], clipTotalCount: 1 }));
+    await Promise.all([first, second]);
+
+    expect(snapshotMock).toHaveBeenCalledTimes(1);
+    expect(store.clips.map((clip) => clip.id)).toEqual(["c1"]);
+  });
+
+  it("面板打开路径：快照加载进行中时 activatePanelDefault 不再重复拉取第一页", async () => {
+    const store = useIpasteStore();
+    listClipsMock.mockResolvedValue({
+      clips: [],
+      hasMore: false,
+      totalCount: 0,
+      allCount: 0,
+      textCount: 0,
+      imageCount: 0,
+    });
+    let resolveSnapshot!: (snapshot: AppSnapshot) => void;
+    snapshotMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+    );
+
+    // 复现 useAppEvents 的面板可见性流程：先 fire-and-forget load()，再同步 activatePanelDefault()。
+    void store.load();
+    store.activatePanelDefault();
+    expect(listClipsMock).not.toHaveBeenCalled();
+
+    resolveSnapshot(makeSnapshot({ clips: [makeClip("c1", 1)], clipTotalCount: 1 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(listClipsMock).not.toHaveBeenCalled();
+    expect(store.clips.map((clip) => clip.id)).toEqual(["c1"]);
+    expect(store.selectedCategoryId).toBe("history");
+  });
+
+  it("无进行中加载时切换到 history 仍会重载（用户主动切换分类）", async () => {
+    const store = await hydrate(makeSnapshot({ clips: [makeClip("c1", 1)] }));
+    listClipsMock.mockClear();
+    listClipsMock.mockResolvedValue({
+      clips: [makeClip("c2", 2)],
+      hasMore: false,
+      totalCount: 1,
+      allCount: 1,
+      textCount: 1,
+      imageCount: 0,
+    });
+
+    store.selectCategory("history");
+
+    expect(listClipsMock).toHaveBeenCalledTimes(1);
   });
 });

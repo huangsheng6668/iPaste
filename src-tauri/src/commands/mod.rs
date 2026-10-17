@@ -10,9 +10,12 @@ pub(crate) mod screenshot;
 pub(crate) mod settings;
 pub(crate) mod window_cmds;
 
+use std::sync::{Arc, Mutex};
+
 use crate::error::AppError;
-use crate::models::{AppSettings, AppSnapshot, AppState};
+use crate::models::{AppSettings, AppSnapshot, AppendCopyState};
 use crate::shortcut::emit_settings_changed;
+use crate::store::Store;
 
 /// settings 更新命令统一收尾：落库 → 广播设置变更。多处样板收敛于此。
 /// store 侧设置方法返回 `Result<AppSettings, String>`，这里以泛型错误吸收
@@ -34,23 +37,25 @@ where
 ///
 /// 单连接贯穿「设置读取 → 过期清理 → 快照装配」：原先 4 条连接 + 2 次完整
 /// 设置读取（各含凭据库访问），每次面板唤出都要付一遍。
+/// 收 store + 两个 Arc 句柄而非 `State`：调用方在 spawn_blocking 里跑，
+/// `State` 的借用进不去阻塞闭包。
 pub(crate) fn build_app_snapshot(
-    state: tauri::State<'_, AppState>,
+    store: &Store,
+    is_listening: &Arc<Mutex<bool>>,
+    append_copy_state: &Arc<Mutex<AppendCopyState>>,
 ) -> Result<AppSnapshot, AppError> {
-    let conn = state.store.connect().map_err(AppError::from)?;
-    let settings = state.store.settings_with_conn(&conn).map_err(AppError::from)?;
-    state
-        .store
+    let conn = store.connect().map_err(AppError::from)?;
+    let settings = store.settings_with_conn(&conn).map_err(AppError::from)?;
+    store
         .prune_expired_with_conn(&conn, settings.retention_days)
         .map_err(AppError::from)?;
-    let (clip_page, categories, category_items) = state
-        .store
+    let (clip_page, categories, category_items) = store
         .snapshot_with_conn(&conn)
         .map_err(AppError::from)?;
-    let is_listening = state.capture.is_listening()?;
-    let is_append_copy_enabled = state
-        .capture
-        .append_copy_state
+    let is_listening = *is_listening
+        .lock()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    let is_append_copy_enabled = append_copy_state
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?
         .is_enabled;

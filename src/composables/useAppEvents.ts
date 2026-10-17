@@ -101,11 +101,17 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   });
   await subscribe<AutomationRunOutputEvent>(IPASTE_EVENTS.automationRunOutput, (payload) => {
     const { runId, stream, chunk } = payload;
-    const logs = automation.runningAutomationLogs[runId] ?? { stdout: "", stderr: "" };
+    // 原地变更而非整表 spread：此前每个输出 chunk 都复制整个 logs Map，
+    // 并对最长 200KB 的字符串拼接再 slice；chatty 命令（每秒上千 chunk）
+    // 会把这两项放大成主线程可见开销。首次出现才写一次 Map。
+    let logs = automation.runningAutomationLogs[runId];
+    if (!logs) {
+      logs = { stdout: "", stderr: "" };
+      automation.runningAutomationLogs[runId] = logs;
+    }
     const limit = 200 * 1024;
     if (stream === "stderr") logs.stderr = (logs.stderr + chunk).slice(-limit);
     else logs.stdout = (logs.stdout + chunk).slice(-limit);
-    automation.runningAutomationLogs = { ...automation.runningAutomationLogs, [runId]: logs };
   });
   await subscribe<AutomationRunFinishedEvent>(IPASTE_EVENTS.automationRunFinished, (payload) => {
     const { automationId, status, exitCode, finishedAt } = payload;
@@ -123,15 +129,35 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   //（v4 行为恢复）。pairJoinFailed 等配对失败反馈由 lan-sync 窗口的
   // useDeviceSync 就地展示，主窗口不重复 toast；配对请求本身例外，见下方
   // pairRequest 监听。
+  //
+  // 批量同步（整组推送）会为每条目各发一个 deviceClipReceived：逐个直接
+  // load() 就是 N 次并发全量快照 IPC + N 次全量数组替换 + N 次整列表重
+  // 渲染，且互相 race。改为 250ms 合并窗口 + in-flight 复用：一个窗口
+  // 只拉一次，进行中的加载被后续事件复用。
+  let deviceSyncReloadTimer: number | null = null;
+  let deviceSyncLoad: Promise<void> | null = null;
+
+  function scheduleDeviceSyncReload() {
+    if (deviceSyncReloadTimer !== null) return;
+    deviceSyncReloadTimer = window.setTimeout(() => {
+      deviceSyncReloadTimer = null;
+      if (deviceSyncLoad) return;
+      deviceSyncLoad = store.load().finally(() => {
+        deviceSyncLoad = null;
+      });
+    }, 250);
+  }
+
   await subscribe<DeviceClipReceived>(IPASTE_EVENTS.deviceClipReceived, () => {
     ui.pushToast(t("deviceSync.clipReceived"));
-    // 面板隐藏时省去整页重取（显示时 panelVisibilityChanged 会补一次 load）。
-    if (panelVisible) void store.load();
+    scheduleDeviceSyncReload();
+    scheduleDeviceSyncReload();
   });
 
   await subscribe<DeviceCategoryReceived>(IPASTE_EVENTS.deviceCategoryReceived, () => {
     ui.pushToast(t("deviceSync.categoryReceived"));
-    if (panelVisible) void store.load();
+    scheduleDeviceSyncReload();
+    scheduleDeviceSyncReload();
   });
 
   // 跨设备接收失败（含 auto 剪贴板写失败诊断）：仅 console.warn 静默记录——

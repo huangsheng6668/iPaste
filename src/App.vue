@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { subscribe, type UnlistenFn } from "./platform/events";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { AlertCircle } from "lucide-vue-next";
 import ClipContextMenu from "./components/ClipContextMenu.vue";
 import AutomationContextMenu from "./components/AutomationContextMenu.vue";
 import AutomationDetailDialog from "./components/AutomationDetailDialog.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
-import ClipViewerWindow from "./components/ClipViewerWindow.vue";
-import OcrOverlayWindow from "./components/OcrOverlayWindow.vue";
-import OcrResultWindow from "./components/OcrResultWindow.vue";
+// 辅助窗口按 kind 懒加载：5 类窗口共用同一份 App.vue 入口，静态导入会让每个
+// 窗口（含全局快捷键即时拉起的 OCR 遮罩/结果窗）都先下载全量组件代码再渲染
+// 一个分支。拆成异步 chunk 后各窗口只拉取自己需要的部分，遮罩窗可见更快。
+const ClipViewerWindow = defineAsyncComponent(() => import("./components/ClipViewerWindow.vue"));
+const OcrOverlayWindow = defineAsyncComponent(() => import("./components/OcrOverlayWindow.vue"));
+const OcrResultWindow = defineAsyncComponent(() => import("./components/OcrResultWindow.vue"));
+const LanSyncPanel = defineAsyncComponent(() => import("./components/LanSyncPanel.vue"));
+const SettingsWindow = defineAsyncComponent(() => import("./components/SettingsWindow.vue"));
 import ErrorToast from "./components/ErrorToast.vue";
-import LanSyncPanel from "./components/LanSyncPanel.vue";
-import SettingsWindow from "./components/SettingsWindow.vue";
 import CommandSearchBar from "./components/CommandSearchBar.vue";
 import CategoryRail from "./components/CategoryRail.vue";
 import TypeFilterBar from "./components/TypeFilterBar.vue";
@@ -34,10 +37,11 @@ import { usePanelDomLifecycle } from "./composables/usePanelDomLifecycle";
 import { useQuickPreview } from "./composables/useQuickPreview";
 import { t } from "./i18n";
 import { contextItemKey, originalClipId } from "./lib/clipKeys";
+import { categoryViewItem } from "./lib/clipViewItems";
 import { isMacOs, isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
-import { toCategoryViewItem, useIpasteStore } from "./stores/ipasteStore";
+import { useIpasteStore } from "./stores/ipasteStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCategoryStore } from "./stores/categoryStore";
 import { useAutomationStore } from "./stores/automationStore";
@@ -226,29 +230,32 @@ const {
   cleanup: cleanupItemDrag,
 } = itemDrag;
 
-const categoryById = computed(() =>
-  categoryStore.categories.reduce<Record<string, Category>>((categories, category) => {
-    categories[category.id] = category;
-    return categories;
-  }, {}),
-);
+// 三个分类聚合表合并为一次遍历：此前 categoryById / categoriesByHash /
+// categoryItemCounts 各遍历全部 categoryItems，且 categoriesByHash 用
+// spread 建组（同一 hash 有 k 个分类时 O(k²)）。每次快照 hydrate 替换
+// categoryItems 都会三个一起重算。
+const categoryAggregates = computed(() => {
+  const byId: Record<string, Category> = {};
+  const byHash: Record<string, Category[]> = {};
+  const itemCounts: Record<string, number> = {};
+  for (const category of categoryStore.categories) {
+    byId[category.id] = category;
+  }
+  for (const item of categoryStore.categoryItems) {
+    const category = byId[item.categoryId];
+    if (category) {
+      const group = byHash[item.contentHash];
+      if (group) group.push(category);
+      else byHash[item.contentHash] = [category];
+    }
+    itemCounts[item.categoryId] = (itemCounts[item.categoryId] ?? 0) + 1;
+  }
+  return { byId, byHash, itemCounts };
+});
 
-const categoriesByHash = computed(() =>
-  categoryStore.categoryItems.reduce<Record<string, Category[]>>((groups, item) => {
-    const category = categoryById.value[item.categoryId];
-    if (!category) return groups;
-
-    groups[item.contentHash] = [...(groups[item.contentHash] ?? []), category];
-    return groups;
-  }, {}),
-);
-
-const categoryItemCounts = computed(() =>
-  categoryStore.categoryItems.reduce<Record<string, number>>((counts, item) => {
-    counts[item.categoryId] = (counts[item.categoryId] ?? 0) + 1;
-    return counts;
-  }, {}),
-);
+const categoryById = computed(() => categoryAggregates.value.byId);
+const categoriesByHash = computed(() => categoryAggregates.value.byHash);
+const categoryItemCounts = computed(() => categoryAggregates.value.itemCounts);
 
 const formattedShortcut = computed(() => `${formatShortcut("CommandOrControl+F")} ${t("shortcut.search")}`);
 const canReorderVisibleItems = computed(() =>
@@ -376,9 +383,9 @@ function itemCategoryTags(item: ClipViewItem) {
   return tags;
 }
 
+/** 分类条目 → 视图条目：走 WeakMap 稳定包装（lib/clipViewItems），同一条目返回同一引用。 */
 function toCategoryClipViewItem(item: CategoryItem): ClipViewItem {
-  // 复用 store 的视图包装缓存：同一分类条目在重渲染间保持同一对象身份。
-  return toCategoryViewItem(item);
+  return categoryViewItem(item);
 }
 
 function startItemDrag(payload: { item: ClipViewItem; index: number; event: PointerEvent }) {

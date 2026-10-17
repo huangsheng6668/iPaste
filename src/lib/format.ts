@@ -1,45 +1,67 @@
 import type { ClipType } from "../types";
 import { currentLocale, t, type I18nKey } from "../i18n";
 
-// Intl 构造函数代价不低（相对时间/日期格式化内部要加载 locale 数据），
-// 而这些格式化器在列表渲染中对每个条目调用；按 locale 缓存实例复用。
-// locale 集合有限（设置页枚举），Map 不会无限增长。
-const relativeFormatterCache = new Map<string, Intl.RelativeTimeFormat>();
-const monthDayFormatterCache = new Map<string, Intl.DateTimeFormat>();
-const pluralRulesCache = new Map<string, Intl.PluralRules>();
-
-function relativeFormatterFor(locale: string) {
-  let formatter = relativeFormatterCache.get(locale);
-  if (!formatter) {
-    formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-    relativeFormatterCache.set(locale, formatter);
-  }
-  return formatter;
-}
-
-function monthDayFormatterFor(locale: string) {
-  let formatter = monthDayFormatterCache.get(locale);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
-    monthDayFormatterCache.set(locale, formatter);
-  }
-  return formatter;
-}
-
-function pluralRulesFor(locale: string) {
-  let rules = pluralRulesCache.get(locale);
-  if (!rules) {
-    rules = new Intl.PluralRules(locale);
-    pluralRulesCache.set(locale, rules);
-  }
-  return rules;
-}
-
 export function formatShortcut(shortcut: string) {
   return shortcut
     .replace("CommandOrControl", platformModifier())
     .split("+")
     .join(" + ");
+}
+
+// Intl 对象构造昂贵（ICU 初始化），而 formatTime / textStats / pluralText
+// 在列表每张卡片、查看器每次按键的路径上都会被调用——此前每次调用都新建
+// RelativeTimeFormat / DateTimeFormat / Segmenter / PluralRules。提为模块级
+// 单例，locale 变化时重建。
+let relativeTimeFormatter: Intl.RelativeTimeFormat | null = null;
+let relativeTimeLocale = "";
+let dateTimeFormatter: Intl.DateTimeFormat | null = null;
+let dateTimeLocale = "";
+let pluralRules: Intl.PluralRules | null = null;
+let pluralRulesLocale = "";
+let graphemeSegmenter: GraphemeSegmenter | null = null;
+let segmenterLocale = "";
+
+type GraphemeSegmenter = { segment(input: string): Iterable<unknown> };
+
+function relativeFormatterFor(locale: string): Intl.RelativeTimeFormat {
+  if (relativeTimeLocale !== locale || !relativeTimeFormatter) {
+    relativeTimeFormatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    relativeTimeLocale = locale;
+  }
+  return relativeTimeFormatter;
+}
+
+function dateTimeFormatterFor(locale: string): Intl.DateTimeFormat {
+  if (dateTimeLocale !== locale || !dateTimeFormatter) {
+    dateTimeFormatter = new Intl.DateTimeFormat(locale, {
+      month: "short",
+      day: "numeric",
+    });
+    dateTimeLocale = locale;
+  }
+  return dateTimeFormatter;
+}
+
+function pluralRulesFor(locale: string): Intl.PluralRules {
+  if (pluralRulesLocale !== locale || !pluralRules) {
+    pluralRules = new Intl.PluralRules(locale);
+    pluralRulesLocale = locale;
+  }
+  return pluralRules;
+}
+
+function graphemeSegmenterFor(locale: string): GraphemeSegmenter | null {
+  if (!("Segmenter" in Intl)) return null;
+  if (segmenterLocale !== locale || !graphemeSegmenter) {
+    graphemeSegmenter = new (Intl as typeof Intl & {
+      Segmenter: new (
+        locale?: string,
+        options?: { granularity?: "grapheme" | "word" | "sentence" },
+      ) => GraphemeSegmenter;
+    }).Segmenter(locale, { granularity: "grapheme" });
+    segmenterLocale = locale;
+  }
+  return graphemeSegmenter;
 }
 
 export function formatTime(value: string) {
@@ -58,7 +80,7 @@ export function formatTime(value: string) {
   const days = Math.round(hours / 24);
   if (Math.abs(days) < 7) return relativeFormatter.format(days, "day");
 
-  return monthDayFormatterFor(locale).format(new Date(value));
+  return dateTimeFormatterFor(locale).format(new Date(value));
 }
 
 export function typeLabel(type: ClipType) {
@@ -109,27 +131,19 @@ export function lineCountText(lines: number) {
   return pluralText("stats.lineOne", "stats.lineOther", lines);
 }
 
-type GraphemeSegmenter = { segment(input: string): Iterable<unknown> };
-const segmenterCache = new Map<string, GraphemeSegmenter | null>();
-
-/** 按字素分词统计字符数（中日韩组合字符按视觉单元计）。Segmenter 构造
- * 成本高，实例按 locale 缓存；运行环境不支持时回退码点计数。 */
-function graphemeSegmenterFor(locale: string): GraphemeSegmenter | null {
-  if (!segmenterCache.has(locale)) {
-    const ctor = (Intl as typeof Intl & {
-      Segmenter?: new (
-        locale?: string,
-        options?: { granularity?: "grapheme" | "word" | "sentence" },
-      ) => GraphemeSegmenter;
-    }).Segmenter;
-    segmenterCache.set(locale, ctor ? new ctor(locale, { granularity: "grapheme" }) : null);
-  }
-  return segmenterCache.get(locale) ?? null;
-}
-
 function countCharacters(text: string) {
   const segmenter = graphemeSegmenterFor(currentLocale.value);
-  return segmenter ? [...segmenter.segment(text)].length : Array.from(text).length;
+  if (!segmenter) {
+    // 无 Segmenter：按 code point 迭代计数，不物化数组。
+    let count = 0;
+    for (const _ of text) count += 1;
+    return count;
+  }
+  // 迭代计数：此前的 `[...segmenter.segment(text)].length` 会把整段文本
+  // （剪贴板条目可达几十上百 KB）物化成 grapheme 数组，纯浪费。
+  let count = 0;
+  for (const _ of segmenter.segment(text)) count += 1;
+  return count;
 }
 
 export function syncStateLabel(value: string) {

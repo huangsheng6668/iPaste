@@ -176,34 +176,28 @@ fn build_request(
     let last_user_index = effective_prompts.iter().rposition(|m| m.role == "user");
     let mut messages = Vec::new();
 
-    for (idx, msg) in effective_prompts.iter().enumerate() {
+    for msg in effective_prompts.iter() {
         let text = msg.content.replace("{recognition_language}", lang_name);
-        if Some(idx) == last_user_index {
-            messages.push(ChatMessage {
-                role: "user",
-                content: vec![
-                    ContentPart::Text { text },
-                    ContentPart::ImageUrl {
-                        image_url: ImageUrl {
-                            url: data_url.clone(),
-                        },
-                    },
-                ],
-            });
-        } else {
-            messages.push(ChatMessage {
-                role: if msg.role == "system" {
-                    "system"
-                } else {
-                    "user"
-                },
-                content: vec![ContentPart::Text { text }],
-            });
-        }
-    }
-
-    if last_user_index.is_none() {
         messages.push(ChatMessage {
+            role: if msg.role == "system" {
+                "system"
+            } else {
+                "user"
+            },
+            content: vec![ContentPart::Text { text }],
+        });
+    }
+    // 图片 data url（整图 base64，可达数 MB）在循环外一次性 move 进最后一条
+    // user 消息——循环内消费不动所有权，只能 clone 一份全量 base64。
+    match last_user_index {
+        Some(idx) => {
+            if let Some(message) = messages.get_mut(idx) {
+                message.content.push(ContentPart::ImageUrl {
+                    image_url: ImageUrl { url: data_url },
+                });
+            }
+        }
+        None => messages.push(ChatMessage {
             role: "user",
             content: vec![
                 ContentPart::Text {
@@ -215,7 +209,7 @@ fn build_request(
                     image_url: ImageUrl { url: data_url },
                 },
             ],
-        });
+        }),
     }
 
     ChatRequest {
