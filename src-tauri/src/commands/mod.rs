@@ -49,9 +49,8 @@ pub(crate) fn build_app_snapshot(
     store
         .prune_expired_with_conn(&conn, settings.retention_days)
         .map_err(AppError::from)?;
-    let (clip_page, categories, category_items) = store
-        .snapshot_with_conn(&conn)
-        .map_err(AppError::from)?;
+    let (clip_page, categories, category_items) =
+        store.snapshot_with_conn(&conn).map_err(AppError::from)?;
     let is_listening = *is_listening
         .lock()
         .map_err(|error| AppError::internal(error.to_string()))?;

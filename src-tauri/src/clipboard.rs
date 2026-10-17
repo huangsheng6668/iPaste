@@ -274,7 +274,9 @@ pub(crate) fn clipboard_change_id() -> Option<u64> {
 /// 快路径拿到的就是本次写入的序号。
 pub(crate) fn write_clipboard_text(text: &str) -> Result<Option<u64>, String> {
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
-    clipboard.set_text(text).map_err(|error| error.to_string())?;
+    clipboard
+        .set_text(text)
+        .map_err(|error| error.to_string())?;
     Ok(clipboard_change_id())
 }
 

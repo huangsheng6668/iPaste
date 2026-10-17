@@ -11,8 +11,8 @@ use std::time::Duration;
 use tauri::Emitter;
 
 use crate::capture::decision::{
-    decide_capture, is_unchanged_since_last_capture, AppendState, CaptureCursor,
-    CaptureDecision, CaptureSample,
+    decide_capture, is_unchanged_since_last_capture, AppendState, CaptureCursor, CaptureDecision,
+    CaptureSample,
 };
 use crate::capture::ports::{
     handle_captured, CaptureNotifier, CaptureSink, PeerPusher, PersistOutcome,

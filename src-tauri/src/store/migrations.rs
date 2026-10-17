@@ -327,7 +327,6 @@ impl Store {
         Ok(())
     }
 
-
     fn migrate_image_data_urls_for_table(
         &self,
         conn: &Connection,

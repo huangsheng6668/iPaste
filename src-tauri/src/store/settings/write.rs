@@ -145,13 +145,16 @@ impl Store {
                     }
                 }
                 Err(reason) => {
-                    eprintln!("[cloud] 迁移明文 API Key 到系统凭据库失败（下次启动重试）：{reason}");
+                    eprintln!(
+                        "[cloud] 迁移明文 API Key 到系统凭据库失败（下次启动重试）：{reason}"
+                    );
                 }
             }
         }
 
         super::super::secrets::remove_legacy_bigmodel_api_key();
-        if let Err(error) = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", []) {
+        if let Err(error) = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", [])
+        {
             eprintln!("[cloud-ocr] 清理遗留 bigmodel 占位行失败：{error}");
         }
     }

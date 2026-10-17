@@ -50,10 +50,7 @@ fn read_cached(account: &'static str) -> Result<Option<String>, String> {
 /// 写路径调用：丢弃缓存条目，下次读重新回源。删除即使失败也失效——
 /// 缓存只是读穿透层，失效最多多付一次读取，不会返回与库不符的值。
 fn invalidate_cached(account: &'static str) {
-    cache()
-        .lock()
-        .expect("secrets 缓存锁中毒")
-        .remove(account);
+    cache().lock().expect("secrets 缓存锁中毒").remove(account);
 }
 
 pub(crate) fn put_api_key(value: &str) -> Result<(), String> {

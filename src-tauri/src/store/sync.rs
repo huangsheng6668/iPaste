@@ -138,9 +138,7 @@ impl Store {
 
     fn list_tombstones_with_conn(&self, conn: &Connection) -> Result<Vec<Tombstone>, String> {
         let mut stmt = conn
-            .prepare(
-                "SELECT entity, entity_id FROM sync_tombstones ORDER BY created_at ASC",
-            )
+            .prepare("SELECT entity, entity_id FROM sync_tombstones ORDER BY created_at ASC")
             .map_err(|error| error.to_string())?;
         let rows = stmt
             .query_map([], |row| {

@@ -10,7 +10,9 @@ use crate::models::{CapturedClipboardItem, ClipItem, ClipPage, ClipUpdate, Searc
 use crate::{
     clipboard::image_bytes_from_data_url,
     store::rows::{collect_rows, map_clip},
-    util::{clean_clip_type_filter, clean_display_name, hash_text, new_id, now, preview, safe_filename},
+    util::{
+        clean_clip_type_filter, clean_display_name, hash_text, new_id, now, preview, safe_filename,
+    },
     IMAGE_DIR,
 };
 
@@ -52,8 +54,8 @@ impl Store {
             // 各自 autocommit，每次捕获付 3-4 次独立提交。IMMEDIATE 开写锁，
             // 避免多写方并发下 DEFERRED 升级撞 BUSY_SNAPSHOT（绕过 busy_timeout）。
             let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|error| error.to_string())?;
             let captured_at = now();
             tx.execute(
                 "UPDATE clips SET last_captured_at = ?1 WHERE id = ?2",
@@ -530,10 +532,7 @@ impl Store {
     }
 
     /// 升级后首启是否需要后台补齐存量图片缩略图（有落盘图片行且未置标志）。
-    pub(crate) fn needs_image_thumbnail_backfill(
-        &self,
-        conn: &Connection,
-    ) -> Result<bool, String> {
+    pub(crate) fn needs_image_thumbnail_backfill(&self, conn: &Connection) -> Result<bool, String> {
         let flagged: Option<String> = conn
             .query_row(
                 "SELECT value FROM settings WHERE key = 'migrated_image_thumbnails'",
@@ -694,8 +693,8 @@ impl Store {
             "history" => {
                 let mut conn = self.connect()?;
                 let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|error| error.to_string())?;
                 let current = self.get_clip_with_conn(&tx, &id)?;
 
                 if let Some(existing) =
@@ -737,8 +736,8 @@ impl Store {
             "category" => {
                 let mut conn = self.connect()?;
                 let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|error| error.to_string())?;
                 let current = self.get_category_item_with_conn(&tx, &id)?;
 
                 if let Some(existing) = self.get_category_item_by_content_hash_with_conn(
@@ -984,7 +983,12 @@ mod tests {
     fn fts_search_tracks_insert_update_and_delete() {
         let store = temp_store();
         let conn = store.connect().unwrap();
-        seed_clip(&conn, "text", "release notes for version two", "release notes");
+        seed_clip(
+            &conn,
+            "text",
+            "release notes for version two",
+            "release notes",
+        );
         seed_clip(&conn, "text", "unrelated grocery list", "grocery list");
 
         // ≥3 字符走 FTS：命中包含查询串的行。
@@ -1014,8 +1018,11 @@ mod tests {
         assert_eq!(total_old, 0, "更新后旧词不应再命中");
 
         // 删除行：索引同步清除。
-        conn.execute("DELETE FROM clips WHERE preview_text = 'rebuilt changelog'", [])
-            .unwrap();
+        conn.execute(
+            "DELETE FROM clips WHERE preview_text = 'rebuilt changelog'",
+            [],
+        )
+        .unwrap();
         let (total_after_delete, _, _) = store
             .clip_page_counts_with_conn(&conn, "changelog", "all")
             .unwrap();
@@ -1027,7 +1034,12 @@ mod tests {
         let store = temp_store();
         let conn = store.connect().unwrap();
         // 注意 seed_clip 参数顺序是 (preview, text)：路径进 text 列。
-        seed_clip(&conn, "image", "图片 800×600", "C:/data/clip-images/deadbeef.png");
+        seed_clip(
+            &conn,
+            "image",
+            "图片 800×600",
+            "C:/data/clip-images/deadbeef.png",
+        );
 
         // 图片的 text（文件路径）不应被搜到——与 LIKE 语义一致。
         let (by_path, _, _) = store
@@ -1048,7 +1060,9 @@ mod tests {
         seed_clip(&conn, "text", "会议纪要 today", "会议纪要");
 
         // 两字中文词（trigram 最短 3 字符）回退 LIKE，语义不变。
-        let (total, _, _) = store.clip_page_counts_with_conn(&conn, "会议", "all").unwrap();
+        let (total, _, _) = store
+            .clip_page_counts_with_conn(&conn, "会议", "all")
+            .unwrap();
         assert_eq!(total, 1);
         let (clips, _) = store
             .query_clips_page_with_conn(&conn, 0, 20, "会议", "all")
@@ -1066,9 +1080,7 @@ mod tests {
             .clip_page_counts_with_conn(&conn, "hello", "all")
             .unwrap();
         assert_eq!((total, text, image), (1, 1, 0));
-        let (total, _, _) = store
-            .clip_page_counts_with_conn(&conn, "", "all")
-            .unwrap();
+        let (total, _, _) = store.clip_page_counts_with_conn(&conn, "", "all").unwrap();
         assert_eq!(total, 2);
         let (total, _, _) = store
             .clip_page_counts_with_conn(&conn, "nomatch", "all")
@@ -1166,9 +1178,7 @@ mod tests {
         }
 
         // 文本筛选下图片条目被滤掉。
-        let res = store
-            .search_with_fallback(0, 20, "secret", "text")
-            .unwrap();
+        let res = store.search_with_fallback(0, 20, "secret", "text").unwrap();
         match res {
             SearchResult::CategoryHits { groups } => {
                 assert_eq!(groups.len(), 1);
