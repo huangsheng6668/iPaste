@@ -171,7 +171,7 @@ pub(super) fn apply_received(
                     .map(|state| append_session_active(&state))
                     .unwrap_or(false);
                 let write_result = if append_active {
-                    Ok(())
+                    Ok(None)
                 } else if clip_type == "image" {
                     write_clipboard_image(&text)
                 } else {
@@ -183,7 +183,9 @@ pub(super) fn apply_received(
                         // 不受 silent 门控：auto 恒单条（批量帧走 false/None），无汇总场景。
                         emit_clip_receive_failed(ctx, format!("写入系统剪贴板失败：{reason}"));
                     }
-                    Ok(()) => {}
+                    // 返回的 change id 仅用于 marker 记账路径；本处不接管 marker
+                    // （与既有语义一致：watcher 下一轮会读到并按去重落库）。
+                    Ok(_) => {}
                 }
                 if ctx.auto_notify {
                     // 开了轻提示的用户无论剪贴板写成败都收到 toast：内容已在

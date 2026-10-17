@@ -146,6 +146,39 @@ pub(crate) async fn execute_automation(
     Ok(summary)
 }
 
+/// 输出行的合并阈值：行数 / 字节数任一达到即落库下发；另由
+/// FLUSH_INTERVAL 兜底，慢速输出也保持流式展示节奏。
+const STREAM_BUFFER_MAX_LINES: usize = 64;
+const STREAM_BUFFER_MAX_BYTES: usize = 64 * 1024;
+const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(300);
+
+#[allow(clippy::too_many_arguments)]
+async fn flush_stream_buffer(
+    app: &tauri::AppHandle,
+    store: &Store,
+    run_id: &str,
+    automation_id: &str,
+    stream: &str,
+    pending: &mut String,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let chunk = std::mem::take(pending);
+    let _ = app.emit(
+        EVENT_AUTOMATION_RUN_OUTPUT,
+        serde_json::json!({
+            "runId": run_id,
+            "automationId": automation_id,
+            "stream": stream,
+            "chunk": chunk,
+        }),
+    );
+    if let Ok(conn) = store.connect() {
+        let _ = store.append_automation_run_output(&conn, run_id, stream, &chunk);
+    }
+}
+
 async fn drain_stream<R>(
     app: tauri::AppHandle,
     store: Store,
@@ -157,21 +190,48 @@ async fn drain_stream<R>(
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        let chunk = format!("{line}\n");
-        let _ = app.emit(
-            EVENT_AUTOMATION_RUN_OUTPUT,
-            serde_json::json!({
-                "runId": run_id,
-                "automationId": automation_id,
-                "stream": stream,
-                "chunk": chunk,
-            }),
-        );
-        if let Ok(conn) = store.connect() {
-            let _ = store.append_automation_run_output(&conn, &run_id, stream, &chunk);
+    // 逐行处理是「每行一条事件 + 一次 connect + 全量读改写」（整轮 O(n²)），
+    // 高输出命令会拖垮落库并刷屏事件通道；按行数/字节/时间三阈值合并成批。
+    let mut pending = String::new();
+    let mut buffered_lines = 0usize;
+    let mut flush_tick = tokio::time::interval(STREAM_FLUSH_INTERVAL);
+    flush_tick
+        .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            line = lines.next_line() => {
+                match line {
+                    Ok(Some(line)) => {
+                        pending.push_str(&line);
+                        pending.push('\n');
+                        buffered_lines += 1;
+                        if buffered_lines >= STREAM_BUFFER_MAX_LINES
+                            || pending.len() >= STREAM_BUFFER_MAX_BYTES
+                        {
+                            flush_stream_buffer(
+                                &app, &store, &run_id, &automation_id, stream, &mut pending,
+                            )
+                            .await;
+                            buffered_lines = 0;
+                        }
+                    }
+                    Ok(None) | Err(_) => break,
+                }
+            }
+            _ = flush_tick.tick() => {
+                // 慢速输出按固定节奏下发，保持面板里的流式观感。
+                if !pending.is_empty() {
+                    flush_stream_buffer(
+                        &app, &store, &run_id, &automation_id, stream, &mut pending,
+                    )
+                    .await;
+                    buffered_lines = 0;
+                }
+            }
         }
     }
+    flush_stream_buffer(&app, &store, &run_id, &automation_id, stream, &mut pending).await;
 }
 
 #[cfg(test)]

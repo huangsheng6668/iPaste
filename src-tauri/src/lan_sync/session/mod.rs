@@ -32,6 +32,9 @@ use self::dispatch::{handle_frame, BatchState};
 
 /// 单个会话的固定上下文：事件出口、落库句柄与对端标识。
 /// DeviceLinkRegistry 在建立双向流后构造它并调用 `run_session_loop`。
+/// Clone 全部是 Arc/Store(PathBuf)/String 句柄的浅拷贝：单条接收的落库/
+/// 落盘/剪贴板写要移进 spawn_blocking，克隆整个 ctx 即可带走全部依赖。
+#[derive(Clone)]
 pub(crate) struct SessionCtx {
     pub sink: Arc<dyn LanEventSink>,
     pub store: Store,

@@ -143,6 +143,10 @@ impl Store {
         Ok(id)
     }
 
+    /// 追加一段输出（调用方已按行/字节/时间阈值合并成批）。
+    /// 单条 SQL 完成拼接与截断：substr 按 TEXT 字符计数，与原先
+    /// 「SELECT 全量 → 内存拼接 → chars().take 截断 → UPDATE 全量」
+    /// 语义一致，但省一次往返，也不再把 200KB 日志来回搬。
     pub(crate) fn append_automation_run_output(
         &self,
         conn: &Connection,
@@ -155,20 +159,13 @@ impl Store {
         } else {
             "stdout"
         };
-        let current: String = conn
-            .query_row(
-                &format!("SELECT {column} FROM automation_runs WHERE id = ?1"),
-                params![run_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        let mut next = format!("{current}{chunk}");
-        if next.chars().count() > AUTOMATION_LOG_LIMIT_BYTES {
-            next = next.chars().take(AUTOMATION_LOG_LIMIT_BYTES).collect();
-        }
         conn.execute(
-            &format!("UPDATE automation_runs SET {column} = ?1 WHERE id = ?2"),
-            params![next, run_id],
+            &format!(
+                "UPDATE automation_runs
+                 SET {column} = substr({column} || ?1, 1, ?2)
+                 WHERE id = ?3"
+            ),
+            params![chunk, AUTOMATION_LOG_LIMIT_BYTES as i64, run_id],
         )
         .map_err(|e| e.to_string())?;
         Ok(())

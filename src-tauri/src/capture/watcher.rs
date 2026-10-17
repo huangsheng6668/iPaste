@@ -11,7 +11,8 @@ use std::time::Duration;
 use tauri::Emitter;
 
 use crate::capture::decision::{
-    decide_capture, AppendState, CaptureCursor, CaptureDecision, CaptureSample,
+    decide_capture, is_unchanged_since_last_capture, AppendState, CaptureCursor,
+    CaptureDecision, CaptureSample,
 };
 use crate::capture::ports::{
     handle_captured, CaptureNotifier, CaptureSink, PeerPusher, PersistOutcome,
@@ -24,6 +25,17 @@ use crate::events::{ClipboardCaptured, EVENT_CAPTURE_ERROR, EVENT_CLIPBOARD_CAPT
 use crate::models::{AppendCopyState, CapturedClipboardItem, ClipItem, ClipboardRead};
 use crate::store::Store;
 use crate::util::hash_text;
+
+/// 完整读取的轮询间隔：一次完整读取包含整份内容拷贝、（图片的）PNG 重编码
+/// 与哈希，保持原有节奏以控制常驻开销。
+const POLL_INTERVAL: Duration = Duration::from_millis(700);
+/// 快路径的轮询间隔：change id 与上次记录一致时，一轮只剩一次平台计数器
+/// 查询（微秒级），可以明显加密，缩短「复制 → 出现在历史」的感知延迟。
+const POLL_IDLE_INTERVAL: Duration = Duration::from_millis(250);
+/// 快路径连续命中多少次后强制做一次完整读取复核：兜底「内容变化但 change id
+/// 未变」的异常（Windows 序列号 / macOS changeCount 理论上都覆盖全部写入，
+/// 复核只是保险），代价约每 10 秒一次完整读取。
+const POLL_FAST_PATH_RECHECK: u32 = 40;
 
 pub(crate) fn spawn_clipboard_watcher(
     app: tauri::AppHandle,
@@ -41,6 +53,8 @@ pub(crate) fn spawn_clipboard_watcher(
         last_clipboard_hash: last_clipboard_hash.clone(),
     };
     let notifier = TauriNotifier { app: app.clone() };
+    // 快路径连续命中计数：达到 POLL_FAST_PATH_RECHECK 后强制完整读取复核一次。
+    let mut fast_path_hits: u32 = 0;
     thread::spawn(move || loop {
         let enabled = is_listening.lock().map(|value| *value).unwrap_or(false);
         if !enabled {
@@ -49,6 +63,25 @@ pub(crate) fn spawn_clipboard_watcher(
         }
 
         let before_change_id = clipboard_change_id();
+
+        // 快路径：平台 change id 与上次捕获/回写记录一致 → 剪贴板内容未变，
+        // 跳过完整读取（内容拷贝 + 图片 PNG 重编码 + 哈希）。marker 的 change id
+        // 由写入方在写入完成时采样（clipboard.rs），不会把其他进程的写入误记
+        // 成自己的内容；仍保留定期复核兜底。
+        let fast_path_idle = fast_path_hits < POLL_FAST_PATH_RECHECK
+            && is_unchanged_since_last_capture(
+                last_clipboard_change_id
+                    .lock()
+                    .map(|value| *value)
+                    .unwrap_or(None),
+                before_change_id,
+            );
+        if fast_path_idle {
+            fast_path_hits += 1;
+            thread::sleep(POLL_IDLE_INTERVAL);
+            continue;
+        }
+        fast_path_hits = 0;
 
         match read_current_clipboard() {
             Ok(ClipboardRead::Item(item)) => {
@@ -101,7 +134,7 @@ pub(crate) fn spawn_clipboard_watcher(
                         continue;
                     }
                     CaptureDecision::AlreadyCaptured => {
-                        thread::sleep(Duration::from_millis(700));
+                        thread::sleep(POLL_INTERVAL);
                         continue;
                     }
                     // 合并与新建都继续走下面的落库流程：真正的合并判定与写回仍在
@@ -121,7 +154,7 @@ pub(crate) fn spawn_clipboard_watcher(
             }
         }
 
-        thread::sleep(Duration::from_millis(700));
+        thread::sleep(POLL_INTERVAL);
     });
 }
 
@@ -212,10 +245,11 @@ fn capture_append_copy_item(
 
     let (clip, clip_total_count, was_inserted) =
         store.upsert_append_copy_item(clip_id, &session_id, next_text.clone())?;
-    write_clipboard_text(&next_text)?;
+    let change_id = write_clipboard_text(&next_text)?;
     remember_current_clipboard_marker(
         last_clipboard_change_id,
         last_clipboard_hash,
+        change_id,
         Some(hash_text(&next_text)),
     );
 

@@ -31,12 +31,22 @@ where
 
 /// get_snapshot 与 sync_cloud_now 共用的 AppSnapshot 组装
 /// （原两处逐行重复约 22 行）。prune_expired 统一在读取前执行。
+///
+/// 单连接贯穿「设置读取 → 过期清理 → 快照装配」：原先 4 条连接 + 2 次完整
+/// 设置读取（各含凭据库访问），每次面板唤出都要付一遍。
 pub(crate) fn build_app_snapshot(
     state: tauri::State<'_, AppState>,
 ) -> Result<AppSnapshot, AppError> {
-    state.store.prune_expired()?;
-    let (clip_page, categories, category_items) = state.store.snapshot()?;
-    let settings = state.store.settings()?;
+    let conn = state.store.connect().map_err(AppError::from)?;
+    let settings = state.store.settings_with_conn(&conn).map_err(AppError::from)?;
+    state
+        .store
+        .prune_expired_with_conn(&conn, settings.retention_days)
+        .map_err(AppError::from)?;
+    let (clip_page, categories, category_items) = state
+        .store
+        .snapshot_with_conn(&conn)
+        .map_err(AppError::from)?;
     let is_listening = state.capture.is_listening()?;
     let is_append_copy_enabled = state
         .capture

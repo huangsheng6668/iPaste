@@ -144,16 +144,13 @@ pub(crate) fn prepare_target_for_paste(
 
 /// 把粘贴键投递给之前聚焦的目标应用（面板的隐藏/恢复由命令层负责，
 /// 避免 paste → window 的模块循环依赖；window.rs 已依赖 paste.rs）。
-/// apply_clip 的粘贴段编排（原 commands.rs 内联）。
-pub(crate) fn paste_to_previous_app(
+/// apply_clip 的粘贴段编排（原 commands.rs 内联）。目标应用句柄由调用方
+/// 先从 WindowState 解析再传入：State 句柄不可跨 await，这样异步命令才能
+/// 把编排（含固定 180ms 聚焦等待）移进 spawn_blocking。
+pub(crate) fn paste_to_target_app(
     app: &tauri::AppHandle,
-    state: &AppState,
+    target_app_bundle_id: Option<String>,
 ) -> Result<(), AppError> {
-    let target_app_bundle_id = state
-        .window
-        .target_app_bundle_id()
-        .map_err(AppError::internal)?;
-
     prepare_target_for_paste(app, target_app_bundle_id.clone()).map_err(AppError::from)?;
 
     // 等待并确认目标应用获得键盘焦点，避免 Cmd+V 投递到未就绪的窗口

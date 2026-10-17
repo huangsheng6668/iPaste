@@ -27,6 +27,34 @@ const CLIP_PAGE_SIZE = 20;
 /** 类型筛选的循环顺序（键盘 Ctrl/Cmd+G 与 selectTypeFilter 共用）。 */
 const TYPE_FILTER_CYCLE: ClipTypeFilter[] = ["all", "text", "image"];
 
+// 视图包装缓存（WeakMap 按源对象键控）：同一 clip/categoryItem 对象在多次
+// visibleItems 重算间映射到同一包装对象。列表项 props 身份稳定后，Vue 的
+// shouldUpdateComponent 浅比较命中，ClipCard 等子组件跳过无谓重渲。
+// 安全前提：本 store 的条目更新全部走不可变替换（map/filter 产出新对象），
+// 源对象一旦被替换，包装随之失效并被 GC——不存在原地变异导致缓存过期的问题。
+const historyViewCache = new WeakMap<ClipItem, ClipItem & { collection: "history" }>();
+const categoryViewCache = new WeakMap<CategoryItem, CategoryItem & { collection: "category" }>();
+
+/** 历史条目 → 面板视图项（同源对象复用同一包装身份）。 */
+export function toHistoryViewItem(clip: ClipItem): ClipViewItem {
+  let view = historyViewCache.get(clip);
+  if (!view) {
+    view = { ...clip, collection: "history" };
+    historyViewCache.set(clip, view);
+  }
+  return view;
+}
+
+/** 分类条目 → 面板视图项（同源对象复用同一包装身份）。 */
+export function toCategoryViewItem(item: CategoryItem): ClipViewItem {
+  let view = categoryViewCache.get(item);
+  if (!view) {
+    view = { ...item, collection: "category" };
+    categoryViewCache.set(item, view);
+  }
+  return view;
+}
+
 export const useIpasteStore = defineStore("ipaste", () => {
   const settings = useSettingsStore();
   // 保留天变更后的全量重载回调（原 updateRetentionDays 直接 await load()，行为保持）。
@@ -69,13 +97,14 @@ export const useIpasteStore = defineStore("ipaste", () => {
     const query = search.value.trim().toLowerCase();
     const source =
       selectedCategoryId.value === "history"
-        ? clips.value.map((clip) => ({ ...clip, collection: "history" as const }))
+        ? clips.value.map(toHistoryViewItem)
         : category.categoryItems
             .filter((item) => item.categoryId === selectedCategoryId.value)
-            .map((item) => ({ ...item, collection: "category" as const }));
+            .map(toCategoryViewItem);
 
     if (!query) return source;
 
+    // filter 路径保持元素身份不变（配合上面的包装缓存）。
     return source.filter((item) => clipMatchesSearch(item, query));
   });
 

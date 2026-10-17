@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   CornerDownLeft,
   GripVertical,
   Maximize2,
 } from "lucide-vue-next";
-import { clipImageSrc } from "../lib/clipMedia";
+import { clipImageSrc, clipThumbnailSrc } from "../lib/clipMedia";
 import { clipTypeIcon } from "../lib/clipTypeIcons";
 import { t } from "../i18n";
 import { categoryDisplayName, clipMetricText, formatTime, typeLabel } from "../lib/format";
@@ -34,7 +34,21 @@ const emit = defineEmits<{
 
 const isImage = computed(() => props.item.clipType === "image");
 const isColor = computed(() => props.item.clipType === "color");
-const imageSrc = computed(() => clipImageSrc(props.item));
+// 列表小图标用缩略图（14px 图标解码整张 4K 原图纯属浪费）；缩略图缺失时
+// （存量未补齐/生成失败）@error 一次性回退原图。条目切换后重置重试。
+const thumbnailFailed = ref(false);
+watch(
+  () => props.item,
+  () => {
+    thumbnailFailed.value = false;
+  },
+);
+const imageSrc = computed(() =>
+  thumbnailFailed.value ? clipImageSrc(props.item) : clipThumbnailSrc(props.item),
+);
+function handleImageError() {
+  thumbnailFailed.value = true;
+}
 const colorPreviewValue = computed(() => props.item.text.trim());
 const displayTitle = computed(() => props.item.displayName?.trim() || "");
 
@@ -141,6 +155,7 @@ function startReorder(event: PointerEvent) {
           class="size-3.5 rounded object-cover"
           :src="imageSrc"
           alt=""
+          @error="handleImageError"
         >
         <component
           :is="iconComponent"

@@ -83,6 +83,11 @@ impl Store {
         self.write_string_setting(&registry::LANGUAGE, language)
     }
 
+    /// 云同步配置读取（纯读路径，不做任何写入）：
+    /// - Key 正常存系统凭据库，settings 列只留空串占位（v0.3.29+）；
+    /// - 列非空是 ≤0.3.28 的明文遗留，直接按值返回保可用性——迁移到凭据库
+    ///   由启动时的 `cleanup_legacy_secrets` 完成，读取本身不再触发写库/写凭据库
+    ///   （读路径写库会在 WAL 下与捕获写入方抢写锁，拖慢面板唤出等热路径）。
     pub(crate) fn cloud_settings_with_conn(
         &self,
         conn: &Connection,
@@ -95,7 +100,6 @@ impl Store {
                 .setting_value_with_conn(conn, "cloud_api_key")?
                 .unwrap_or_default();
             if stored.is_empty() {
-                // v0.3.29+：Key 存系统凭据库，settings 列只留空串占位。
                 // 凭据库读失败按「未配置」处理（可用性优先，不阻断整个设置读取），
                 // 原因落 stderr 供排查。
                 match super::super::secrets::get_api_key() {
@@ -106,15 +110,6 @@ impl Store {
                     }
                 }
             } else {
-                // 老版本明文遗留：一次性迁移进系统凭据库并清空该列。
-                // 迁移失败（凭据库不可用）向上报错——用户重试即可，不做明文回退。
-                super::super::secrets::put_api_key(&stored)
-                    .map_err(|reason| format!("迁移 API Key 到系统凭据库失败：{reason}"))?;
-                conn.execute(
-                    "UPDATE settings SET value = '' WHERE key = 'cloud_api_key'",
-                    [],
-                )
-                .map_err(|error| error.to_string())?;
                 stored
             }
         };
@@ -129,16 +124,46 @@ impl Store {
         })
     }
 
+    /// 启动期一次性遗留清理（Store::new 调用；幂等、尽力而为，失败只记日志
+    /// 不阻断启动——明文列保留，下次启动重试迁移）：
+    /// - ≤0.3.28 的明文 cloud_api_key 迁入系统凭据库并清空该列；
+    /// - ≤0.9.9 已移除的智谱专用引擎遗留的凭据条目与 settings 占位行。
+    /// 这两件事原先挂在每次设置读取上，是读路径上的隐性写事务来源。
+    pub(crate) fn cleanup_legacy_secrets(&self, conn: &Connection) {
+        let stored = self
+            .setting_value_with_conn(conn, "cloud_api_key")
+            .unwrap_or_default()
+            .unwrap_or_default();
+        if !stored.is_empty() {
+            match super::super::secrets::put_api_key(&stored) {
+                Ok(()) => {
+                    if let Err(error) = conn.execute(
+                        "UPDATE settings SET value = '' WHERE key = 'cloud_api_key'",
+                        [],
+                    ) {
+                        eprintln!("[cloud] 清空明文 API Key 列失败：{error}");
+                    }
+                }
+                Err(reason) => {
+                    eprintln!("[cloud] 迁移明文 API Key 到系统凭据库失败（下次启动重试）：{reason}");
+                }
+            }
+        }
+
+        super::super::secrets::remove_legacy_bigmodel_api_key();
+        if let Err(error) = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", []) {
+            eprintln!("[cloud-ocr] 清理遗留 bigmodel 占位行失败：{error}");
+        }
+    }
+
     /// 云 OCR 配置读取：Key 与云同步同法——settings 列只留空串占位，
     /// 实际值从系统凭据库回填；Base URL 与模型名是普通 KV。
     /// 凭据库读失败按未配置处理（不阻断整个设置读取），原因落 stderr 供排查。
-    /// 另外顺手清理已移除的智谱专用引擎（≤0.9.9）遗留的凭据与占位行。
+    /// 纯读路径：遗留清理在启动期的 cleanup_legacy_secrets，不再顺带写库。
     pub(super) fn cloud_ocr_settings_with_conn(
         &self,
         conn: &Connection,
     ) -> Result<CloudOcrSettings, String> {
-        super::super::secrets::remove_legacy_bigmodel_api_key();
-        let _ = conn.execute("DELETE FROM settings WHERE key = 'bigmodel_api_key'", []);
         let openai_api_key = match super::super::secrets::get_openai_ocr_api_key() {
             Ok(v) => v.unwrap_or_default(),
             Err(reason) => {

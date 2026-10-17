@@ -1,6 +1,6 @@
 // store/migrations.rs — schema 迁移 + seed_default_clips
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::Store;
 use crate::{
@@ -158,7 +158,107 @@ impl Store {
         )?;
 
         self.migrate_image_data_urls(conn)?;
+        self.normalize_timestamp_columns(conn)?;
+        self.setup_clips_fts(conn)?;
         self.remove_empty_default_categories(conn)
+    }
+
+    /// 历史搜索的 FTS5 全文索引（trigram 分词）：
+    /// - 外部内容表（content='clips'）：索引只存 token，不复制正文；
+    /// - text 列对图片行为空（与 LIKE 语义一致——图片的 text 是文件路径，
+    ///   不应被搜到；图片靠 clip_type='image' / 「图片 image」标签命中）；
+    /// - 触发器按列限定（UPDATE OF ...）：高频的 last_captured_at 触碰
+    ///   不触发重建索引；
+    /// - 存量一次性回填，标志门控；此后增删改由触发器同步。
+    ///
+    /// 注意：trigram 最短命中 3 字符，更短的查询（如中文两字词）由查询层
+    /// 回退 LIKE 扫描。display_name/preview_text/text 与 LIKE 检索的三列
+    /// 完全一致，FTS 命中集与原子串语义等价（大小写不敏感子串匹配）。
+    fn setup_clips_fts(&self, conn: &Connection) -> Result<(), String> {
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
+                display_name, preview_text, text,
+                content='clips', content_rowid='rowid',
+                tokenize='trigram'
+            );
+            CREATE TRIGGER IF NOT EXISTS clips_fts_ai AFTER INSERT ON clips BEGIN
+                INSERT INTO clips_fts(rowid, display_name, preview_text, text)
+                VALUES (new.rowid, COALESCE(new.display_name, ''), new.preview_text,
+                        CASE WHEN new.clip_type != 'image' THEN new.text ELSE '' END);
+            END;
+            CREATE TRIGGER IF NOT EXISTS clips_fts_ad AFTER DELETE ON clips BEGIN
+                INSERT INTO clips_fts(clips_fts, rowid, display_name, preview_text, text)
+                VALUES ('delete', old.rowid, COALESCE(old.display_name, ''), old.preview_text,
+                        CASE WHEN old.clip_type != 'image' THEN old.text ELSE '' END);
+            END;
+            CREATE TRIGGER IF NOT EXISTS clips_fts_au
+            AFTER UPDATE OF display_name, preview_text, text, clip_type ON clips BEGIN
+                INSERT INTO clips_fts(clips_fts, rowid, display_name, preview_text, text)
+                VALUES ('delete', old.rowid, COALESCE(old.display_name, ''), old.preview_text,
+                        CASE WHEN old.clip_type != 'image' THEN old.text ELSE '' END);
+                INSERT INTO clips_fts(rowid, display_name, preview_text, text)
+                VALUES (new.rowid, COALESCE(new.display_name, ''), new.preview_text,
+                        CASE WHEN new.clip_type != 'image' THEN new.text ELSE '' END);
+            END;",
+        )
+        .map_err(|error| error.to_string())?;
+
+        let populated: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'migrated_clips_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if populated.as_deref() != Some("1") {
+            conn.execute(
+                "INSERT INTO clips_fts(rowid, display_name, preview_text, text)
+                 SELECT rowid, COALESCE(display_name, ''), preview_text,
+                        CASE WHEN clip_type != 'image' THEN text ELSE '' END
+                 FROM clips",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('migrated_clips_fts', '1')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// 时间列格式规范化：把历史版本可能写入的 "YYYY-MM-DD HH:MM:SS"
+    /// （SQLite datetime() 风格）或带 +00:00 偏移的值统一成 now() 的
+    /// 定长 "YYYY-MM-DDTHH:MM:SSZ"。定长 UTC 格式下字典序即时间序，
+    /// 查询层才能去掉 datetime() 包裹、直接命中 last_captured_at 等索引。
+    ///
+    /// 幂等且无损：仅重写形状不符的值；strftime 解析不了的值原样保留。
+    fn normalize_timestamp_columns(&self, conn: &Connection) -> Result<(), String> {
+        for (table, column) in [
+            ("clips", "last_captured_at"),
+            ("categories", "created_at"),
+            ("categories", "updated_at"),
+            ("category_items", "created_at"),
+            ("category_items", "updated_at"),
+            ("automation_runs", "started_at"),
+            ("automation_runs", "finished_at"),
+        ] {
+            conn.execute(
+                &format!(
+                    "UPDATE {table} SET {column} = strftime('%Y-%m-%dT%H:%M:%SZ', {column})
+                     WHERE {column} IS NOT NULL
+                       AND {column} != ''
+                       AND {column} NOT GLOB '____-__-__T__:__:__Z'
+                       AND strftime('%Y-%m-%dT%H:%M:%SZ', {column}) IS NOT NULL"
+                ),
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 
     pub(super) fn seed_default_clips(&self, conn: &Connection) -> Result<(), String> {
@@ -192,8 +292,30 @@ impl Store {
     }
 
     fn migrate_image_data_urls(&self, conn: &Connection) -> Result<(), String> {
+        // 这一步要全表 LIKE 扫描两遍，只为找「还没落盘的 data-url 图片行」
+        //（老版本行为，新捕获一律直接落文件）。完成后用标志位门控，启动不再
+        // 白扫；迁移本体幂等，中途被杀（标志未置位）下次会安全重跑。
+        let migrated: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'migrated_image_data_urls'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if migrated.as_deref() == Some("1") {
+            return Ok(());
+        }
+
         self.migrate_image_data_urls_for_table(conn, "clips")?;
-        self.migrate_image_data_urls_for_table(conn, "category_items")
+        self.migrate_image_data_urls_for_table(conn, "category_items")?;
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('migrated_image_data_urls', '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn migrate_image_data_urls_for_table(
@@ -347,5 +469,52 @@ impl Store {
         )
         .map_err(|error| error.to_string())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::params;
+
+    use crate::store::test_support::temp_store;
+
+    /// 时间戳规范化：SQLite datetime() 风格与带偏移的值统一为定长 "…Z"；
+    /// 已符合格式或无法解析的值保持原样。
+    #[test]
+    fn normalize_timestamp_columns_rewrites_legacy_formats() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        for (id, raw) in [
+            ("legacy", "2024-01-02 03:04:05"),
+            ("offset", "2024-01-02T03:04:05+00:00"),
+            ("garbage", "not-a-date"),
+            ("conforming", "2024-01-02T03:04:05Z"),
+        ] {
+            conn.execute(
+                "INSERT INTO clips (id, clip_type, content_hash, display_name, preview_text, text, source_app, last_captured_at, favorite_count, is_pinned)
+                 VALUES (?1, 'text', ?2, NULL, 'p', 't', NULL, ?3, 0, 0)",
+                params![id, format!("hash-normalize-{id}"), raw],
+            )
+            .unwrap();
+        }
+
+        store.normalize_timestamp_columns(&conn).unwrap();
+
+        let expected = [
+            ("legacy", "2024-01-02T03:04:05Z"),
+            ("offset", "2024-01-02T03:04:05Z"),
+            ("garbage", "not-a-date"),
+            ("conforming", "2024-01-02T03:04:05Z"),
+        ];
+        for (id, want) in expected {
+            let got: String = conn
+                .query_row(
+                    "SELECT last_captured_at FROM clips WHERE id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(got, want, "id = {id}");
+        }
     }
 }

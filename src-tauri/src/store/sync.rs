@@ -1,4 +1,5 @@
 // store/sync.rs — 云同步
+use chrono::{DateTime, SecondsFormat};
 use rusqlite::{params, Connection};
 
 use super::Store;
@@ -8,6 +9,19 @@ use crate::{
     store::rows::{collect_rows, map_category_item},
     util::{clean_api_address, clean_api_key, now},
 };
+
+/// 云端时间戳归一化：服务器可能回传任意可解析格式（RFC3339 带偏移、
+/// "YYYY-MM-DD HH:MM:SS" 等）。落库前统一成本地 now() 的定长 "…Z" 格式，
+/// 保证各处 ORDER BY 时间列时字典序即时间序；解析失败原样返回
+/// （upsert 的 datetime() 比较仍能容忍）。
+fn normalize_cloud_timestamp(value: &str) -> String {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+        return parsed.to_rfc3339_opts(SecondsFormat::Secs, true);
+    }
+    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
+        .map(|naive| naive.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true))
+        .unwrap_or_else(|_| value.to_string())
+}
 
 impl Store {
     pub(crate) fn update_cloud_settings(
@@ -112,7 +126,7 @@ impl Store {
                 "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
                  FROM category_items
                  WHERE clip_type IN ('text', 'link', 'color', 'html')
-                 ORDER BY sort_order ASC, datetime(created_at) DESC",
+                 ORDER BY sort_order ASC, created_at DESC",
             )
             .map_err(|error| error.to_string())?;
 
@@ -125,7 +139,7 @@ impl Store {
     fn list_tombstones_with_conn(&self, conn: &Connection) -> Result<Vec<Tombstone>, String> {
         let mut stmt = conn
             .prepare(
-                "SELECT entity, entity_id FROM sync_tombstones ORDER BY datetime(created_at) ASC",
+                "SELECT entity, entity_id FROM sync_tombstones ORDER BY created_at ASC",
             )
             .map_err(|error| error.to_string())?;
         let rows = stmt
@@ -191,8 +205,8 @@ impl Store {
                     category.name,
                     category.color,
                     category.sort_order,
-                    category.created_at,
-                    category.updated_at,
+                    normalize_cloud_timestamp(&category.created_at),
+                    normalize_cloud_timestamp(&category.updated_at),
                 ],
             )
             .map_err(|error| error.to_string())?;
@@ -229,8 +243,8 @@ impl Store {
                     item.preview_text,
                     item.text,
                     item.sort_order,
-                    item.created_at,
-                    item.updated_at,
+                    normalize_cloud_timestamp(&item.created_at),
+                    normalize_cloud_timestamp(&item.updated_at),
                     item.is_pinned,
                 ],
             )

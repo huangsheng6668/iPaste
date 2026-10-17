@@ -62,10 +62,12 @@ export function setLanguage(language: Language, options: { persist?: boolean } =
 export function t(key: I18nKey, params: Record<string, string | number> = {}) {
   const localizedMessages = messagesForLanguage(currentLanguage.value);
   const template = localizedMessages[key] ?? messages.en[key] ?? key;
-  return Object.entries(params).reduce(
-    (value, [name, replacement]) => value.replace(new RegExp(`\\{${escapeRegExp(name)}\\}`, "g"), String(replacement)),
-    template as string,
-  );
+  let value = template as string;
+  // 占位符形如 {name}，字面量替换即可，不必为高频调用构造正则。
+  for (const [name, replacement] of Object.entries(params)) {
+    value = value.split("{" + name + "}").join(String(replacement));
+  }
+  return value;
 }
 
 function messagesForLanguage(language: Language): Partial<Record<I18nKey, string>> {
@@ -87,8 +89,5 @@ export function cleanLanguage(value: unknown): Language {
   return typeof value === "string" && supportedLanguages.has(value as Language) ? (value as Language) : DEFAULT_LANGUAGE;
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 setLanguage(currentLanguage.value, { persist: false });

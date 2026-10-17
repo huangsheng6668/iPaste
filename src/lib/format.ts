@@ -1,6 +1,40 @@
 import type { ClipType } from "../types";
 import { currentLocale, t, type I18nKey } from "../i18n";
 
+// Intl 构造函数代价不低（相对时间/日期格式化内部要加载 locale 数据），
+// 而这些格式化器在列表渲染中对每个条目调用；按 locale 缓存实例复用。
+// locale 集合有限（设置页枚举），Map 不会无限增长。
+const relativeFormatterCache = new Map<string, Intl.RelativeTimeFormat>();
+const monthDayFormatterCache = new Map<string, Intl.DateTimeFormat>();
+const pluralRulesCache = new Map<string, Intl.PluralRules>();
+
+function relativeFormatterFor(locale: string) {
+  let formatter = relativeFormatterCache.get(locale);
+  if (!formatter) {
+    formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    relativeFormatterCache.set(locale, formatter);
+  }
+  return formatter;
+}
+
+function monthDayFormatterFor(locale: string) {
+  let formatter = monthDayFormatterCache.get(locale);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+    monthDayFormatterCache.set(locale, formatter);
+  }
+  return formatter;
+}
+
+function pluralRulesFor(locale: string) {
+  let rules = pluralRulesCache.get(locale);
+  if (!rules) {
+    rules = new Intl.PluralRules(locale);
+    pluralRulesCache.set(locale, rules);
+  }
+  return rules;
+}
+
 export function formatShortcut(shortcut: string) {
   return shortcut
     .replace("CommandOrControl", platformModifier())
@@ -13,7 +47,7 @@ export function formatTime(value: string) {
   const delta = timestamp - Date.now();
   const minutes = Math.round(delta / 60_000);
   const locale = currentLocale.value;
-  const relativeFormatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const relativeFormatter = relativeFormatterFor(locale);
 
   if (Math.abs(minutes) < 1) return t("time.justNow");
   if (Math.abs(minutes) < 60) return relativeFormatter.format(minutes, "minute");
@@ -24,10 +58,7 @@ export function formatTime(value: string) {
   const days = Math.round(hours / 24);
   if (Math.abs(days) < 7) return relativeFormatter.format(days, "day");
 
-  return new Intl.DateTimeFormat(locale, {
-    month: "short",
-    day: "numeric",
-  }).format(new Date(value));
+  return monthDayFormatterFor(locale).format(new Date(value));
 }
 
 export function typeLabel(type: ClipType) {
@@ -70,7 +101,7 @@ export function isCodeText(clipType: string, text: string): boolean {
 }
 
 export function pluralText(keyOne: I18nKey, keyOther: I18nKey, value: number) {
-  const category = new Intl.PluralRules(currentLocale.value).select(value);
+  const category = pluralRulesFor(currentLocale.value).select(value);
   return t(category === "one" ? keyOne : keyOther, { value });
 }
 
@@ -78,17 +109,26 @@ export function lineCountText(lines: number) {
   return pluralText("stats.lineOne", "stats.lineOther", lines);
 }
 
-function countCharacters(text: string) {
-  const segmenter =
-    "Segmenter" in Intl
-      ? new (Intl as typeof Intl & {
-          Segmenter: new (
-            locale?: string,
-            options?: { granularity?: "grapheme" | "word" | "sentence" },
-          ) => { segment(input: string): Iterable<unknown> };
-        }).Segmenter(currentLocale.value, { granularity: "grapheme" })
-      : null;
+type GraphemeSegmenter = { segment(input: string): Iterable<unknown> };
+const segmenterCache = new Map<string, GraphemeSegmenter | null>();
 
+/** 按字素分词统计字符数（中日韩组合字符按视觉单元计）。Segmenter 构造
+ * 成本高，实例按 locale 缓存；运行环境不支持时回退码点计数。 */
+function graphemeSegmenterFor(locale: string): GraphemeSegmenter | null {
+  if (!segmenterCache.has(locale)) {
+    const ctor = (Intl as typeof Intl & {
+      Segmenter?: new (
+        locale?: string,
+        options?: { granularity?: "grapheme" | "word" | "sentence" },
+      ) => GraphemeSegmenter;
+    }).Segmenter;
+    segmenterCache.set(locale, ctor ? new ctor(locale, { granularity: "grapheme" }) : null);
+  }
+  return segmenterCache.get(locale) ?? null;
+}
+
+function countCharacters(text: string) {
+  const segmenter = graphemeSegmenterFor(currentLocale.value);
   return segmenter ? [...segmenter.segment(text)].length : Array.from(text).length;
 }
 

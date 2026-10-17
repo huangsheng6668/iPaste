@@ -15,12 +15,16 @@ use crate::{
 };
 
 impl Store {
-    pub(crate) fn snapshot(&self) -> Result<(ClipPage, Vec<Category>, Vec<CategoryItem>), String> {
-        let conn = self.connect()?;
+    /// 复用调用方连接的快照装配：build_app_snapshot 等多步读取场景避免
+    /// 反复开连接（每次 connect 含 WAL pragma，实测 ~0.6ms）。
+    pub(crate) fn snapshot_with_conn(
+        &self,
+        conn: &Connection,
+    ) -> Result<(ClipPage, Vec<Category>, Vec<CategoryItem>), String> {
         Ok((
-            self.list_clips_page_with_conn(&conn, 0, CLIP_PAGE_SIZE, "", "all")?,
-            self.list_categories_with_conn(&conn)?,
-            self.list_category_items_with_conn(&conn)?,
+            self.list_clips_page_with_conn(conn, 0, CLIP_PAGE_SIZE, "", "all")?,
+            self.list_categories_with_conn(conn)?,
+            self.list_category_items_with_conn(conn)?,
         ))
     }
 

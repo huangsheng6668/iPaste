@@ -37,7 +37,7 @@ import { contextItemKey, originalClipId } from "./lib/clipKeys";
 import { isMacOs, isTauri } from "./lib/env";
 import { categoryDisplayName, formatShortcut } from "./lib/format";
 import { ipasteApi } from "./lib/ipasteApi";
-import { useIpasteStore } from "./stores/ipasteStore";
+import { toCategoryViewItem, useIpasteStore } from "./stores/ipasteStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCategoryStore } from "./stores/categoryStore";
 import { useAutomationStore } from "./stores/automationStore";
@@ -355,16 +355,30 @@ async function reorderCategories(categoryIds: string[]) {
   await store.reorderCategories(categoryIds);
 }
 
+// 空分类标签数组共享同一冻结实例：itemCategoryTags 在每帧渲染中对每个
+// 列表项调用，避免为无分类条目（绝大多数）反复分配新数组让子组件误判
+// props 变化。单分类的 [category] 数组同样按分类对象缓存。
+const EMPTY_CATEGORY_TAGS: Category[] = [];
+Object.freeze(EMPTY_CATEGORY_TAGS);
+const singleTagCache = new WeakMap<Category, Category[]>();
+
 function itemCategoryTags(item: ClipViewItem) {
-  if (item.collection === "history") return categoriesByHash.value[item.contentHash] ?? [];
+  if (item.collection === "history") return categoriesByHash.value[item.contentHash] ?? EMPTY_CATEGORY_TAGS;
 
   const categoryId = "categoryId" in item ? item.categoryId : store.selectedCategoryId;
   const category = categoryById.value[categoryId];
-  return category ? [category] : [];
+  if (!category) return EMPTY_CATEGORY_TAGS;
+  let tags = singleTagCache.get(category);
+  if (!tags) {
+    tags = [category];
+    singleTagCache.set(category, tags);
+  }
+  return tags;
 }
 
 function toCategoryClipViewItem(item: CategoryItem): ClipViewItem {
-  return { ...item, collection: "category" };
+  // 复用 store 的视图包装缓存：同一分类条目在重渲染间保持同一对象身份。
+  return toCategoryViewItem(item);
 }
 
 function startItemDrag(payload: { item: ClipViewItem; index: number; event: PointerEvent }) {

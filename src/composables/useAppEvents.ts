@@ -37,7 +37,14 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   const settings = useSettingsStore();
   const automation = useAutomationStore();
 
+  // 面板可见性跟踪：隐藏期间跳过事件驱动的列表更新（捕获/条目变更/同步
+  // 刷新）——隐藏的 webview 不需要为每条剪贴板事件跑响应式更新；面板重新
+  // 显示时 panelVisibilityChanged 里的 store.load() 会整页重取，数据不丢。
+  // 首个事件到来前保持 true（保守：宁可多更新也不漏）。
+  let panelVisible = true;
+
   await subscribe<CapturedEvent>(IPASTE_EVENTS.clipboardCaptured, (payload) => {
+    if (!panelVisible) return;
     store.applyCaptured(payload);
   });
 
@@ -50,6 +57,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   });
 
   await subscribe<ClipUpdatedEvent>(IPASTE_EVENTS.clipUpdated, (payload) => {
+    if (!panelVisible) return;
     store.applyClipUpdate(payload);
   });
 
@@ -58,6 +66,7 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   });
 
   await subscribe<{ visible: boolean }>(IPASTE_EVENTS.panelVisibilityChanged, (payload) => {
+    panelVisible = payload.visible;
     if (payload.visible) {
       // 每次面板显示时刷新快照：LAN 同步收到的条目/分类在面板隐藏期间落库，
       // 若事件驱动的刷新错过（如 webview 重建），这里兜底保证数据可见。
@@ -116,12 +125,13 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   // pairRequest 监听。
   await subscribe<DeviceClipReceived>(IPASTE_EVENTS.deviceClipReceived, () => {
     ui.pushToast(t("deviceSync.clipReceived"));
-    void store.load();
+    // 面板隐藏时省去整页重取（显示时 panelVisibilityChanged 会补一次 load）。
+    if (panelVisible) void store.load();
   });
 
   await subscribe<DeviceCategoryReceived>(IPASTE_EVENTS.deviceCategoryReceived, () => {
     ui.pushToast(t("deviceSync.categoryReceived"));
-    void store.load();
+    if (panelVisible) void store.load();
   });
 
   // 跨设备接收失败（含 auto 剪贴板写失败诊断）：仅 console.warn 静默记录——

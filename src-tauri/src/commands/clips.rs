@@ -1,4 +1,6 @@
 // commands/clips.rs — 剪贴板历史查询/CRUD/回贴
+// 重 DB 命令一律 async：同步命令会占用 Tauri 主线程，5k 条历史下快照/搜索
+// 的整页扫描会直接卡住快捷键响应与面板唤出。
 use crate::clipboard::{
     clear_system_clipboard_after_delete, record_inserted_capture, write_clipboard_and_mark,
 };
@@ -6,19 +8,21 @@ use crate::error::AppError;
 use crate::models::{
     AppSnapshot, AppState, ClipPage, ClipUpdate, MainWindowActivation, SearchResult,
 };
-use crate::paste::paste_to_previous_app;
+use crate::paste::paste_to_target_app;
 use crate::window::{hide_main_window, show_main_window};
 use crate::CLIP_PAGE_SIZE;
 
 use super::build_app_snapshot;
 
 #[tauri::command]
-pub(crate) fn get_snapshot(state: tauri::State<'_, AppState>) -> Result<AppSnapshot, AppError> {
+pub(crate) async fn get_snapshot(
+    state: tauri::State<'_, AppState>,
+) -> Result<AppSnapshot, AppError> {
     build_app_snapshot(state)
 }
 
 #[tauri::command]
-pub(crate) fn list_clips(
+pub(crate) async fn list_clips(
     state: tauri::State<'_, AppState>,
     offset: Option<usize>,
     limit: Option<usize>,
@@ -37,7 +41,7 @@ pub(crate) fn list_clips(
 }
 
 #[tauri::command]
-pub(crate) fn search_with_fallback(
+pub(crate) async fn search_with_fallback(
     state: tauri::State<'_, AppState>,
     offset: usize,
     limit: usize,
@@ -51,7 +55,7 @@ pub(crate) fn search_with_fallback(
 }
 
 #[tauri::command]
-pub(crate) fn delete_clip(
+pub(crate) async fn delete_clip(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     id: String,
@@ -67,7 +71,7 @@ pub(crate) fn delete_clip(
 }
 
 #[tauri::command]
-pub(crate) fn clear_clips(
+pub(crate) async fn clear_clips(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<usize, AppError> {
@@ -118,7 +122,7 @@ pub(crate) fn set_clip_pinned(
 }
 
 #[tauri::command]
-pub(crate) fn copy_clip(
+pub(crate) async fn copy_clip(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     clip_type: String,
@@ -129,7 +133,7 @@ pub(crate) fn copy_clip(
 }
 
 #[tauri::command]
-pub(crate) fn apply_clip(
+pub(crate) async fn apply_clip(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     id: String,
@@ -139,7 +143,19 @@ pub(crate) fn apply_clip(
     let captured_item = write_clipboard_and_mark(&state, &clip_type, &text)?;
     let _ = hide_main_window(&app);
     // 面板隐藏/恢复留在命令层：paste.rs 不反向依赖 window.rs（window.rs 已依赖 paste.rs）。
-    if let Err(error) = paste_to_previous_app(&app, &state) {
+    // 粘贴编排含 180ms 固定聚焦等待（macOS 还有 AX 轮询），移到阻塞线程池，
+    // 不占异步运行时 worker；State 句柄不可跨 await，故先解析出目标应用。
+    let target_app_bundle_id = state
+        .window
+        .target_app_bundle_id()
+        .map_err(AppError::internal)?;
+    let app_for_paste = app.clone();
+    let paste_result = tauri::async_runtime::spawn_blocking(move || {
+        paste_to_target_app(&app_for_paste, target_app_bundle_id)
+    })
+    .await
+    .map_err(|error| AppError::internal(error.to_string()))?;
+    if let Err(error) = paste_result {
         let _ = show_main_window(&app, MainWindowActivation::Activate);
         return Err(error);
     }

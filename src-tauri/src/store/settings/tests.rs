@@ -377,9 +377,10 @@ mod cloud_ocr_keyring_tests {
         store.update_ocr_engine("local".to_string()).unwrap();
     }
 
-    /// 历史遗留：库里有已移除引擎的 bigmodel_api_key 占位行时，读取设置会顺带清掉。
+    /// 历史遗留：库里有已移除引擎的 bigmodel_api_key 占位行时，启动期清理会清掉；
+    /// 设置读取本身保持纯读（不再顺带写库）。
     #[test]
-    fn legacy_bigmodel_row_is_cleaned_on_read() {
+    fn legacy_bigmodel_row_is_cleaned_at_startup_not_on_read() {
         let store = temp_store();
         {
             let conn = store.connect().unwrap();
@@ -390,8 +391,21 @@ mod cloud_ocr_keyring_tests {
             )
             .unwrap();
         }
+
+        // 读取路径不清理：读后占位行仍在（读路径不写库）。
         let _ = store.settings().unwrap();
         let conn = store.connect().unwrap();
+        let after_read: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'bigmodel_api_key'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(after_read, 1, "读取路径不应写库清理");
+
+        // 启动期清理（Store::new 的职责，这里直接调用同一入口验证）。
+        store.cleanup_legacy_secrets(&conn);
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM settings WHERE key = 'bigmodel_api_key'",
@@ -399,7 +413,7 @@ mod cloud_ocr_keyring_tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 0, "遗留占位行应被清除");
+        assert_eq!(count, 0, "遗留占位行应被启动清理移除");
     }
 }
 
@@ -425,9 +439,12 @@ mod cloud_keyring_tests {
             )
             .unwrap();
         }
+        // 读取路径不再写库迁移：明文值按原样返回保可用性。
         let conn = store.connect().unwrap();
         let cloud = store.cloud_settings_with_conn(&conn).unwrap();
         assert_eq!(cloud.api_key, "legacy-plain-key");
+        // 启动期清理（Store::new 的职责）完成迁移并清空明文列。
+        store.cleanup_legacy_secrets(&conn);
         assert_eq!(
             secrets::get_api_key().unwrap().as_deref(),
             Some("legacy-plain-key")

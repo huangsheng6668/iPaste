@@ -14,6 +14,42 @@ use super::{
     MAX_CATEGORY_COLOR_LEN, MAX_CATEGORY_NAME_LEN,
 };
 
+/// 单条接收的阻塞段（SQLite 事务 + 图片落盘 + 系统剪贴板 IPC）移出读任务的
+/// 异步线程：大载荷（如 4K 图片）足以明显阻塞 runtime worker，批量分组接收
+/// 时更会把整批排队到同一 worker 上。立即 await 保持逐条顺序语义不变。
+#[allow(clippy::too_many_arguments)]
+async fn apply_received_blocking(
+    ctx: &SessionCtx,
+    clip_type: String,
+    data: Vec<u8>,
+    category_name: Option<String>,
+    category_color: Option<String>,
+    display_name: Option<String>,
+    sort_order: Option<i64>,
+    silent: bool,
+    auto: bool,
+    origin_node_id: Option<String>,
+) -> bool {
+    let ctx = ctx.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_received(
+            &ctx,
+            &ctx.store,
+            &clip_type,
+            &data,
+            category_name,
+            category_color,
+            display_name,
+            sort_order,
+            silent,
+            auto,
+            origin_node_id.as_deref(),
+        )
+    })
+    .await
+    .unwrap_or(false)
+}
+
 pub(super) struct BatchState {
     category_name: String,
     category_color: Option<String>,
@@ -123,11 +159,10 @@ where
                         Some(b) if !auto => {
                             let order = Some(b.base_order + b.next_index);
                             b.next_index += 1;
-                            let ok = apply_received(
+                            let ok = apply_received_blocking(
                                 ctx,
-                                &ctx.store,
-                                &clip_type,
-                                &data,
+                                clip_type.clone(),
+                                data,
                                 Some(b.category_name.clone()),
                                 b.category_color.clone(),
                                 display_name,
@@ -135,7 +170,8 @@ where
                                 true,
                                 false,
                                 None,
-                            );
+                            )
+                            .await;
                             if ok {
                                 b.received += 1
                             } else {
@@ -143,19 +179,19 @@ where
                             }
                         }
                         _ => {
-                            apply_received(
+                            apply_received_blocking(
                                 ctx,
-                                &ctx.store,
-                                &clip_type,
-                                &data,
+                                clip_type,
+                                data,
                                 category_name,
                                 category_color,
                                 display_name,
                                 None,
                                 false,
                                 auto,
-                                origin_node_id.as_deref(),
-                            );
+                                origin_node_id,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -207,11 +243,10 @@ where
                 }
                 if let Some(data) = payload {
                     // ClipResponse（对端应答「请求剪贴板」）恒手动路径：auto=false、无 origin。
-                    apply_received(
+                    apply_received_blocking(
                         ctx,
-                        &ctx.store,
-                        &clip_type,
-                        &data,
+                        clip_type,
+                        data,
                         category_name,
                         category_color,
                         display_name,
@@ -219,7 +254,8 @@ where
                         false,
                         false,
                         None,
-                    );
+                    )
+                    .await;
                 }
             }
         }

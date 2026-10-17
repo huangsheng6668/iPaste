@@ -41,6 +41,19 @@ pub(crate) struct AppendState {
     pub has_session: bool,
 }
 
+/// 快路径判定（watcher 轮询前置）：平台报告的 change id 与上次记录一致时，
+/// 剪贴板内容必然未变，可跳过完整读取（内容拷贝 / 图片 PNG 重编码 / 哈希）。
+///
+/// 依据：Windows 剪贴板序列号与 macOS changeCount 覆盖各自平台的全部写入；
+/// marker 里的 change id 只在「捕获落库」或「本应用回写完成瞬间」记录。
+/// 平台不支持 change id（恒 None）时永不命中，行为退回完整轮询。
+pub(crate) fn is_unchanged_since_last_capture(
+    last_change_id: Option<u64>,
+    current_change_id: Option<u64>,
+) -> bool {
+    current_change_id.is_some_and(|id| last_change_id == Some(id))
+}
+
 /// 判定本轮捕获；决定为捕获类（Insert / MergeAppendCopy）时按原实现时机更新光标。
 ///
 /// 光标写入语义与原 `should_capture_clipboard_item` 完全一致：
@@ -136,6 +149,26 @@ mod tests {
     }
 
     /// 不变量 2：change id 与哈希都未变 → 重复捕获，跳过。
+    /// 快路径：change id 与上次记录一致 → 判定未变化，watcher 可跳过完整读取。
+    #[test]
+    fn fast_path_hits_when_change_id_matches_last_capture() {
+        assert!(is_unchanged_since_last_capture(Some(7), Some(7)));
+    }
+
+    /// 快路径：id 变化（新复制/其他进程写入）或尚未记录（None）→ 不命中。
+    #[test]
+    fn fast_path_misses_on_new_content_or_unknown_marker() {
+        assert!(!is_unchanged_since_last_capture(Some(7), Some(8)));
+        assert!(!is_unchanged_since_last_capture(None, Some(8)));
+        assert!(!is_unchanged_since_last_capture(Some(7), None));
+    }
+
+    /// 快路径：平台不支持 change id（恒 None）→ 永不命中，退回完整轮询。
+    #[test]
+    fn fast_path_never_hits_without_platform_change_id() {
+        assert!(!is_unchanged_since_last_capture(None, None));
+    }
+
     #[test]
     fn skips_duplicate_when_change_id_and_hash_match() {
         let mut cursor = CaptureCursor {

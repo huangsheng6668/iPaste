@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   Check,
   Clipboard,
@@ -12,7 +12,7 @@ import {
   ScanText,
 } from "lucide-vue-next";
 import AutomationDetailPane from "./AutomationDetailPane.vue";
-import { clipImageSrc } from "../lib/clipMedia";
+import { clipImageSrc, clipThumbnailSrc } from "../lib/clipMedia";
 import { clipTypeIcon } from "../lib/clipTypeIcons";
 import { parseColorFormats } from "../lib/colorFormat";
 import { t } from "../i18n";
@@ -40,7 +40,22 @@ const isColor = computed(() => props.item?.clipType === "color");
 const isLink = computed(() => props.item?.clipType === "link");
 const isCode = computed(() => isCodeText(props.item?.clipType ?? "", props.item?.text || ""));
 
-const imageSrc = computed(() => (props.item ? clipImageSrc(props.item) : ""));
+// 检查器预览用缩略图（面板内渲染尺寸 ≤480px 已足够），缺失时一次性回退
+// 原图；条目切换后重置重试。放大预览/查看器窗口仍走原图（需要完整分辨率）。
+const thumbnailFailed = ref(false);
+watch(
+  () => props.item,
+  () => {
+    thumbnailFailed.value = false;
+  },
+);
+const imageSrc = computed(() => {
+  if (!props.item) return "";
+  return thumbnailFailed.value ? clipImageSrc(props.item) : clipThumbnailSrc(props.item);
+});
+function handleImageError() {
+  thumbnailFailed.value = true;
+}
 const colorValue = computed(() => (props.item ? props.item.text.trim() : ""));
 const lines = computed(() => props.item?.text.split(/\r?\n/).length ?? 0);
 
@@ -153,6 +168,7 @@ const linkHostname = computed(() => {
           <img
             :src="imageSrc"
             :alt="t('common.imagePreviewAlt')"
+            @error="handleImageError"
           >
           <div class="clip-inspector-image-actions">
             <button

@@ -100,7 +100,7 @@ impl Store {
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, color, sort_order, created_at, updated_at
-                 FROM categories ORDER BY sort_order ASC, datetime(created_at) ASC",
+                 FROM categories ORDER BY sort_order ASC, created_at ASC",
             )
             .map_err(|error| error.to_string())?;
 
@@ -122,7 +122,7 @@ impl Store {
         let mut stmt = conn
             .prepare(
                 "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
-                 FROM category_items ORDER BY is_pinned DESC, sort_order ASC, datetime(created_at) DESC",
+                 FROM category_items ORDER BY is_pinned DESC, sort_order ASC, created_at DESC",
             )
             .map_err(|error| error.to_string())?;
 
@@ -143,7 +143,7 @@ impl Store {
             .prepare(
                 "SELECT id, category_id, clip_snapshot_id, clip_type, content_hash, display_name, preview_text, text, sort_order, created_at, updated_at, sync_state, is_pinned
                  FROM category_items WHERE category_id = ?1
-                 ORDER BY is_pinned DESC, sort_order ASC, datetime(created_at) DESC",
+                 ORDER BY is_pinned DESC, sort_order ASC, created_at DESC",
             )
             .map_err(|error| error.to_string())?;
 
@@ -157,7 +157,7 @@ impl Store {
     ///
     /// 组间顺序由分类 `sort_order`（见 `list_categories_with_conn`）决定；
     /// 组内条目顺序由 SQL `ORDER BY is_pinned DESC, sort_order ASC,
-    /// datetime(created_at) DESC` 决定（与 `list_category_items_with_conn` 一致）。
+    /// created_at DESC` 决定（与 `list_category_items_with_conn` 一致）。
     /// 仅返回有命中的分类。`type_filter` 与历史搜索同一口径（"all"/"text"/"image"）。
     pub(crate) fn search_all_category_items_with_conn(
         &self,
@@ -183,7 +183,7 @@ impl Store {
                    AND (?2 = 'all'
                     OR (?2 = 'image' AND clip_type = 'image')
                     OR (?2 = 'text' AND clip_type != 'image'))
-                 ORDER BY is_pinned DESC, sort_order ASC, datetime(created_at) DESC",
+                 ORDER BY is_pinned DESC, sort_order ASC, created_at DESC",
             )
             .map_err(|error| error.to_string())?;
         let rows = stmt

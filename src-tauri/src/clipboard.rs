@@ -126,12 +126,16 @@ fn read_clipboard_image_file(clipboard: &mut Clipboard) -> Result<Option<Clipboa
     }
 }
 
+/// 记录捕获/回写 marker。change_id 由调用方在写入完成的那一刻采样传入
+/// （见 write_clipboard_text / write_clipboard_image 的返回值），避免「写入
+/// → 采样」间隙里夹进其他进程的写入、把别人的内容误记成自己的。
 pub(crate) fn remember_current_clipboard_marker(
     last_clipboard_change_id: &Arc<Mutex<Option<u64>>>,
     last_clipboard_hash: &Arc<Mutex<Option<String>>>,
+    change_id: Option<u64>,
     content_hash: Option<String>,
 ) {
-    if let Some(id) = clipboard_change_id() {
+    if let Some(id) = change_id {
         if let Ok(mut last) = last_clipboard_change_id.lock() {
             *last = Some(id);
         }
@@ -211,14 +215,15 @@ pub(crate) fn write_clipboard_and_mark(
     text: &str,
 ) -> Result<Option<CapturedClipboardItem>, AppError> {
     let captured_item = captured_item_from_payload(clip_type, text)?;
-    if clip_type == "image" {
-        write_clipboard_image(text)?;
+    let change_id = if clip_type == "image" {
+        write_clipboard_image(text)?
     } else {
-        write_clipboard_text(text)?;
-    }
+        write_clipboard_text(text)?
+    };
     remember_current_clipboard_marker(
         &state.capture.last_clipboard_change_id,
         &state.capture.last_clipboard_hash,
+        change_id,
         captured_item.as_ref().map(|item| item.content_hash.clone()),
     );
     Ok(captured_item)
@@ -264,17 +269,24 @@ pub(crate) fn clipboard_change_id() -> Option<u64> {
     None
 }
 
-pub(crate) fn write_clipboard_text(text: &str) -> Result<(), String> {
+/// 写入文本并返回写入完成瞬间的剪贴板 change id（平台不支持时为 None）。
+/// 调用方应把它原样交给 remember_current_clipboard_marker，让 watcher 的
+/// 快路径拿到的就是本次写入的序号。
+pub(crate) fn write_clipboard_text(text: &str) -> Result<Option<u64>, String> {
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
-    clipboard.set_text(text).map_err(|error| error.to_string())
+    clipboard.set_text(text).map_err(|error| error.to_string())?;
+    Ok(clipboard_change_id())
 }
 
-pub(crate) fn write_clipboard_image(data_url: &str) -> Result<(), String> {
+/// 写入图片（data URL 或文件路径）并返回写入完成瞬间的 change id，语义同
+/// write_clipboard_text。
+pub(crate) fn write_clipboard_image(data_url: &str) -> Result<Option<u64>, String> {
     let image = image_from_source(data_url)?;
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
     clipboard
         .set_image(image)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    Ok(clipboard_change_id())
 }
 
 fn captured_item_from_image(image: ImageData<'static>) -> Result<CapturedClipboardItem, String> {
