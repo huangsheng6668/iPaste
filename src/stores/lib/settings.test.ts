@@ -10,6 +10,7 @@ import {
   cleanOcrEngine,
   cleanOpenaiPrompts,
   cleanCloudOcrSettings,
+  isOpenaiOcrConfigured,
   DEFAULT_OPENAI_OCR_PROMPTS,
 } from "./settings";
 
@@ -87,6 +88,8 @@ describe("cleanOpenaiPrompts", () => {
 describe("cleanCloudOcrSettings", () => {
   it("normalizes incomplete or invalid object input", () => {
     expect(cleanCloudOcrSettings(null)).toEqual({
+      openaiProfiles: [],
+      openaiActiveProfileId: "",
       openaiBaseUrl: "",
       openaiModel: "",
       openaiApiKey: "",
@@ -94,18 +97,42 @@ describe("cleanCloudOcrSettings", () => {
     });
   });
 
-  it("preserves valid fields and cleans prompts", () => {
+  it("preserves valid multi-endpoint fields and cleans prompts", () => {
     const raw = {
-      openaiBaseUrl: "https://api.example.com",
-      openaiModel: "custom-model",
-      openaiApiKey: "sk-test",
+      openaiProfiles: [{
+        id: "profile-a",
+        name: "Profile A",
+        baseUrl: "https://api.example.com",
+        model: "custom-model",
+        apiKey: "sk-test",
+      }],
+      openaiActiveProfileId: "profile-a",
       openaiPrompts: [{ role: "user", content: "Extract text" }],
     };
     expect(cleanCloudOcrSettings(raw)).toEqual({
+      openaiProfiles: raw.openaiProfiles,
+      openaiActiveProfileId: "profile-a",
       openaiBaseUrl: "https://api.example.com",
       openaiModel: "custom-model",
       openaiApiKey: "sk-test",
       openaiPrompts: [{ role: "user", content: "Extract text" }],
     });
+  });
+
+  it("synthesizes a legacy endpoint when only the old single config is present", () => {
+    const cleaned = cleanCloudOcrSettings({
+      openaiBaseUrl: "https://legacy.example.com/v1",
+      openaiModel: "legacy-model",
+      openaiApiKey: "legacy-key",
+    });
+    expect(cleaned.openaiProfiles).toEqual([{
+      id: "legacy",
+      name: "legacy-model",
+      baseUrl: "https://legacy.example.com/v1",
+      model: "legacy-model",
+      apiKey: "legacy-key",
+    }]);
+    expect(cleaned.openaiActiveProfileId).toBe("legacy");
+    expect(isOpenaiOcrConfigured(cleaned)).toBe(true);
   });
 });

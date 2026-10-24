@@ -10,14 +10,15 @@ const SERVICE: &str = "iPaste";
 const ACCOUNT: &str = "cloud_api_key";
 const ACCOUNT_DEVICE: &str = "device_sync_secret";
 const ACCOUNT_OPENAI_OCR: &str = "openai_ocr_api_key";
+pub(crate) const LEGACY_OPENAI_OCR_PROFILE_ID: &str = "legacy";
 
 /// 进程内读缓存。凭据库单次读取是跨进程 IPC（Windows 凭据管理器尤其明显），
 /// 而每次读设置（设置面板打开、状态刷新）都会回填 Key——把最近一次成功读到的
 /// 值按账户名缓存，写入口（put_*/delete_*）落库后立即失效对应条目，保证进程内
 /// 读写一致。失败读取不缓存（允许下轮重试）；这些条目的唯一写方就是本 app
 /// （设置保存 / 云同步开关），外部进程改库不在处理范围。
-fn cache() -> &'static Mutex<HashMap<&'static str, Option<String>>> {
-    static CACHE: OnceLock<Mutex<HashMap<&'static str, Option<String>>>> = OnceLock::new();
+fn cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -26,7 +27,7 @@ fn entry_for(account: &str) -> Result<Entry, String> {
 }
 
 /// 读缓存 → 未命中回源凭据库；仅成功结果入缓存。
-fn read_cached(account: &'static str) -> Result<Option<String>, String> {
+fn read_cached(account: &str) -> Result<Option<String>, String> {
     if let Some(hit) = cache()
         .lock()
         .expect("secrets 缓存锁中毒")
@@ -43,13 +44,13 @@ fn read_cached(account: &'static str) -> Result<Option<String>, String> {
     cache()
         .lock()
         .expect("secrets 缓存锁中毒")
-        .insert(account, value.clone());
+        .insert(account.to_string(), value.clone());
     Ok(value)
 }
 
 /// 写路径调用：丢弃缓存条目，下次读重新回源。删除即使失败也失效——
 /// 缓存只是读穿透层，失效最多多付一次读取，不会返回与库不符的值。
-fn invalidate_cached(account: &'static str) {
+fn invalidate_cached(account: &str) {
     cache().lock().expect("secrets 缓存锁中毒").remove(account);
 }
 
@@ -109,27 +110,53 @@ pub(crate) fn remove_legacy_bigmodel_api_key() {
     }
 }
 
+/// 配置 ID → 凭据库账户。legacy 沿用旧账户，保证历史 Key 无需迁移；
+/// 新配置使用带稳定 ID 的账户，重排或切换主接口不会串 Key。
+fn openai_ocr_profile_account(profile_id: &str) -> String {
+    if profile_id == LEGACY_OPENAI_OCR_PROFILE_ID {
+        ACCOUNT_OPENAI_OCR.to_string()
+    } else {
+        format!("{ACCOUNT_OPENAI_OCR}:{profile_id}")
+    }
+}
+
 /// 通用 OpenAI 兼容接口的 API Key（与智谱 Key 分账户，切换引擎互不影响）。
+/// 旧单配置入口等价于 legacy 配置。
 pub(crate) fn put_openai_ocr_api_key(value: &str) -> Result<(), String> {
-    entry_for(ACCOUNT_OPENAI_OCR)?
-        .set_password(value)
-        .map_err(|e| format!("写入系统凭据库失败：{e}"))?;
-    invalidate_cached(ACCOUNT_OPENAI_OCR);
-    Ok(())
+    put_openai_ocr_profile_api_key(LEGACY_OPENAI_OCR_PROFILE_ID, value)
 }
 
 pub(crate) fn get_openai_ocr_api_key() -> Result<Option<String>, String> {
-    read_cached(ACCOUNT_OPENAI_OCR)
+    get_openai_ocr_profile_api_key(LEGACY_OPENAI_OCR_PROFILE_ID)
 }
 
 /// 幂等删除（从未配置过视为成功）。
 pub(crate) fn delete_openai_ocr_api_key() -> Result<(), String> {
-    let result = match entry_for(ACCOUNT_OPENAI_OCR)?.delete_credential() {
+    delete_openai_ocr_profile_api_key(LEGACY_OPENAI_OCR_PROFILE_ID)
+}
+
+pub(crate) fn put_openai_ocr_profile_api_key(profile_id: &str, value: &str) -> Result<(), String> {
+    let account = openai_ocr_profile_account(profile_id);
+    entry_for(&account)?
+        .set_password(value)
+        .map_err(|e| format!("写入系统凭据库失败：{e}"))?;
+    invalidate_cached(&account);
+    Ok(())
+}
+
+pub(crate) fn get_openai_ocr_profile_api_key(profile_id: &str) -> Result<Option<String>, String> {
+    read_cached(&openai_ocr_profile_account(profile_id))
+}
+
+/// 幂等删除指定配置的 Key（从未配置过视为成功）。
+pub(crate) fn delete_openai_ocr_profile_api_key(profile_id: &str) -> Result<(), String> {
+    let account = openai_ocr_profile_account(profile_id);
+    let result = match entry_for(&account)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除系统凭据库条目失败：{e}")),
     };
-    invalidate_cached(ACCOUNT_OPENAI_OCR);
+    invalidate_cached(&account);
     result
 }
 
@@ -234,6 +261,39 @@ mod tests {
         delete_api_key().unwrap();
         assert_eq!(get_api_key().unwrap(), None);
         delete_api_key().unwrap(); // 幂等
+    }
+
+    #[test]
+    fn openai_profile_keys_use_independent_dynamic_accounts() {
+        let _store = temp_store();
+        let first = "openai_ocr_api_key:test-profile-a";
+        let second = "openai_ocr_api_key:test-profile-b";
+        let _ = delete_openai_ocr_profile_api_key("test-profile-a");
+        let _ = delete_openai_ocr_profile_api_key("test-profile-b");
+
+        put_openai_ocr_profile_api_key("test-profile-a", "key-a").unwrap();
+        put_openai_ocr_profile_api_key("test-profile-b", "key-b").unwrap();
+        assert_eq!(
+            get_openai_ocr_profile_api_key("test-profile-a").unwrap(),
+            Some("key-a".to_string())
+        );
+        assert_eq!(
+            get_openai_ocr_profile_api_key("test-profile-b").unwrap(),
+            Some("key-b".to_string())
+        );
+
+        delete_openai_ocr_profile_api_key("test-profile-a").unwrap();
+        assert_eq!(
+            get_openai_ocr_profile_api_key("test-profile-a").unwrap(),
+            None
+        );
+        assert_eq!(
+            get_openai_ocr_profile_api_key("test-profile-b").unwrap(),
+            Some("key-b".to_string())
+        );
+        delete_openai_ocr_profile_api_key("test-profile-b").unwrap();
+        assert_eq!(first, "openai_ocr_api_key:test-profile-a");
+        assert_eq!(second, "openai_ocr_api_key:test-profile-b");
     }
 
     #[test]

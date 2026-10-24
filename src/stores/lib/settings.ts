@@ -5,6 +5,7 @@ import type {
   Language,
   OcrEngine,
   OcrMode,
+  OpenaiOcrProfile,
   PanelLayout,
   PanelOpenBehavior,
 } from "../../types";
@@ -64,7 +65,30 @@ export function cleanOpenaiPrompts(prompts: unknown): CloudOcrPromptMessage[] {
   return cleaned.length > 0 ? cleaned : DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }));
 }
 
-/** 云 OCR（OpenAI 兼容）是否已配置齐 base/model/key（useOpenaiOcr 与引擎选择区共用）。 */
+export function cleanOpenaiProfiles(profiles: unknown): OpenaiOcrProfile[] {
+  if (!Array.isArray(profiles)) return [];
+  const seen = new Set<string>();
+  const cleaned: OpenaiOcrProfile[] = [];
+  for (const item of profiles) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    if (!id || seen.has(id)) continue;
+    const model = typeof raw.model === "string" ? raw.model : "";
+    const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : model || id;
+    cleaned.push({
+      id,
+      name,
+      baseUrl: typeof raw.baseUrl === "string" ? raw.baseUrl : "",
+      model,
+      apiKey: typeof raw.apiKey === "string" ? raw.apiKey : "",
+    });
+    seen.add(id);
+  }
+  return cleaned;
+}
+
+/** 云 OCR（OpenAI 兼容）是否至少有一个配置齐 base/model/key 的接口。 */
 /**
  * 设置项登记表（Task 37）：键名 → 后端命令 / 本地清洗器 / 写法语义的唯一来源。
  *
@@ -125,15 +149,49 @@ export type SettingKey = keyof typeof SETTINGS_SCHEMA;
 export const SETTING_KEYS = Object.keys(SETTINGS_SCHEMA) as SettingKey[];
 
 export function isOpenaiOcrConfigured(cloudOcr: CloudOcrSettings): boolean {
-  return Boolean(cloudOcr.openaiBaseUrl && cloudOcr.openaiModel && cloudOcr.openaiApiKey);
+  return (cloudOcr.openaiProfiles ?? []).some(
+    (profile) => profile.baseUrl && profile.model && profile.apiKey,
+  );
+}
+
+export function activeOpenaiOcrProfile(cloudOcr: CloudOcrSettings): OpenaiOcrProfile | null {
+  const profiles = cloudOcr.openaiProfiles ?? [];
+  return (
+    profiles.find((profile) => profile.id === cloudOcr.openaiActiveProfileId) ??
+    profiles[0] ??
+    null
+  );
 }
 
 export function cleanCloudOcrSettings(settings: unknown): CloudOcrSettings {
   const raw = settings && typeof settings === "object" ? (settings as Record<string, unknown>) : {};
+  let openaiProfiles = cleanOpenaiProfiles(raw.openaiProfiles);
+  // 兼容旧后端/旧快照：新列表缺失时把单配置合成为 legacy 接口。
+  if (!Array.isArray(raw.openaiProfiles)) {
+    const legacyBaseUrl = typeof raw.openaiBaseUrl === "string" ? raw.openaiBaseUrl : "";
+    const legacyModel = typeof raw.openaiModel === "string" ? raw.openaiModel : "";
+    const legacyApiKey = typeof raw.openaiApiKey === "string" ? raw.openaiApiKey : "";
+    if (legacyBaseUrl || legacyModel) {
+      openaiProfiles = [{
+        id: "legacy",
+        name: legacyModel || "OpenAI",
+        baseUrl: legacyBaseUrl,
+        model: legacyModel,
+        apiKey: legacyApiKey,
+      }];
+    }
+  }
+  const storedActiveId = typeof raw.openaiActiveProfileId === "string" ? raw.openaiActiveProfileId : "";
+  const openaiActiveProfileId = openaiProfiles.some((profile) => profile.id === storedActiveId)
+    ? storedActiveId
+    : openaiProfiles[0]?.id ?? "";
+  const active = openaiProfiles.find((profile) => profile.id === openaiActiveProfileId);
   return {
-    openaiBaseUrl: typeof raw.openaiBaseUrl === "string" ? raw.openaiBaseUrl : "",
-    openaiModel: typeof raw.openaiModel === "string" ? raw.openaiModel : "",
-    openaiApiKey: typeof raw.openaiApiKey === "string" ? raw.openaiApiKey : "",
+    openaiProfiles,
+    openaiActiveProfileId,
+    openaiBaseUrl: active?.baseUrl ?? "",
+    openaiModel: active?.model ?? "",
+    openaiApiKey: active?.apiKey ?? "",
     openaiPrompts: cleanOpenaiPrompts(raw.openaiPrompts),
   };
 }

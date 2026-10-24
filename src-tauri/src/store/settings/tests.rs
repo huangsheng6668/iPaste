@@ -44,6 +44,8 @@ fn settings_snapshot_is_stable() {
     assert!(settings.cloud.last_connected_at.is_none());
     assert_eq!(settings.cloud_ocr.openai_base_url, "");
     assert_eq!(settings.cloud_ocr.openai_model, "");
+    assert!(settings.cloud_ocr.openai_profiles.is_empty());
+    assert_eq!(settings.cloud_ocr.openai_active_profile_id, "");
     assert_eq!(settings.cloud_ocr.openai_prompts.len(), 2);
 
     // 指纹：字段顺序、命名与默认 Prompt 文案的任何变化都会改变它。
@@ -52,11 +54,14 @@ fn settings_snapshot_is_stable() {
     let mut masked = settings.clone();
     masked.cloud.api_key.clear();
     masked.cloud_ocr.openai_api_key.clear();
+    for profile in &mut masked.cloud_ocr.openai_profiles {
+        profile.api_key.clear();
+    }
     let json = serde_json::to_string(&masked).unwrap();
-    assert_eq!(json.len(), 827);
+    assert_eq!(json.len(), 874);
     assert_eq!(
         crate::util::hash_text(&json),
-        "a1f61a3f6f7b059d427a3ca00161b083783071fbb99e91616c6eb4daa672b1f1"
+        "fcee5e255877cf7157a51cd20ed8f5522a4bd4ebc0c9896b6cb4d9321967756e"
     );
 }
 
@@ -351,6 +356,199 @@ mod cloud_ocr_keyring_tests {
             "清空后回退默认 prompt"
         );
         assert_eq!(secrets::get_openai_ocr_api_key().unwrap(), None);
+    }
+
+    fn profile(id: &str, model: &str, api_key: &str) -> crate::models::OpenaiOcrProfile {
+        crate::models::OpenaiOcrProfile {
+            id: id.to_string(),
+            name: String::new(),
+            base_url: format!("https://{model}.example.com/v1/"),
+            model: model.to_string(),
+            api_key: api_key.to_string(),
+        }
+    }
+
+    #[test]
+    fn openai_profiles_round_trip_switch_and_delete_with_independent_keys() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_openai_ocr_api_key();
+        let store = temp_store();
+
+        let saved = store
+            .save_openai_ocr_profile(profile("", "model-a", " key-a "), None)
+            .unwrap();
+        let first_id = saved.cloud_ocr.openai_profiles[0].id.clone();
+        uuid::Uuid::parse_str(&first_id).unwrap();
+        assert_eq!(saved.cloud_ocr.openai_active_profile_id, first_id);
+        assert_eq!(saved.cloud_ocr.openai_profiles[0].name, "model-a");
+        assert_eq!(
+            saved.cloud_ocr.openai_base_url,
+            "https://model-a.example.com/v1"
+        );
+        assert_eq!(saved.cloud_ocr.openai_model, "model-a");
+        assert_eq!(saved.cloud_ocr.openai_api_key, "key-a");
+
+        let saved = store
+            .save_openai_ocr_profile(profile("", "model-b", "key-b"), None)
+            .unwrap();
+        let second_id = saved.cloud_ocr.openai_profiles[1].id.clone();
+        assert_eq!(
+            saved.cloud_ocr.openai_active_profile_id, first_id,
+            "后续新增不抢主配置"
+        );
+        assert_ne!(first_id, second_id);
+
+        let reloaded = store.settings().unwrap();
+        assert_eq!(reloaded.cloud_ocr.openai_profiles.len(), 2);
+        assert_eq!(reloaded.cloud_ocr.openai_profiles[0].api_key, "key-a");
+        assert_eq!(reloaded.cloud_ocr.openai_profiles[1].api_key, "key-b");
+        assert_eq!(
+            secrets::get_openai_ocr_profile_api_key(&first_id).unwrap(),
+            Some("key-a".to_string())
+        );
+        assert_eq!(
+            secrets::get_openai_ocr_profile_api_key(&second_id).unwrap(),
+            Some("key-b".to_string())
+        );
+        let conn = store.connect().unwrap();
+        let stored_profiles = store
+            .setting_value_with_conn(&conn, "openai_ocr_profiles")
+            .unwrap()
+            .unwrap();
+        assert!(!stored_profiles.contains("key-a"));
+        assert!(!stored_profiles.contains("key-b"));
+        assert!(!stored_profiles.contains("api_key"));
+
+        let switched = store
+            .set_openai_ocr_active_profile(second_id.clone())
+            .unwrap();
+        assert_eq!(switched.cloud_ocr.openai_active_profile_id, second_id);
+        assert_eq!(switched.cloud_ocr.openai_model, "model-b");
+        assert_eq!(switched.cloud_ocr.openai_api_key, "key-b");
+
+        let deleted = store.delete_openai_ocr_profile(second_id.clone()).unwrap();
+        assert_eq!(deleted.cloud_ocr.openai_profiles.len(), 1);
+        assert_eq!(deleted.cloud_ocr.openai_active_profile_id, first_id);
+        assert_eq!(deleted.cloud_ocr.openai_model, "model-a");
+        assert_eq!(
+            secrets::get_openai_ocr_profile_api_key(&second_id).unwrap(),
+            None
+        );
+        assert_eq!(
+            secrets::get_openai_ocr_profile_api_key(&first_id).unwrap(),
+            Some("key-a".to_string())
+        );
+
+        let emptied = store.delete_openai_ocr_profile(first_id.clone()).unwrap();
+        assert!(emptied.cloud_ocr.openai_profiles.is_empty());
+        assert_eq!(emptied.cloud_ocr.openai_active_profile_id, "");
+        assert_eq!(emptied.cloud_ocr.openai_base_url, "");
+        assert_eq!(emptied.cloud_ocr.openai_model, "");
+        assert_eq!(emptied.cloud_ocr.openai_api_key, "");
+        assert_eq!(
+            secrets::get_openai_ocr_profile_api_key(&first_id).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn legacy_openai_config_and_key_read_as_legacy_profile_without_migration() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_openai_ocr_api_key();
+        secrets::put_openai_ocr_api_key("legacy-key").unwrap();
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            for (key, value) in [
+                ("openai_ocr_base_url", "https://legacy.example.com/v1"),
+                ("openai_ocr_model", "legacy-model"),
+            ] {
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                    rusqlite::params![key, value],
+                )
+                .unwrap();
+            }
+        }
+
+        let settings = store.settings().unwrap();
+        assert_eq!(settings.cloud_ocr.openai_profiles.len(), 1);
+        let legacy = &settings.cloud_ocr.openai_profiles[0];
+        assert_eq!(legacy.id, "legacy");
+        assert_eq!(legacy.base_url, "https://legacy.example.com/v1");
+        assert_eq!(legacy.model, "legacy-model");
+        assert_eq!(legacy.api_key, "legacy-key");
+        assert_eq!(settings.cloud_ocr.openai_active_profile_id, "legacy");
+        assert_eq!(settings.cloud_ocr.openai_model, "legacy-model");
+        assert_eq!(settings.cloud_ocr.openai_api_key, "legacy-key");
+
+        let updated = store
+            .update_openai_ocr_config(
+                "https://legacy-new.example.com/v1".into(),
+                "legacy-new-model".into(),
+                "legacy-new-key".into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(updated.cloud_ocr.openai_profiles[0].id, "legacy");
+        assert_eq!(
+            updated.cloud_ocr.openai_profiles[0].api_key,
+            "legacy-new-key"
+        );
+        let conn = store.connect().unwrap();
+        assert_eq!(
+            store
+                .setting_value_with_conn(&conn, "openai_ocr_profiles")
+                .unwrap(),
+            None,
+            "旧更新命令不触发破坏性迁移"
+        );
+        let _ = store.clear_openai_ocr_config();
+    }
+
+    #[test]
+    fn invalid_profiles_json_falls_back_to_legacy_and_invalid_active_uses_first() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_openai_ocr_api_key();
+        secrets::put_openai_ocr_api_key("legacy-key").unwrap();
+        let store = temp_store();
+        {
+            let conn = store.connect().unwrap();
+            for (key, value) in [
+                ("openai_ocr_base_url", "https://legacy.example.com/v1"),
+                ("openai_ocr_model", "legacy-model"),
+                ("openai_ocr_profiles", "not-json"),
+            ] {
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                    rusqlite::params![key, value],
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(
+            store.settings().unwrap().cloud_ocr.openai_profiles[0].id,
+            "legacy"
+        );
+        store.clear_openai_ocr_config().unwrap();
+
+        let saved = store
+            .save_openai_ocr_profile(profile("", "model-a", "key-a"), None)
+            .unwrap();
+        let first_id = saved.cloud_ocr.openai_active_profile_id.clone();
+        store
+            .save_openai_ocr_profile(profile("", "model-b", "key-b"), None)
+            .unwrap();
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "UPDATE settings SET value = 'missing-profile' WHERE key = 'openai_ocr_active_profile'",
+            [],
+        )
+        .unwrap();
+        let settings = store.settings().unwrap();
+        assert_eq!(settings.cloud_ocr.openai_active_profile_id, first_id);
+        assert_eq!(settings.cloud_ocr.openai_model, "model-a");
+        let _ = store.clear_openai_ocr_config();
     }
 
     #[test]

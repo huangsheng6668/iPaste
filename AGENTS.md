@@ -12,7 +12,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 分类：创建、重命名、改色、排序，手动把历史片段存为快照。
 - 搜索历史与分类片段；键盘为主的选择与回贴流程。
 - 图片查看器与截图 OCR：支持图片预览、缩放、旋转、复制回剪贴板，以及 OCR 文本提取；提供全局快捷键（默认 `Command/Ctrl + Shift + O`）全屏遮罩选区截图，冻结多屏帧裁剪后自动识别并复制文本到剪贴板，弹出独立 OCR 结果窗口；OCR 结果窗与图片查看器均支持在本地引擎与 OpenAI 兼容云端端点间实时切换重跑。
-- 多 OCR 引擎支持：本地引擎（macOS 走系统 Vision、Windows 走 PaddleOCR 模型快速/精确模式）；日语·漫画专用 Manga-OCR（通过 `mocr_engine` 独立 ONNX 推理 sidecar 进程本地运行，Windows x64 / macOS Apple Silicon 原生无 Python 依赖，设置中提供模型下载，异常时安全回退至系统 OCR 或 Python 服务）；通用 OpenAI 兼容接口（支持各类视觉大模型，可自定义 System/User Prompt 消息列表与 `{recognition_language}` 语言占位符，API Key 安全存于系统凭据管理器）。
+- 多 OCR 引擎支持：本地引擎（macOS 走系统 Vision、Windows 走 PaddleOCR 模型快速/精确模式）；日语·漫画专用 Manga-OCR（通过 `mocr_engine` 独立 ONNX 推理 sidecar 进程本地运行，Windows x64 / macOS Apple Silicon 原生无 Python 依赖，设置中提供模型下载，异常时安全回退至系统 OCR 或 Python 服务）；通用 OpenAI 兼容接口（支持保存多个 Base URL/模型/Key 配置并指定主接口，429 限流时按列表顺序自动切换备用接口；可自定义共用 System/User Prompt 消息列表与 `{recognition_language}` 语言占位符，各接口 API Key 分别安全存于系统凭据管理器）。
 - 追加复制：临时合并多段文本复制。
 - 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。心跳死亡检测委托给 QUIC（conn.closed 监视任务），不做应用层漏 Pong 计数——对 spec §5 的既定偏差。剪贴板捕获即自动推送（文本/链接/颜色/HTML 自动，图片/文件手动，按设备三态偏好，含全局开关与回环抑制；追加复制合并期间不自动推送）。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。

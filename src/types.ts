@@ -88,6 +88,7 @@ export type { ScreenshotSelection, OcrResultPayload };
 export type { AppSettings, Language, OcrEngine, OcrMode, PanelLayout, PanelOpenBehavior };
 export type { CloudOcrSettings } from "./types/generated/CloudOcrSettings";
 export type { CloudOcrPromptMessage } from "./types/generated/CloudOcrPromptMessage";
+export type { OpenaiOcrProfile } from "./types/generated/OpenaiOcrProfile";
 export type { Category };
 
 // —— 事件 payload（沿用旧名）——

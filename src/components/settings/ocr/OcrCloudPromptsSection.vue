@@ -8,15 +8,22 @@ import {
   LoaderCircle,
   Plus,
   RotateCcw,
+  Server,
+  Star,
   Trash2,
   Unplug,
 } from "lucide-vue-next";
 import { t } from "../../../i18n";
 import { useOpenaiOcr } from "../../../composables/useOpenaiOcr";
+import type { OpenaiOcrProfile } from "../../../types";
 
-// OpenAI 兼容云 OCR 配置区（Base URL / 模型 / API Key / 自定义 Prompt 列表）：
-// 自持表单 composable，状态与动作全部来自它。
+// 多接口 OpenAI 兼容云 OCR：接口列表 + 当前编辑表单 + 共用 Prompt。
+// 识别时主接口优先，仅遇到 429 才按列表顺序切换。
 const {
+  profiles,
+  activeProfileId,
+  selectedProfileId,
+  profileName,
   openaiBaseUrl,
   openaiModel,
   openaiApiKey,
@@ -28,14 +35,37 @@ const {
   isSavingOpenai,
   openaiConfigured,
   openaiStatusText,
+  profileCount,
+  hasProfiles,
   formComplete,
+  isEditingExisting,
+  isEditingActive,
+  isCreatingNew,
+  selectProfile,
+  startNewProfile,
   addPrompt,
   removePrompt,
   restoreDefaultPrompts,
   testOpenai,
   saveOpenaiConfig,
+  setActiveProfile,
+  deleteProfile,
   clearOpenaiConfig,
 } = useOpenaiOcr();
+
+function displayName(profile: OpenaiOcrProfile) {
+  return profile.name.trim() || profile.model || profile.id;
+}
+
+function confirmDelete(profileId: string, name: string) {
+  if (!window.confirm(t("settings.openai.deleteConfirm", { name }))) return;
+  void deleteProfile(profileId);
+}
+
+function confirmClearAll() {
+  if (!window.confirm(t("settings.openai.clearConfirm"))) return;
+  void clearOpenaiConfig();
+}
 </script>
 
 <template>
@@ -64,37 +94,165 @@ const {
       {{ t("settings.openai.description") }}
     </p>
 
-    <label class="settings-field">
-      <span>{{ t("settings.openai.baseUrl") }}</span>
-      <input
-        v-model="openaiBaseUrl"
-        type="url"
-        placeholder="https://api.openai.com/v1"
-        spellcheck="false"
-      >
-    </label>
+    <!-- 接口列表 -->
+    <div class="ocr-profile-block">
+      <div class="ocr-profile-toolbar">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-[var(--text-2)]">
+              {{ t("settings.openai.profilesTitle") }}
+            </span>
+            <span class="ocr-profile-count">
+              {{ t("settings.openai.profileCount", { count: profileCount }) }}
+            </span>
+          </div>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-[var(--text-3)]">
+            {{ t("settings.openai.failoverHint") }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="ocr-profile-add"
+          @click="startNewProfile"
+        >
+          <Plus class="size-3.5" />
+          <span>{{ t("settings.openai.addProfile") }}</span>
+        </button>
+      </div>
 
-    <label class="settings-field">
-      <span>{{ t("settings.openai.model") }}</span>
-      <input
-        v-model="openaiModel"
-        type="text"
-        placeholder="glm-4v-flash"
-        spellcheck="false"
+      <div
+        v-if="hasProfiles"
+        class="ocr-profile-list"
       >
-    </label>
+        <div
+          v-for="profile in profiles"
+          :key="profile.id"
+          class="ocr-profile-row"
+          :class="{
+            'ocr-profile-row-active': profile.id === activeProfileId,
+            'ocr-profile-row-selected': profile.id === selectedProfileId,
+          }"
+        >
+          <button
+            type="button"
+            class="ocr-profile-main-toggle"
+            :class="{ 'ocr-profile-main-toggle-active': profile.id === activeProfileId }"
+            :aria-pressed="profile.id === activeProfileId"
+            :title="profile.id === activeProfileId ? t('settings.openai.activeProfile') : t('settings.openai.setActiveProfile')"
+            :aria-label="profile.id === activeProfileId ? t('settings.openai.activeProfile') : t('settings.openai.setActiveProfile')"
+            :disabled="isSavingOpenai"
+            @click="setActiveProfile(profile.id)"
+          >
+            <Star
+              class="size-4"
+              :fill="profile.id === activeProfileId ? 'currentColor' : 'none'"
+            />
+          </button>
 
-    <label class="settings-field">
-      <span>API Key</span>
-      <input
-        v-model="openaiApiKey"
-        type="password"
-        autocomplete="current-password"
-        spellcheck="false"
+          <button
+            type="button"
+            class="ocr-profile-info"
+            :aria-pressed="profile.id === selectedProfileId"
+            @click="selectProfile(profile.id)"
+          >
+            <span class="ocr-profile-name-line">
+              <span class="ocr-profile-name">{{ displayName(profile) }}</span>
+              <span
+                v-if="profile.id === activeProfileId"
+                class="ocr-profile-tag"
+              >
+                {{ t("settings.openai.active") }}
+              </span>
+            </span>
+            <span class="ocr-profile-endpoint">
+              {{ profile.model }} · {{ profile.baseUrl }}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            class="ocr-profile-delete"
+            :title="t('settings.openai.deleteProfile')"
+            :aria-label="t('settings.openai.deleteProfile')"
+            :disabled="isSavingOpenai"
+            @click="confirmDelete(profile.id, displayName(profile))"
+          >
+            <Trash2 class="size-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-else
+        class="ocr-profile-empty"
       >
-    </label>
+        <Server class="size-4 shrink-0 text-[var(--text-3)]" />
+        <span>{{ t("settings.openai.noProfiles") }}</span>
+      </div>
+    </div>
 
-    <!-- 自定义提示词（折叠区域） -->
+    <!-- 当前接口编辑区 -->
+    <div class="ocr-profile-editor">
+      <div class="ocr-profile-editor-heading">
+        <span class="text-xs font-semibold text-[var(--text-1)]">
+          {{ isEditingExisting ? t("settings.openai.editProfile") : t("settings.openai.newProfile") }}
+        </span>
+        <span
+          v-if="isEditingExisting && isEditingActive"
+          class="ocr-profile-tag"
+        >
+          {{ t("settings.openai.active") }}
+        </span>
+        <span
+          v-else-if="isCreatingNew && hasProfiles"
+          class="text-[11px] text-[var(--text-3)]"
+        >
+          {{ t("settings.openai.newProfileHint") }}
+        </span>
+      </div>
+
+      <label class="settings-field">
+        <span>{{ t("settings.openai.profileName") }}</span>
+        <input
+          v-model="profileName"
+          type="text"
+          :placeholder="t('settings.openai.profileNamePlaceholder')"
+          spellcheck="false"
+        >
+      </label>
+
+      <label class="settings-field">
+        <span>{{ t("settings.openai.baseUrl") }}</span>
+        <input
+          v-model="openaiBaseUrl"
+          type="url"
+          placeholder="https://api.openai.com/v1"
+          spellcheck="false"
+        >
+      </label>
+
+      <label class="settings-field">
+        <span>{{ t("settings.openai.model") }}</span>
+        <input
+          v-model="openaiModel"
+          type="text"
+          placeholder="glm-4v-flash"
+          spellcheck="false"
+        >
+      </label>
+
+      <label class="settings-field">
+        <span>API Key</span>
+        <input
+          v-model="openaiApiKey"
+          type="password"
+          autocomplete="current-password"
+          spellcheck="false"
+        >
+      </label>
+    </div>
+
+    <!-- 自定义提示词（所有接口共用，折叠区域） -->
     <div class="ocr-prompts-section mt-1 border-t border-[var(--border)] pt-3">
       <button
         type="button"
@@ -232,14 +390,31 @@ const {
         :disabled="isTestingOpenai || isSavingOpenai || !formComplete"
         @click="saveOpenaiConfig"
       >
-        <Cloud class="size-4" />
+        <LoaderCircle
+          v-if="isSavingOpenai"
+          class="size-4 update-spin"
+        />
+        <Cloud
+          v-else
+          class="size-4"
+        />
         <span>{{ isSavingOpenai ? t("common.saving") : t("settings.openai.save") }}</span>
+      </button>
+      <button
+        v-if="isEditingExisting && !isEditingActive"
+        type="button"
+        class="settings-action-button"
+        :disabled="isTestingOpenai || isSavingOpenai"
+        @click="setActiveProfile()"
+      >
+        <Star class="size-4" />
+        <span>{{ t("settings.openai.setActiveProfile") }}</span>
       </button>
       <button
         type="button"
         class="settings-action-button settings-action-button-danger"
-        :disabled="isTestingOpenai || isSavingOpenai || !openaiConfigured"
-        @click="clearOpenaiConfig"
+        :disabled="isTestingOpenai || isSavingOpenai || !hasProfiles"
+        @click="confirmClearAll"
       >
         <Unplug class="size-4" />
         <span>{{ t("settings.openai.clear") }}</span>

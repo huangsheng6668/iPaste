@@ -6,7 +6,7 @@
 use tauri::Emitter;
 
 use crate::events::EVENT_OCR_INSTALL_PROGRESS;
-use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus};
+use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus, OpenaiOcrProfile};
 // try_state 等方法来自 Manager trait；云引擎调度分支在 macOS 上也调用，
 // 导入不能按平台裁剪
 use tauri::Manager;
@@ -227,6 +227,22 @@ pub(crate) fn vision_language_locale(language: &str) -> Option<&'static str> {
     }
 }
 
+/// 主接口移到首位；其余保持设置中的列表顺序。只调整本次识别的副本，
+/// 不改变用户保存的接口顺序与主接口选择。
+fn ordered_openai_profiles(
+    mut profiles: Vec<OpenaiOcrProfile>,
+    active_profile_id: &str,
+) -> Vec<OpenaiOcrProfile> {
+    if let Some(index) = profiles
+        .iter()
+        .position(|profile| profile.id == active_profile_id)
+    {
+        let active = profiles.remove(index);
+        profiles.insert(0, active);
+    }
+    profiles
+}
+
 pub(crate) async fn recognize_image(
     app: tauri::AppHandle,
     image_path: String,
@@ -247,6 +263,8 @@ pub(crate) async fn recognize_image(
         .filter(|settings| settings.ocr_engine == crate::models::OcrEngine::Openai)
     {
         let cloud = settings.cloud_ocr;
+        let profiles =
+            ordered_openai_profiles(cloud.openai_profiles, &cloud.openai_active_profile_id);
         let img_path = image_path.clone();
         // manga 档位且语言为空时按日语提示
         let effective_language = if is_manga && language.is_none() {
@@ -255,12 +273,10 @@ pub(crate) async fn recognize_image(
             language.clone()
         };
         return tokio::task::spawn_blocking(move || {
-            openai::recognize_image_openai(
+            openai::recognize_image_openai_profiles(
                 &img_path,
                 effective_language.as_deref(),
-                &cloud.openai_base_url,
-                &cloud.openai_model,
-                &cloud.openai_api_key,
+                &profiles,
                 &cloud.openai_prompts,
             )
         })
@@ -312,7 +328,41 @@ pub(crate) async fn recognize_image(
 
 #[cfg(test)]
 mod language_tests {
-    use super::vision_language_locale;
+    use super::{ordered_openai_profiles, vision_language_locale};
+
+    fn profile(id: &str) -> crate::models::OpenaiOcrProfile {
+        crate::models::OpenaiOcrProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            base_url: format!("https://{id}.example.com/v1"),
+            model: id.to_string(),
+            api_key: "key".to_string(),
+        }
+    }
+
+    #[test]
+    fn ordered_openai_profiles_puts_active_first_and_keeps_rest_order() {
+        let ordered = ordered_openai_profiles(vec![profile("a"), profile("b"), profile("c")], "b");
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|profile| profile.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "a", "c"]
+        );
+    }
+
+    #[test]
+    fn ordered_openai_profiles_tolerates_missing_active() {
+        let ordered = ordered_openai_profiles(vec![profile("a"), profile("b")], "missing");
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|profile| profile.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
+    }
 
     #[test]
     fn vision_language_locale_maps_supported_ids() {

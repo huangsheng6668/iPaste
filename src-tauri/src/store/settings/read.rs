@@ -126,11 +126,11 @@ impl Store {
             return false;
         };
         match settings.ocr_engine.as_str() {
-            "openai" => {
-                !settings.cloud_ocr.openai_api_key.is_empty()
-                    && !settings.cloud_ocr.openai_base_url.is_empty()
-                    && !settings.cloud_ocr.openai_model.is_empty()
-            }
+            "openai" => settings.cloud_ocr.openai_profiles.iter().any(|profile| {
+                !profile.api_key.is_empty()
+                    && !profile.base_url.is_empty()
+                    && !profile.model.is_empty()
+            }),
             _ => false,
         }
     }

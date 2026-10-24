@@ -27,6 +27,7 @@ import type {
   CloudSettings,
   Language,
   OcrEngine,
+  OpenaiOcrProfile,
   OcrMode,
   PanelLayout,
   PanelOpenBehavior,
@@ -54,6 +55,8 @@ export const useSettingsStore = defineStore("settings", () => {
     lastConnectedAt: null,
   });
   const cloudOcr = ref<CloudOcrSettings>({
+    openaiProfiles: [],
+    openaiActiveProfileId: "",
     openaiBaseUrl: "",
     openaiModel: "",
     openaiApiKey: "",
@@ -127,6 +130,24 @@ export const useSettingsStore = defineStore("settings", () => {
     );
   }
 
+  async function saveOpenaiOcrProfile(profile: OpenaiOcrProfile, prompts?: CloudOcrPromptMessage[]) {
+    return writeSetting("save_openai_ocr_profile", () =>
+      ipasteApi.saveOpenaiOcrProfile(profile, prompts),
+    );
+  }
+
+  async function setOpenaiOcrActiveProfile(profileId: string) {
+    return writeSetting("set_openai_ocr_active_profile", () =>
+      ipasteApi.setOpenaiOcrActiveProfile(profileId),
+    );
+  }
+
+  async function deleteOpenaiOcrProfile(profileId: string) {
+    return writeSetting("delete_openai_ocr_profile", () =>
+      ipasteApi.deleteOpenaiOcrProfile(profileId),
+    );
+  }
+
   async function clearOpenaiOcrConfig() {
     await writeSetting("clear_openai_ocr_config", () => ipasteApi.clearOpenaiOcrConfig());
   }
@@ -187,11 +208,13 @@ export const useSettingsStore = defineStore("settings", () => {
       onApplied?: () => void | Promise<void>;
       tolerateMissing?: boolean;
     } = {},
-  ): Promise<void> {
+  ): Promise<AppSettings | undefined> {
     options.optimistic?.();
     try {
-      applySettings(await save());
+      const next = await save();
+      applySettings(next);
       await options.onApplied?.();
+      return next;
     } catch (unknownError) {
       if (options.tolerateMissing && isCommandMissing(unknownError, command)) return;
       options.rollback?.();
@@ -255,6 +278,9 @@ export const useSettingsStore = defineStore("settings", () => {
     updateOcrEngine,
     updateLanguage,
     saveOpenaiOcrConfig,
+    saveOpenaiOcrProfile,
+    setOpenaiOcrActiveProfile,
+    deleteOpenaiOcrProfile,
     clearOpenaiOcrConfig,
     testOpenaiOcr,
   };

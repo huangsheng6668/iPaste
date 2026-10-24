@@ -167,6 +167,8 @@ const mockSnapshot: AppSnapshot = {
       lastConnectedAt: null,
     },
     cloudOcr: {
+      openaiProfiles: [],
+      openaiActiveProfileId: "",
       openaiBaseUrl: "",
       openaiModel: "",
       openaiApiKey: "",

@@ -3,6 +3,7 @@ import { subscribe } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
 import { useIpasteStore } from "../stores/ipasteStore";
+import { isOpenaiOcrConfigured } from "../stores/lib/settings";
 import { useSettingsStore } from "../stores/settingsStore";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrEngine, SettingsChangedEvent } from "../types";
@@ -29,9 +30,7 @@ export function useOcrEngineSelect() {
     {
       value: "openai",
       label: t("settings.openai.engineOpenai"),
-      ready: Boolean(
-        settings.cloudOcr.openaiBaseUrl && settings.cloudOcr.openaiModel && settings.cloudOcr.openaiApiKey,
-      ),
+      ready: isOpenaiOcrConfigured(settings.cloudOcr),
     },
   ]);
 

@@ -97,7 +97,14 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     ocrEngine: "local",
     language: "en",
     cloud: { apiAddress: "", apiKey: "", enabled: false, lastConnectedAt: null },
-    cloudOcr: { openaiBaseUrl: "", openaiModel: "", openaiApiKey: "", openaiPrompts: [] },
+    cloudOcr: {
+      openaiProfiles: [],
+      openaiActiveProfileId: "",
+      openaiBaseUrl: "",
+      openaiModel: "",
+      openaiApiKey: "",
+      openaiPrompts: [],
+    },
     ...overrides,
   };
 }

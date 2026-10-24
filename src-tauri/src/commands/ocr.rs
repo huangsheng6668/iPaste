@@ -2,7 +2,7 @@
 use crate::error::AppError;
 use crate::models::{
     AppSettings, AppState, CloudOcrPromptMessage, ImageOcrResult, OcrInstallStatus,
-    OcrResultPayload,
+    OcrResultPayload, OpenaiOcrProfile,
 };
 use crate::util::{clean_api_key, clean_openai_base_url, clean_openai_model};
 
@@ -86,6 +86,34 @@ pub(crate) fn update_openai_ocr_config(
             .store
             .update_openai_ocr_config(base_url, model, api_key, prompts),
     )
+}
+
+#[tauri::command]
+pub(crate) fn save_openai_ocr_profile(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    profile: OpenaiOcrProfile,
+    prompts: Option<Vec<CloudOcrPromptMessage>>,
+) -> Result<AppSettings, AppError> {
+    apply_settings_update(&app, state.store.save_openai_ocr_profile(profile, prompts))
+}
+
+#[tauri::command]
+pub(crate) fn set_openai_ocr_active_profile(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    profile_id: String,
+) -> Result<AppSettings, AppError> {
+    apply_settings_update(&app, state.store.set_openai_ocr_active_profile(profile_id))
+}
+
+#[tauri::command]
+pub(crate) fn delete_openai_ocr_profile(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    profile_id: String,
+) -> Result<AppSettings, AppError> {
+    apply_settings_update(&app, state.store.delete_openai_ocr_profile(profile_id))
 }
 
 #[tauri::command]

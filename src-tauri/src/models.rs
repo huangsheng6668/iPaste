@@ -375,13 +375,29 @@ pub(crate) fn default_openai_ocr_prompts() -> Vec<CloudOcrPromptMessage> {
     ]
 }
 
-/// 云 OCR 配置：通用 OpenAI 兼容接口（Base URL + 模型 + Key + 自定义 Prompt 列表），
-/// 任意兼容厂商可接。Key 存系统凭据库（settings 列空串占位），仅在读取设置时回填
-/// 给前端展示；Base URL、模型名与 Prompt 列表为普通 KV。
+/// 一个 OpenAI 兼容 OCR 接口。Key 仅在系统凭据库持久化，此处用于命令与设置快照传输。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct OpenaiOcrProfile {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) model: String,
+    pub(crate) api_key: String,
+}
+
+/// 云 OCR 配置：多个通用 OpenAI 兼容接口 + 当前主接口 + 所有接口共用的 Prompt。
+/// 每个接口的 Key 分别存系统凭据库（settings 列不落密钥），读取设置时回填；
+/// 旧单配置字段保留为当前主接口镜像，供旧前端与旧命令契约兼容。
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub(crate) struct CloudOcrSettings {
+    #[serde(default)]
+    pub(crate) openai_profiles: Vec<OpenaiOcrProfile>,
+    #[serde(default)]
+    pub(crate) openai_active_profile_id: String,
     pub(crate) openai_base_url: String,
     pub(crate) openai_model: String,
     pub(crate) openai_api_key: String,

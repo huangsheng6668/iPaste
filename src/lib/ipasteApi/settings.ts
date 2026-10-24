@@ -1,6 +1,45 @@
-import type { AppInfo, AppSettings, AppSnapshot, CloudOcrPromptMessage, Language, OcrMode } from "../../types";
+import type {
+  AppInfo,
+  AppSettings,
+  AppSnapshot,
+  CloudOcrPromptMessage,
+  CloudOcrSettings,
+  Language,
+  OcrMode,
+  OpenaiOcrProfile,
+} from "../../types";
 import { call } from "./call";
 import { DEFAULT_OPENAI_OCR_PROMPTS, fallbackAppInfo, mockSettings, mockSnapshot } from "./mockBackend";
+
+let mockCloudOcr: CloudOcrSettings = {
+  openaiProfiles: [],
+  openaiActiveProfileId: "",
+  openaiBaseUrl: "",
+  openaiModel: "",
+  openaiApiKey: "",
+  openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
+};
+
+function applyMockCloudOcr(
+  profiles: OpenaiOcrProfile[],
+  activeProfileId: string,
+  prompts = mockCloudOcr.openaiPrompts,
+): AppSettings {
+  // call() 在浏览器模式会用 structuredClone 复制 fallback，Vue reactive 代理不可克隆，
+  // 因此 mock 状态始终存普通对象副本。
+  const safeProfiles = profiles.map((profile) => ({ ...profile }));
+  const safePrompts = prompts.map((prompt) => ({ ...prompt }));
+  const active = safeProfiles.find((profile) => profile.id === activeProfileId) ?? safeProfiles[0];
+  mockCloudOcr = {
+    openaiProfiles: safeProfiles,
+    openaiActiveProfileId: active?.id ?? "",
+    openaiBaseUrl: active?.baseUrl ?? "",
+    openaiModel: active?.model ?? "",
+    openaiApiKey: active?.apiKey ?? "",
+    openaiPrompts: safePrompts,
+  };
+  return mockSettings({ cloudOcr: mockCloudOcr });
+}
 
 /** 设置域：应用设置项更新、云同步配置、快捷键、开机自启与设置窗口。 */
 export const settingsApi = {
@@ -36,19 +75,37 @@ export const settingsApi = {
   },
   updateOpenaiOcrConfig(baseUrl: string, model: string, apiKey: string, prompts?: CloudOcrPromptMessage[]) {
     const effectivePrompts = prompts ?? DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }));
-    return call<AppSettings>("update_openai_ocr_config", { baseUrl, model, apiKey, prompts: effectivePrompts }, mockSettings({
-      cloudOcr: { openaiBaseUrl: baseUrl, openaiModel: model, openaiApiKey: apiKey, openaiPrompts: effectivePrompts },
-    }));
+    const profile: OpenaiOcrProfile = {
+      id: mockCloudOcr.openaiActiveProfileId || "legacy",
+      name: model,
+      baseUrl,
+      model,
+      apiKey,
+    };
+    const profiles = mockCloudOcr.openaiProfiles.length
+      ? mockCloudOcr.openaiProfiles.map((item) => item.id === profile.id ? profile : item)
+      : [profile];
+    return call<AppSettings>("update_openai_ocr_config", { baseUrl, model, apiKey, prompts: effectivePrompts }, applyMockCloudOcr(profiles, profile.id, effectivePrompts));
+  },
+  saveOpenaiOcrProfile(profile: OpenaiOcrProfile, prompts?: CloudOcrPromptMessage[]) {
+    const id = profile.id || crypto.randomUUID();
+    const saved = { ...profile, id, name: profile.name || profile.model };
+    const profiles = mockCloudOcr.openaiProfiles.some((item) => item.id === id)
+      ? mockCloudOcr.openaiProfiles.map((item) => item.id === id ? saved : item)
+      : [...mockCloudOcr.openaiProfiles, saved];
+    const activeId = mockCloudOcr.openaiActiveProfileId || id;
+    const effectivePrompts = prompts ?? mockCloudOcr.openaiPrompts;
+    return call<AppSettings>("save_openai_ocr_profile", { profile: saved, prompts: effectivePrompts }, applyMockCloudOcr(profiles, activeId, effectivePrompts));
+  },
+  setOpenaiOcrActiveProfile(profileId: string) {
+    return call<AppSettings>("set_openai_ocr_active_profile", { profileId }, applyMockCloudOcr(mockCloudOcr.openaiProfiles, profileId));
+  },
+  deleteOpenaiOcrProfile(profileId: string) {
+    const profiles = mockCloudOcr.openaiProfiles.filter((profile) => profile.id !== profileId);
+    return call<AppSettings>("delete_openai_ocr_profile", { profileId }, applyMockCloudOcr(profiles, mockCloudOcr.openaiActiveProfileId === profileId ? profiles[0]?.id ?? "" : mockCloudOcr.openaiActiveProfileId));
   },
   clearOpenaiOcrConfig() {
-    return call<AppSettings>("clear_openai_ocr_config", undefined, mockSettings({
-      cloudOcr: {
-        openaiBaseUrl: "",
-        openaiModel: "",
-        openaiApiKey: "",
-        openaiPrompts: DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item })),
-      },
-    }));
+    return call<AppSettings>("clear_openai_ocr_config", undefined, applyMockCloudOcr([], "", DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }))));
   },
   testOpenaiOcr(baseUrl: string, model: string, apiKey: string, prompts?: CloudOcrPromptMessage[]) {
     return call<boolean>("test_openai_ocr", { baseUrl, model, apiKey, prompts }, true);

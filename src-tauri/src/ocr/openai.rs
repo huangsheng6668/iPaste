@@ -1,6 +1,7 @@
 //! 通用 OpenAI 兼容云 OCR：POST {base}/chat/completions，视觉模型识图取文。
-//! 任意兼容厂商可接（智谱 GLM-4V、OpenAI GPT-4o、Qwen-VL、本地 vLLM/Ollama 等），
-//! 由设置提供 Base URL + 模型名 + API Key。
+//! 任意兼容厂商可接（智谱 GLM-4V、OpenAI GPT-4o、Qwen-VL、本地 vLLM/Ollama 等）。
+//! 支持多个 Base URL + 模型名 + API Key 配置：主接口优先，仅 HTTP 429 时按配置
+//! 顺序切换备用接口；其他错误立即返回，避免无意义重复请求与计费。
 //! 响应为纯文本（无词级坐标），行为对齐 mocr：每个非空行一个零尺寸词——
 //! 前端 useImageOcr 会过滤零尺寸词并回退展示整段 text。
 
@@ -9,12 +10,30 @@ use std::time::Duration;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use crate::models::{ImageOcrResult, ImageOcrWord};
+use crate::models::{ImageOcrResult, ImageOcrWord, OpenaiOcrProfile};
 
 pub(crate) const OPENAI_OCR_ENGINE_ID: &str = "openai";
 const OPENAI_OCR_TIMEOUT: Duration = Duration::from_secs(60);
 /// 视觉模型通常对长图输出有限额，4096 是各主流厂商都接受的安全默认。
 const OPENAI_OCR_MAX_TOKENS: u32 = 4096;
+
+/// HTTP 层错误保留状态码，供上层仅对 429 做接口切换。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenaiRequestError {
+    pub(crate) status: Option<u16>,
+    pub(crate) message: String,
+}
+
+impl OpenaiRequestError {
+    fn new(status: Option<u16>, message: String) -> Self {
+        Self { status, message }
+    }
+
+    #[cfg(test)]
+    fn http(status: u16, message: &str) -> Self {
+        Self::new(Some(status), message.to_string())
+    }
+}
 
 #[derive(Serialize)]
 struct ChatRequest {
@@ -92,22 +111,82 @@ pub(crate) fn localized_language_name(language: Option<&str>) -> &'static str {
     }
 }
 
-/// 云识别入口：读文件 → base64 内联 → chat/completions → 纯文本结果。
-pub(crate) fn recognize_image_openai(
+fn profile_is_complete(profile: &OpenaiOcrProfile) -> bool {
+    !profile.base_url.trim().is_empty()
+        && !profile.model.trim().is_empty()
+        && !profile.api_key.trim().is_empty()
+}
+
+fn profile_label(profile: &OpenaiOcrProfile) -> &str {
+    if profile.name.trim().is_empty() {
+        &profile.model
+    } else {
+        &profile.name
+    }
+}
+
+fn run_profile_failover<T>(
+    profiles: &[OpenaiOcrProfile],
+    mut attempt: impl FnMut(&OpenaiOcrProfile) -> Result<T, OpenaiRequestError>,
+) -> Result<T, String> {
+    let mut last_rate_limit = None;
+    for profile in profiles {
+        match attempt(profile) {
+            Ok(value) => return Ok(value),
+            Err(error) if error.status == Some(429) => {
+                last_rate_limit = Some(error.message);
+            }
+            Err(error) => {
+                return Err(format!(
+                    "接口「{}」{}",
+                    profile_label(profile),
+                    error.message
+                ));
+            }
+        }
+    }
+
+    match last_rate_limit {
+        Some(message) => Err(format!(
+            "所有可用的 OpenAI 兼容接口均触发限流（HTTP 429），请稍后重试或补充接口。最后一次响应：{message}"
+        )),
+        None => Err(
+            "OpenAI 兼容接口未配置完整（需要接口地址、模型与 API Key），请在 设置 → 图片 OCR 中保存"
+                .to_string(),
+        ),
+    }
+}
+
+/// 多接口识别：主接口由调用方排在首位，后续按设置中的顺序尝试。
+/// 只有 429 才切下一个；其他错误保留接口名并立即返回，避免重复计费。
+pub(crate) fn recognize_image_openai_profiles(
     image_path: &str,
     language: Option<&str>,
-    base_url: &str,
-    model: &str,
-    api_key: &str,
+    profiles: &[OpenaiOcrProfile],
     prompts: &[crate::models::CloudOcrPromptMessage],
 ) -> Result<ImageOcrResult, String> {
-    if base_url.trim().is_empty() || model.trim().is_empty() || api_key.trim().is_empty() {
+    let usable: Vec<OpenaiOcrProfile> = profiles
+        .iter()
+        .filter(|profile| profile_is_complete(profile))
+        .cloned()
+        .collect();
+    if usable.is_empty() {
         return Err(
             "OpenAI 兼容接口未配置完整（需要接口地址、模型与 API Key），请在 设置 → 图片 OCR 中保存"
                 .to_string(),
         );
     }
-    let text = transcribe_image(image_path, language, base_url, model, api_key, prompts)?;
+
+    let bytes = std::fs::read(image_path).map_err(|error| format!("读取图片失败：{error}"))?;
+    let mime = image_mime_from_path(image_path);
+    let text = run_profile_failover(&usable, |profile| {
+        let request = build_request(&bytes, mime, language, &profile.model, prompts);
+        send_request(
+            &chat_completions_url(&profile.base_url),
+            &profile.api_key,
+            &request,
+        )
+    })?;
     Ok(build_result(&text, language))
 }
 
@@ -126,33 +205,10 @@ pub(crate) fn test_connection(
         .map_err(|error| format!("生成测试图片失败：{error}"))?;
     let effective_prompts = prompts.unwrap_or(&[]);
     let request = build_request(&png, "image/png", None, model, effective_prompts);
-    let content = send_request(&chat_completions_url(base_url), api_key, &request)?;
+    let content = send_request(&chat_completions_url(base_url), api_key, &request)
+        .map_err(|error| error.message)?;
     let _ = content;
     Ok(())
-}
-
-fn transcribe_image(
-    image_path: &str,
-    language: Option<&str>,
-    base_url: &str,
-    model: &str,
-    api_key: &str,
-    prompts: &[crate::models::CloudOcrPromptMessage],
-) -> Result<String, String> {
-    let bytes = std::fs::read(image_path).map_err(|error| format!("读取图片失败：{error}"))?;
-    let request = build_request(
-        &bytes,
-        image_mime_from_path(image_path),
-        language,
-        model,
-        prompts,
-    );
-    let content = send_request(&chat_completions_url(base_url), api_key, &request)?;
-    if content.trim().is_empty() {
-        Ok(String::new())
-    } else {
-        Ok(content.trim().to_string())
-    }
 }
 
 fn build_request(
@@ -219,48 +275,58 @@ fn build_request(
     }
 }
 
-fn send_request(url: &str, api_key: &str, request: &ChatRequest) -> Result<String, String> {
+fn send_request(
+    url: &str,
+    api_key: &str,
+    request: &ChatRequest,
+) -> Result<String, OpenaiRequestError> {
     let client = reqwest::blocking::Client::builder()
         .timeout(OPENAI_OCR_TIMEOUT)
         .build()
-        .map_err(|error| format!("OpenAI 兼容接口客户端构建失败：{error}"))?;
+        .map_err(|error| {
+            OpenaiRequestError::new(None, format!("OpenAI 兼容接口客户端构建失败：{error}"))
+        })?;
 
     let response = client
         .post(url)
         .bearer_auth(api_key)
         .json(request)
         .send()
-        .map_err(|error| format!("OpenAI 兼容接口请求失败：{error}"))?;
+        .map_err(|error| {
+            OpenaiRequestError::new(None, format!("OpenAI 兼容接口请求失败：{error}"))
+        })?;
 
     let http_status = response.status();
-    let body = response
-        .text()
-        .map_err(|error| format!("OpenAI 兼容接口响应读取失败：{error}"))?;
+    let body = response.text().map_err(|error| {
+        OpenaiRequestError::new(None, format!("OpenAI 兼容接口响应读取失败：{error}"))
+    })?;
     if !http_status.is_success() {
         return Err(error_message_from_body(http_status.as_u16(), &body));
     }
-    let parsed: ChatResponse = serde_json::from_str(&body)
-        .map_err(|error| format!("OpenAI 兼容接口响应解析失败：{error}"))?;
+    let parsed: ChatResponse = serde_json::from_str(&body).map_err(|error| {
+        OpenaiRequestError::new(None, format!("OpenAI 兼容接口响应解析失败：{error}"))
+    })?;
     parsed
         .choices
         .into_iter()
         .next()
         .map(|choice| choice.message.content)
-        .ok_or_else(|| "OpenAI 兼容接口响应缺少 choices".to_string())
+        .ok_or_else(|| OpenaiRequestError::new(None, "OpenAI 兼容接口响应缺少 choices".to_string()))
 }
 
 /// HTTP 错误体 `{error:{message}}` → 用户可读错误（Key 无效/模型不存在/额度不足等）。
-fn error_message_from_body(http_status: u16, body: &str) -> String {
+fn error_message_from_body(http_status: u16, body: &str) -> OpenaiRequestError {
     let message = serde_json::from_str::<OpenAiErrorBody>(body)
         .ok()
         .map(|body| body.error.message)
         .filter(|message| !message.is_empty())
         .unwrap_or_default();
-    if message.is_empty() {
+    let message = if message.is_empty() {
         format!("OpenAI 兼容接口调用失败（HTTP {http_status}）")
     } else {
         format!("OpenAI 兼容接口调用失败：{message}")
-    }
+    };
+    OpenaiRequestError::new(Some(http_status), message)
 }
 
 fn build_result(text: &str, language: Option<&str>) -> ImageOcrResult {
@@ -367,19 +433,89 @@ mod tests {
         let body =
             r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}"#;
         let error = error_message_from_body(401, body);
-        assert!(error.contains("Incorrect API key"), "got: {error}");
+        assert_eq!(error.status, Some(401));
+        assert!(
+            error.message.contains("Incorrect API key"),
+            "got: {}",
+            error.message
+        );
     }
 
     #[test]
     fn error_message_from_body_falls_back_to_http_status() {
         let error = error_message_from_body(503, "gateway text");
-        assert!(error.contains("503"), "got: {error}");
+        assert_eq!(error.status, Some(503));
+        assert!(error.message.contains("503"), "got: {}", error.message);
+    }
+
+    #[test]
+    fn error_message_from_body_marks_429_rate_limit() {
+        let error = error_message_from_body(429, r#"{"error":{"message":"quota exceeded"}}"#);
+        assert_eq!(error.status, Some(429));
+        assert!(error.message.contains("quota exceeded"));
     }
 
     #[test]
     fn missing_config_is_guided_error() {
-        let error = recognize_image_openai("x.png", None, " ", "model", "", &[]).unwrap_err();
+        let mut incomplete = profile("missing");
+        incomplete.api_key.clear();
+        let error = recognize_image_openai_profiles("x.png", None, &[incomplete], &[]).unwrap_err();
         assert!(error.contains("OpenAI 兼容接口"), "got: {error}");
+    }
+
+    fn profile(id: &str) -> crate::models::OpenaiOcrProfile {
+        crate::models::OpenaiOcrProfile {
+            id: id.to_string(),
+            name: format!("接口 {id}"),
+            base_url: format!("https://{id}.example.com/v1"),
+            model: format!("model-{id}"),
+            api_key: format!("key-{id}"),
+        }
+    }
+
+    #[test]
+    fn profile_failover_switches_only_after_429() {
+        let profiles = vec![profile("a"), profile("b")];
+        let mut attempted = Vec::new();
+        let result = run_profile_failover(&profiles, |candidate| {
+            attempted.push(candidate.id.clone());
+            if candidate.id == "a" {
+                Err(OpenaiRequestError::http(429, "quota exceeded"))
+            } else {
+                Ok("recognized")
+            }
+        })
+        .unwrap();
+        assert_eq!(attempted, vec!["a", "b"]);
+        assert_eq!(result, "recognized");
+    }
+
+    #[test]
+    fn profile_failover_does_not_switch_on_non_429() {
+        let profiles = vec![profile("a"), profile("b")];
+        let mut attempted = Vec::new();
+        let error = run_profile_failover(&profiles, |candidate| {
+            attempted.push(candidate.id.clone());
+            Err::<(), _>(OpenaiRequestError::http(401, "invalid key"))
+        })
+        .unwrap_err();
+        assert_eq!(attempted, vec!["a"], "鉴权错误不应无意义地打其他接口");
+        assert!(error.contains("接口 a"), "got: {error}");
+        assert!(error.contains("invalid key"), "got: {error}");
+    }
+
+    #[test]
+    fn profile_failover_reports_rate_limit_after_all_candidates() {
+        let profiles = vec![profile("a"), profile("b")];
+        let mut attempted = Vec::new();
+        let error = run_profile_failover::<()>(&profiles, |candidate| {
+            attempted.push(candidate.id.clone());
+            Err(OpenaiRequestError::http(429, "quota exceeded"))
+        })
+        .unwrap_err();
+        assert_eq!(attempted, vec!["a", "b"]);
+        assert!(error.contains("429"), "got: {error}");
+        assert!(error.contains("限流"), "got: {error}");
     }
 
     #[test]
