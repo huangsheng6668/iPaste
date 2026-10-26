@@ -88,14 +88,20 @@ export const settingsApi = {
     return call<AppSettings>("update_openai_ocr_config", { baseUrl, model, apiKey, prompts: effectivePrompts }, applyMockCloudOcr(profiles, profile.id, effectivePrompts));
   },
   saveOpenaiOcrProfile(profile: OpenaiOcrProfile, prompts?: CloudOcrPromptMessage[]) {
-    const id = profile.id || crypto.randomUUID();
-    const saved = { ...profile, id, name: profile.name || profile.model };
-    const profiles = mockCloudOcr.openaiProfiles.some((item) => item.id === id)
-      ? mockCloudOcr.openaiProfiles.map((item) => item.id === id ? saved : item)
-      : [...mockCloudOcr.openaiProfiles, saved];
-    const activeId = mockCloudOcr.openaiActiveProfileId || id;
     const effectivePrompts = prompts ?? mockCloudOcr.openaiPrompts;
-    return call<AppSettings>("save_openai_ocr_profile", { profile: saved, prompts: effectivePrompts }, applyMockCloudOcr(profiles, activeId, effectivePrompts));
+    // 新接口的 UUID 必须由 Rust 生成：非空 ID 在命令层表示“更新已有接口”。
+    // 浏览器 mock 自己生成一个，仅用于 fallback，不混入真实 Tauri 参数。
+    const mockId = profile.id || crypto.randomUUID();
+    const mockSaved = { ...profile, id: mockId, name: profile.name || profile.model };
+    const mockProfiles = mockCloudOcr.openaiProfiles.some((item) => item.id === mockId)
+      ? mockCloudOcr.openaiProfiles.map((item) => item.id === mockId ? mockSaved : item)
+      : [...mockCloudOcr.openaiProfiles, mockSaved];
+    const activeId = mockCloudOcr.openaiActiveProfileId || mockId;
+    return call<AppSettings>(
+      "save_openai_ocr_profile",
+      { profile: { ...profile }, prompts: effectivePrompts.map((item) => ({ ...item })) },
+      applyMockCloudOcr(mockProfiles, activeId, effectivePrompts),
+    );
   },
   setOpenaiOcrActiveProfile(profileId: string) {
     return call<AppSettings>("set_openai_ocr_active_profile", { profileId }, applyMockCloudOcr(mockCloudOcr.openaiProfiles, profileId));
