@@ -46,7 +46,7 @@ export function useOcrEngineSelect(currentEngine?: () => OcrEngine) {
         { value: "local", label: t("settings.bigmodel.engineLocal"), ready: true },
         ...profiles.map((profile) => ({
           value: `openai:${profile.id}`,
-          label: `${baseLabel} · ${profile.name.trim() || profile.model}`,
+          label: `OpenAI · ${profile.name.trim() || profile.model}`,
           ready: true,
         })),
       ];

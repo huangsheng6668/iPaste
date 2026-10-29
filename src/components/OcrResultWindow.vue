@@ -162,10 +162,15 @@ async function openImage() {
       class="ocr-result-header"
       @mousedown="startWindowDrag"
     >
-      <ScanText class="size-4 text-[var(--accent)]" />
-      <h1 class="ocr-result-title">
-        {{ t("ocrScreenshot.title") }}
-      </h1>
+      <div class="ocr-result-brand">
+        <span class="ocr-result-icon-badge">
+          <ScanText class="size-3.5" />
+        </span>
+        <h1 class="ocr-result-title">
+          {{ t("ocrScreenshot.title") }}
+        </h1>
+      </div>
+
       <div
         class="ocr-result-profiles"
         @mousedown.stop
@@ -189,27 +194,7 @@ async function openImage() {
           {{ t("ocrScreenshot.profileManga") }}
         </button>
       </div>
-      <OcrEngineSelect
-        :engine="settings.ocrEngine"
-        :disabled="status === 'loading'"
-        @rerun="runRecognition(selectedProfile)"
-      />
-      <select
-        class="ocr-language-select"
-        :value="selectedOcrLanguage"
-        :disabled="status === 'loading'"
-        :aria-label="t('ocr.languageLabel')"
-        @mousedown.stop
-        @change="selectLanguage"
-      >
-        <option
-          v-for="option in OCR_LANGUAGE_OPTIONS"
-          :key="option.id"
-          :value="option.id"
-        >
-          {{ t(option.labelKey) }}
-        </option>
-      </select>
+
       <button
         type="button"
         class="ocr-result-close"
@@ -221,19 +206,52 @@ async function openImage() {
       </button>
     </header>
 
+    <div
+      class="ocr-result-toolbar"
+      @mousedown.stop
+    >
+      <OcrEngineSelect
+        class="ocr-result-engine-select"
+        :engine="settings.ocrEngine"
+        :disabled="status === 'loading'"
+        @rerun="runRecognition(selectedProfile)"
+      />
+      <select
+        class="ocr-language-select"
+        :value="selectedOcrLanguage"
+        :disabled="status === 'loading'"
+        :aria-label="t('ocr.languageLabel')"
+        :title="t('ocr.languageLabel')"
+        @mousedown.stop
+        @change="selectLanguage"
+      >
+        <option
+          v-for="option in OCR_LANGUAGE_OPTIONS"
+          :key="option.id"
+          :value="option.id"
+        >
+          {{ t(option.labelKey) }}
+        </option>
+      </select>
+    </div>
+
     <div class="ocr-result-body">
       <div
         v-if="status === 'loading'"
         class="ocr-result-state"
       >
-        <LoaderCircle class="size-6 update-spin text-[var(--text-3)]" />
+        <span class="ocr-result-state-badge ocr-result-state-badge-accent">
+          <LoaderCircle class="size-5 update-spin" />
+        </span>
         <p>{{ t("ocrScreenshot.recognizing") }}</p>
       </div>
       <div
         v-else-if="status === 'empty'"
         class="ocr-result-state"
       >
-        <ScanText class="size-6 text-[var(--text-3)]" />
+        <span class="ocr-result-state-badge">
+          <ScanText class="size-5" />
+        </span>
         <p>{{ t("ocrScreenshot.emptyResult") }}</p>
       </div>
       <div
@@ -258,21 +276,21 @@ async function openImage() {
         v-else
         ref="textareaRef"
         v-model="text"
-        class="ocr-result-textarea"
+        class="ocr-result-textarea subtle-scrollbar"
         spellcheck="false"
       />
     </div>
 
     <footer class="ocr-result-footer">
       <span class="ocr-result-count">{{ t("ocrScreenshot.charCount", { count: charCount }) }}</span>
-      <div class="flex items-center gap-2">
+      <div class="ocr-result-actions">
         <button
           v-if="payload"
           type="button"
           class="ocr-result-button"
           @click="openImage"
         >
-          <ExternalLink class="size-4" />
+          <ExternalLink class="size-3.5" />
           <span>{{ t("ocrScreenshot.openImage") }}</span>
         </button>
         <button
@@ -283,11 +301,11 @@ async function openImage() {
         >
           <Check
             v-if="copied"
-            class="size-4"
+            class="size-3.5"
           />
           <Copy
             v-else
-            class="size-4"
+            class="size-3.5"
           />
           <span>{{ copied ? t("ocrScreenshot.copied") : t("ocrScreenshot.copyText") }}</span>
         </button>
@@ -297,50 +315,87 @@ async function openImage() {
 </template>
 
 <style scoped>
-/* 独立窗口不依赖设置页样式：全部自包含，令牌取 src/styles/theme.css */
+/* 独立窗口不依赖设置页样式：全部自包含，令牌取 src/styles/theme.css（Hairline Ledger） */
 .ocr-result {
   display: flex;
   flex-direction: column;
+  width: 100vw;
   height: 100vh;
-  background: var(--surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--window-radius);
+  clip-path: inset(0 round var(--window-radius));
+  background: var(--bg-app);
   color: var(--text-1);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
+  overflow: hidden;
 }
 
 .ocr-result-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  min-height: 40px;
+  padding: 6px 12px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border-hairline);
   user-select: none;
 }
 
+.ocr-result-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.ocr-result-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .ocr-result-title {
-  font-size: 0.875rem;
-  font-weight: 600;
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .ocr-result-profiles {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
   background: var(--surface-inset);
+  border: 1px solid var(--border-hairline);
   padding: 2px;
   border-radius: var(--r-md);
-  margin-left: 8px;
 }
 
 .ocr-profile-pill {
+  height: 22px;
   border: none;
   background: transparent;
   color: var(--text-3);
-  font-size: 0.75rem;
-  font-weight: 500;
-  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  padding: 0 9px;
   border-radius: var(--r-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
-  transition: color 150ms ease, background 150ms ease;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
   user-select: none;
 }
 
@@ -350,75 +405,138 @@ async function openImage() {
 
 .ocr-profile-pill.active {
   background: var(--surface);
-  color: var(--text-1);
+  color: var(--accent-strong);
   box-shadow: var(--shadow-xs);
 }
 
 .ocr-profile-pill:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.ocr-language-select {
-  margin-left: 8px;
-  padding: 2px 6px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  color: var(--text-1);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.ocr-language-select:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
 .ocr-result-close {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
   border: none;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
-  transition: color 150ms ease, background 150ms ease;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
 }
 
 .ocr-result-close:hover {
   color: var(--text-1);
-  background: var(--surface-inset);
+  background: var(--surface-hover);
+}
+
+.ocr-result-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-hairline);
+  user-select: none;
+}
+
+.ocr-result-engine-select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.ocr-language-select {
+  flex: 0 0 auto;
+  height: var(--control-sm);
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.ocr-language-select:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  background: var(--surface-hover);
+}
+
+.ocr-language-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.ocr-language-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ocr-result-body {
   flex: 1;
   min-height: 0;
-  padding: 12px 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
 }
 
 .ocr-result-state {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
+  padding: 20px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--text-md);
+}
+
+.ocr-result-state p {
+  margin: 0;
+}
+
+.ocr-result-state-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-lg);
+  background: var(--surface-inset);
   color: var(--text-3);
 }
 
+.ocr-result-state-badge-accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .ocr-result-state-error {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
   color: var(--danger-strong);
 }
 
 .ocr-result-state-detail {
   max-width: 92%;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.6;
   text-align: center;
   overflow-wrap: anywhere;
@@ -426,20 +544,24 @@ async function openImage() {
 
 .ocr-result-textarea {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-md);
-  background: var(--surface-inset);
+  border-radius: var(--r-lg);
+  background: var(--surface);
   color: var(--text-1);
-  font: inherit;
-  line-height: 1.6;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.65;
   resize: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .ocr-result-textarea:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .ocr-result-footer {
@@ -447,35 +569,55 @@ async function openImage() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--surface);
   border-top: 1px solid var(--border-hairline);
 }
 
 .ocr-result-count {
   color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ocr-result-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .ocr-result-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
+  height: var(--control-md);
+  padding: 0 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--text-1);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 
 .ocr-result-button:hover:not(:disabled) {
-  background: var(--surface-inset);
+  background: var(--surface-hover);
+  border-color: var(--border-accent);
 }
 
 .ocr-result-button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -486,6 +628,8 @@ async function openImage() {
 }
 
 .ocr-result-button-primary:hover:not(:disabled) {
+  background: var(--accent-fill);
+  border-color: transparent;
   filter: brightness(1.06);
 }
 </style>

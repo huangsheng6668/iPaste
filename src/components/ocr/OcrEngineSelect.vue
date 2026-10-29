@@ -56,19 +56,40 @@ async function changeEngine(event: Event) {
 
 <style scoped>
 /* 引擎下拉自带的控件皮肤（以 OCR 结果窗版本为基准）；布局差异
-   （结果窗的左间距、查看器 OCR 面板的 flex 收缩）由使用方上下文样式提供 */
+   （结果窗与查看器 OCR 面板的弹性伸缩）由使用方上下文样式提供 */
 .ocr-language-select {
-  padding: 2px 6px;
-  border: 1px solid var(--border-hairline);
+  height: var(--control-sm);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--text-1);
   font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.ocr-language-select:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  background: var(--surface-hover);
+}
+
+.ocr-language-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .ocr-language-select:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 </style>

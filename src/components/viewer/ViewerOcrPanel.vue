@@ -61,47 +61,53 @@ const emit = defineEmits<{
       @wheel.stop
     >
       <div class="viewer-image-ocr-heading">
-        <div class="min-w-0">
-          <h2>{{ t("viewer.ocrTitle") }}</h2>
-          <p v-if="hasResult">
-            {{ summary }}
-          </p>
-          <p v-else-if="isRecognizing">
-            {{ t("viewer.ocrRecognizing") }}
-          </p>
-          <p v-else>
-            {{ t("viewer.ocrFailed") }}
-          </p>
-        </div>
-        <OcrEngineSelect
-          :engine="engine"
-          :disabled="isRecognizing"
-          @rerun="emit('rerun')"
-        />
-        <select
-          class="ocr-language-select"
-          :value="selectedLanguage"
-          :disabled="isRecognizing"
-          :aria-label="t('ocr.languageLabel')"
-          @change="emit('changeLanguage', ($event.target as HTMLSelectElement).value)"
-        >
-          <option
-            v-for="option in OCR_LANGUAGE_OPTIONS"
-            :key="option.id"
-            :value="option.id"
+        <div class="viewer-image-ocr-heading-top">
+          <div class="min-w-0">
+            <h2>{{ t("viewer.ocrTitle") }}</h2>
+            <p v-if="hasResult">
+              {{ summary }}
+            </p>
+            <p v-else-if="isRecognizing">
+              {{ t("viewer.ocrRecognizing") }}
+            </p>
+            <p v-else>
+              {{ t("viewer.ocrFailed") }}
+            </p>
+          </div>
+          <button
+            v-if="hasResultText"
+            type="button"
+            class="viewer-paste-button shrink-0 whitespace-nowrap"
+            @click="emit('pasteText')"
           >
-            {{ t(option.labelKey) }}
-          </option>
-        </select>
-        <button
-          v-if="hasResultText"
-          type="button"
-          class="viewer-paste-button"
-          @click="emit('pasteText')"
-        >
-          <Copy class="size-4" />
-          <span>{{ t("viewer.copyText") }}</span>
-        </button>
+            <Copy class="size-4" />
+            <span>{{ t("viewer.copyText") }}</span>
+          </button>
+        </div>
+
+        <div class="viewer-image-ocr-controls">
+          <OcrEngineSelect
+            class="viewer-ocr-engine-select"
+            :engine="engine"
+            :disabled="isRecognizing"
+            @rerun="emit('rerun')"
+          />
+          <select
+            class="ocr-language-select"
+            :value="selectedLanguage"
+            :disabled="isRecognizing"
+            :aria-label="t('ocr.languageLabel')"
+            @change="emit('changeLanguage', ($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="option in OCR_LANGUAGE_OPTIONS"
+              :key="option.id"
+              :value="option.id"
+            >
+              {{ t(option.labelKey) }}
+            </option>
+          </select>
+        </div>
       </div>
 
       <p
