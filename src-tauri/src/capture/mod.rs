@@ -64,7 +64,7 @@ fn overlay_frame_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Strin
 /// memcpy（8K 帧 132MB），是遮罩弹出卡顿的大头。
 fn rgba_to_rgb_bytes(frame: &image::RgbaImage) -> Vec<u8> {
     let mut rgb = Vec::with_capacity(frame.as_raw().len() / 4 * 3);
-    for pixel in frame.as_raw().chunks_exact(4) {
+    for pixel in frame.as_raw().as_chunks::<4>().0 {
         rgb.extend_from_slice(&pixel[..3]);
     }
     rgb
