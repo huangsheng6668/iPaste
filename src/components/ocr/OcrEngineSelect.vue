@@ -18,7 +18,9 @@ const emit = defineEmits<{
 
 // 包装既有引擎切换逻辑：选项复用设置页文案、未配置的云引擎禁用、
 // 切换成功写入全局设置后通知调用方用新引擎重跑识别
-const { ocrEngineOptions, switchOcrEngine } = useOcrEngineSelect();
+const { ocrEngineOptions, selectedEngineValue, switchOcrEngine } = useOcrEngineSelect(
+  () => props.engine,
+);
 
 async function changeEngine(event: Event) {
   if (props.disabled) return;
@@ -34,7 +36,7 @@ async function changeEngine(event: Event) {
   <!-- 无边框窗口标题区场景：阻止 mousedown 冒泡，避免触发原生窗口拖动吞掉点击 -->
   <select
     class="ocr-language-select"
-    :value="engine"
+    :value="selectedEngineValue"
     :disabled="disabled"
     :aria-label="t('ocr.engineLabel')"
     :title="t('ocr.engineLabel')"
