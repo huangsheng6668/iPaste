@@ -6,7 +6,7 @@
 use tauri::Emitter;
 
 use crate::events::EVENT_OCR_INSTALL_PROGRESS;
-use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus};
+use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus, OpenaiOcrProfile};
 // try_state 等方法来自 Manager trait；云引擎调度分支在 macOS 上也调用，
 // 导入不能按平台裁剪
 use tauri::Manager;
@@ -133,6 +133,7 @@ pub(crate) fn remove_assets(
     app: &tauri::AppHandle,
     store: &crate::store::Store,
 ) -> Result<OcrInstallStatus, String> {
+    clear_result_cache();
     #[cfg(target_os = "macos")]
     {
         let _ = (app, store);
@@ -182,6 +183,7 @@ pub(crate) async fn install_mocr_assets(app: tauri::AppHandle) -> Result<OcrInst
 
 /// 删除 mocr 模型：先结束常驻推理进程（Windows 下文件被占用删不掉），再清目录。
 pub(crate) async fn remove_mocr_assets(app: tauri::AppHandle) -> Result<OcrInstallStatus, String> {
+    clear_result_cache();
     mocr::shutdown_server().await;
     #[cfg(any(windows, target_os = "macos"))]
     {
@@ -245,6 +247,120 @@ fn ordered_openai_profiles(
     profiles
 }
 
+pub(crate) const OCR_CACHE_CAPACITY: usize = 32;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct OcrCacheKey {
+    pub(crate) image_key: String,
+    pub(crate) engine_key: String,
+    pub(crate) profile: String,
+    pub(crate) language: String,
+}
+
+pub(crate) struct OcrResultCache {
+    capacity: usize,
+    entries: std::collections::VecDeque<(OcrCacheKey, ImageOcrResult)>,
+}
+
+impl OcrResultCache {
+    pub(crate) fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: std::collections::VecDeque::with_capacity(capacity),
+        }
+    }
+
+    pub(crate) fn get(&mut self, key: &OcrCacheKey) -> Option<ImageOcrResult> {
+        let pos = self.entries.iter().position(|(k, _)| k == key)?;
+        let (k, v) = self.entries.remove(pos)?;
+        let cloned = v.clone();
+        self.entries.push_back((k, v));
+        Some(cloned)
+    }
+
+    pub(crate) fn insert(&mut self, key: OcrCacheKey, result: ImageOcrResult) {
+        if result.text.trim().is_empty() || self.capacity == 0 {
+            return;
+        }
+        if let Some(pos) = self.entries.iter().position(|(k, _)| k == &key) {
+            self.entries.remove(pos);
+        } else if self.entries.len() >= self.capacity {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, result));
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
+static OCR_RESULT_CACHE: std::sync::OnceLock<std::sync::Mutex<OcrResultCache>> =
+    std::sync::OnceLock::new();
+
+fn result_cache() -> &'static std::sync::Mutex<OcrResultCache> {
+    OCR_RESULT_CACHE.get_or_init(|| std::sync::Mutex::new(OcrResultCache::new(OCR_CACHE_CAPACITY)))
+}
+
+fn clear_result_cache() {
+    if let Ok(mut guard) = result_cache().lock() {
+        guard.clear();
+    }
+}
+
+fn lookup_cached_result(key: &OcrCacheKey) -> Option<ImageOcrResult> {
+    result_cache().lock().ok()?.get(key)
+}
+
+fn store_cached_result(key: OcrCacheKey, result: &ImageOcrResult) {
+    if let Ok(mut guard) = result_cache().lock() {
+        guard.insert(key, result.clone());
+    }
+}
+
+fn build_image_cache_key(image_path: &str) -> String {
+    match std::fs::metadata(image_path) {
+        Ok(meta) => {
+            let len = meta.len();
+            let modified_ns = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            format!("{image_path}:{len}:{modified_ns}")
+        }
+        Err(_) => image_path.to_string(),
+    }
+}
+
+fn build_openai_engine_cache_key(
+    active_profile_id: &str,
+    profiles: &[OpenaiOcrProfile],
+    prompts: &[crate::models::CloudOcrPromptMessage],
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(active_profile_id.as_bytes());
+    hasher.update(b"|");
+    for p in profiles {
+        hasher.update(p.id.as_bytes());
+        hasher.update(b":");
+        hasher.update(p.base_url.trim().as_bytes());
+        hasher.update(b":");
+        hasher.update(p.model.trim().as_bytes());
+        hasher.update(b";");
+    }
+    for msg in prompts {
+        hasher.update(msg.role.as_bytes());
+        hasher.update(b":");
+        hasher.update(msg.content.as_bytes());
+        hasher.update(b";");
+    }
+    let digest = hasher.finalize();
+    format!("openai:{digest:x}")
+}
+
 pub(crate) async fn recognize_image(
     app: tauri::AppHandle,
     image_path: String,
@@ -256,6 +372,13 @@ pub(crate) async fn recognize_image(
         .as_deref()
         .map(|p| p.eq_ignore_ascii_case("manga") || p.eq_ignore_ascii_case("japanese"))
         .unwrap_or(false);
+    let image_key = build_image_cache_key(&image_path);
+    let profile_key = if is_manga {
+        "manga".to_string()
+    } else {
+        "default".to_string()
+    };
+    let lang_key = language.clone().unwrap_or_else(|| "auto".to_string());
 
     // 云引擎分支：显式选择的引擎优先（manga 档位映射为日语提示，不走本地 mocr）。
     // 设置读取失败时不落入该分支——沿用本地管线保证识别仍可用。
@@ -265,6 +388,19 @@ pub(crate) async fn recognize_image(
         .filter(|settings| settings.ocr_engine == crate::models::OcrEngine::Openai)
     {
         let cloud = settings.cloud_ocr;
+        let cache_key = OcrCacheKey {
+            image_key,
+            engine_key: build_openai_engine_cache_key(
+                &cloud.openai_active_profile_id,
+                &cloud.openai_profiles,
+                &cloud.openai_prompts,
+            ),
+            profile: profile_key,
+            language: lang_key,
+        };
+        if let Some(hit) = lookup_cached_result(&cache_key) {
+            return Ok(hit);
+        }
         let profiles =
             openai::order_profiles_for_request(cloud.openai_profiles, &cloud.openai_active_profile_id);
         let img_path = image_path.clone();
@@ -274,7 +410,7 @@ pub(crate) async fn recognize_image(
         } else {
             language.clone()
         };
-        return tokio::task::spawn_blocking(move || {
+        let res = tokio::task::spawn_blocking(move || {
             openai::recognize_image_openai_profiles(
                 &img_path,
                 effective_language.as_deref(),
@@ -283,15 +419,27 @@ pub(crate) async fn recognize_image(
             )
         })
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())??;
+        store_cached_result(cache_key, &res);
+        return Ok(res);
     }
 
     if is_manga {
+        let mocr_key = OcrCacheKey {
+            image_key: image_key.clone(),
+            engine_key: "mocr".to_string(),
+            profile: profile_key.clone(),
+            language: lang_key.clone(),
+        };
+        if let Some(hit) = lookup_cached_result(&mocr_key) {
+            return Ok(hit);
+        }
         // mocr.rs 内部按引擎可用性调度：ONNX sidecar（主）→ Python 常驻（回退）；
         // 全部失败则落入下方 Paddle manga 管线
         let app_handle = app.clone();
         let img_path = image_path.clone();
         if let Ok(mocr_res) = mocr::recognize_image_text_mocr(Some(&app_handle), &img_path).await {
+            store_cached_result(mocr_key, &mocr_res);
             return Ok(mocr_res);
         }
     }
@@ -299,11 +447,22 @@ pub(crate) async fn recognize_image(
     #[cfg(target_os = "macos")]
     {
         let _ = &app;
-        tokio::task::spawn_blocking(move || {
+        let local_key = OcrCacheKey {
+            image_key,
+            engine_key: "macos-vision".to_string(),
+            profile: profile_key,
+            language: lang_key,
+        };
+        if let Some(hit) = lookup_cached_result(&local_key) {
+            return Ok(hit);
+        }
+        let res = tokio::task::spawn_blocking(move || {
             vision::recognize_image_text_macos(image_path, language)
         })
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())??;
+        store_cached_result(local_key, &res);
+        Ok(res)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -315,7 +474,21 @@ pub(crate) async fn recognize_image(
         let store = app
             .try_state::<crate::models::AppState>()
             .map(|state| state.store.clone());
-        tokio::task::spawn_blocking(move || match store.as_ref() {
+        let mode = store
+            .as_ref()
+            .and_then(|s| s.settings().ok())
+            .map(|s| s.ocr_mode.as_str())
+            .unwrap_or(DEFAULT_OCR_MODE);
+        let local_key = OcrCacheKey {
+            image_key,
+            engine_key: format!("paddle:{mode}"),
+            profile: profile_key,
+            language: lang_key,
+        };
+        if let Some(hit) = lookup_cached_result(&local_key) {
+            return Ok(hit);
+        }
+        let res = tokio::task::spawn_blocking(move || match store.as_ref() {
             Some(store) => {
                 paddle::recognize_image_text_paddle(&app, store, image_path, profile, language)
             }
@@ -324,13 +497,58 @@ pub(crate) async fn recognize_image(
             }
         })
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())??;
+        store_cached_result(local_key, &res);
+        Ok(res)
     }
 }
 
 #[cfg(test)]
 mod language_tests {
     use super::{ordered_openai_profiles, vision_language_locale};
+    use super::{OcrCacheKey, OcrResultCache, OCR_CACHE_CAPACITY};
+    use crate::models::ImageOcrResult;
+
+    fn sample_key(id: usize) -> OcrCacheKey {
+        OcrCacheKey {
+            image_key: format!("img-{id}.png:1024:100"),
+            engine_key: "paddle:fast".to_string(),
+            profile: "default".to_string(),
+            language: "auto".to_string(),
+        }
+    }
+
+    fn sample_result(text: &str) -> ImageOcrResult {
+        ImageOcrResult {
+            text: text.to_string(),
+            engine: "paddle-mnn".to_string(),
+            language: "auto".to_string(),
+            words: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn ocr_result_cache_hits_and_promotes_lru_and_evicts_oldest() {
+        let mut cache = OcrResultCache::new(OCR_CACHE_CAPACITY);
+        for i in 0..OCR_CACHE_CAPACITY {
+            cache.insert(sample_key(i), sample_result(&format!("text-{i}")));
+        }
+        // 访问 key 0 使其提升为最新使用
+        assert_eq!(cache.get(&sample_key(0)).unwrap().text, "text-0");
+
+        // 插入第 33 条，应淘汰最久未使用的 key 1，保留 key 0
+        cache.insert(sample_key(999), sample_result("text-999"));
+        assert!(cache.get(&sample_key(1)).is_none(), "最久未访问的 key 1 应被淘汰");
+        assert_eq!(cache.get(&sample_key(0)).unwrap().text, "text-0");
+        assert_eq!(cache.get(&sample_key(999)).unwrap().text, "text-999");
+    }
+
+    #[test]
+    fn ocr_result_cache_ignores_empty_text_results() {
+        let mut cache = OcrResultCache::new(OCR_CACHE_CAPACITY);
+        cache.insert(sample_key(1), sample_result("   "));
+        assert!(cache.get(&sample_key(1)).is_none(), "空文本结果不应缓存");
+    }
 
     fn profile(id: &str) -> crate::models::OpenaiOcrProfile {
         crate::models::OpenaiOcrProfile {
