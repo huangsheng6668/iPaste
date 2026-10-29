@@ -13,9 +13,14 @@ use serde::{Deserialize, Serialize};
 use crate::models::{ImageOcrResult, ImageOcrWord, OpenaiOcrProfile};
 
 pub(crate) const OPENAI_OCR_ENGINE_ID: &str = "openai";
+const OPENAI_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const OPENAI_OCR_TIMEOUT: Duration = Duration::from_secs(60);
 /// 视觉模型通常对长图输出有限额，4096 是各主流厂商都接受的安全默认。
 const OPENAI_OCR_MAX_TOKENS: u32 = 4096;
+/// 云端 OCR 自适应压缩阈值：长边不超过 2048px 且体积不超过 512KB 的小图原样直传。
+pub(crate) const OPENAI_IMAGE_MAX_DIMENSION: u32 = 2048;
+pub(crate) const OPENAI_IMAGE_RAW_MAX_BYTES: usize = 512 * 1024;
+pub(crate) const OPENAI_JPEG_QUALITY: u8 = 85;
 
 /// HTTP 层错误保留状态码，供上层仅对 429 做接口切换。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,8 +183,9 @@ pub(crate) fn recognize_image_openai_profiles(
 
     let bytes = std::fs::read(image_path).map_err(|error| format!("读取图片失败：{error}"))?;
     let mime = image_mime_from_path(image_path);
+    let data_url = prepare_image_data_url_from_bytes(&bytes, mime);
     let text = run_profile_failover(&usable, |profile| {
-        let request = build_request(&bytes, mime, language, &profile.model, prompts);
+        let request = build_request_with_data_url(&data_url, language, &profile.model, prompts);
         send_request(
             &chat_completions_url(&profile.base_url),
             &profile.api_key,
@@ -187,6 +193,84 @@ pub(crate) fn recognize_image_openai_profiles(
         )
     })?;
     Ok(build_result(&text, language))
+}
+
+fn composite_rgba_on_white(rgba: &image::RgbaImage) -> image::RgbImage {
+    let mut rgb = image::RgbImage::new(rgba.width(), rgba.height());
+    for (src, dst) in rgba.pixels().zip(rgb.pixels_mut()) {
+        let a = src[3] as u16;
+        if a == 255 {
+            *dst = image::Rgb([src[0], src[1], src[2]]);
+        } else if a == 0 {
+            *dst = image::Rgb([255, 255, 255]);
+        } else {
+            let inv_a = 255 - a;
+            let r = ((src[0] as u16 * a + 255 * inv_a) / 255) as u8;
+            let g = ((src[1] as u16 * a + 255 * inv_a) / 255) as u8;
+            let b = ((src[2] as u16 * a + 255 * inv_a) / 255) as u8;
+            *dst = image::Rgb([r, g, b]);
+        }
+    }
+    rgb
+}
+
+/// 自适应图片预处理：
+/// - 长边 <= 2048 且字节数 <= 512KB：零损耗直接 Base64；
+/// - 超阈值：等比缩放至长边 <= 2048、透明通道合成白底并编码为 85% JPEG；
+/// - 任何解码或编码异常均安全回退为原始字节 Base64。
+pub(crate) fn prepare_image_data_url_from_bytes(bytes: &[u8], fallback_mime: &str) -> String {
+    let raw_data_url = || {
+        format!(
+            "data:{fallback_mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        )
+    };
+
+    let dimensions = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok());
+
+    if let Some((width, height)) = dimensions {
+        if width.max(height) <= OPENAI_IMAGE_MAX_DIMENSION
+            && bytes.len() <= OPENAI_IMAGE_RAW_MAX_BYTES
+        {
+            return raw_data_url();
+        }
+    }
+
+    let Ok(decoded) = image::load_from_memory(bytes) else {
+        return raw_data_url();
+    };
+    let resized = if decoded.width().max(decoded.height()) > OPENAI_IMAGE_MAX_DIMENSION {
+        decoded.resize(
+            OPENAI_IMAGE_MAX_DIMENSION,
+            OPENAI_IMAGE_MAX_DIMENSION,
+            image::imageops::FilterType::Lanczos3,
+        )
+    } else {
+        decoded
+    };
+    let rgb = composite_rgba_on_white(&resized.to_rgba8());
+    let mut jpeg_buf = Vec::new();
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, OPENAI_JPEG_QUALITY);
+    if encoder
+        .encode(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .is_err()
+    {
+        return raw_data_url();
+    }
+
+    format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&jpeg_buf)
+    )
 }
 
 /// 设置页「测试」按钮：上传一张空白小图，HTTP 200 且能解析即视为配置有效
@@ -217,16 +301,22 @@ fn build_request(
     model: &str,
     prompts: &[crate::models::CloudOcrPromptMessage],
 ) -> ChatRequest {
+    let data_url = prepare_image_data_url_from_bytes(image_bytes, mime);
+    build_request_with_data_url(&data_url, language, model, prompts)
+}
+
+fn build_request_with_data_url(
+    data_url: &str,
+    language: Option<&str>,
+    model: &str,
+    prompts: &[crate::models::CloudOcrPromptMessage],
+) -> ChatRequest {
     let lang_name = localized_language_name(language);
     let effective_prompts: Vec<crate::models::CloudOcrPromptMessage> = if prompts.is_empty() {
         crate::models::default_openai_ocr_prompts()
     } else {
         prompts.to_vec()
     };
-    let data_url = format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(image_bytes)
-    );
 
     let last_user_index = effective_prompts.iter().rposition(|m| m.role == "user");
     let mut messages = Vec::new();
@@ -242,13 +332,14 @@ fn build_request(
             content: vec![ContentPart::Text { text }],
         });
     }
-    // 图片 data url（整图 base64，可达数 MB）在循环外一次性 move 进最后一条
-    // user 消息——循环内消费不动所有权，只能 clone 一份全量 base64。
+    // 图片 data url 在循环外一次性填充进最后一条 user 消息。
     match last_user_index {
         Some(idx) => {
             if let Some(message) = messages.get_mut(idx) {
                 message.content.push(ContentPart::ImageUrl {
-                    image_url: ImageUrl { url: data_url },
+                    image_url: ImageUrl {
+                        url: data_url.to_string(),
+                    },
                 });
             }
         }
@@ -261,7 +352,9 @@ fn build_request(
                     ),
                 },
                 ContentPart::ImageUrl {
-                    image_url: ImageUrl { url: data_url },
+                    image_url: ImageUrl {
+                        url: data_url.to_string(),
+                    },
                 },
             ],
         }),
@@ -274,17 +367,27 @@ fn build_request(
     }
 }
 
+fn shared_http_client() -> Result<&'static reqwest::blocking::Client, OpenaiRequestError> {
+    static CLIENT: std::sync::OnceLock<Result<reqwest::blocking::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .connect_timeout(OPENAI_CONNECT_TIMEOUT)
+                .timeout(OPENAI_OCR_TIMEOUT)
+                .build()
+                .map_err(|error| format!("OpenAI 兼容接口客户端构建失败：{error}"))
+        })
+        .as_ref()
+        .map_err(|msg| OpenaiRequestError::new(None, msg.clone()))
+}
+
 fn send_request(
     url: &str,
     api_key: &str,
     request: &ChatRequest,
 ) -> Result<String, OpenaiRequestError> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(OPENAI_OCR_TIMEOUT)
-        .build()
-        .map_err(|error| {
-            OpenaiRequestError::new(None, format!("OpenAI 兼容接口客户端构建失败：{error}"))
-        })?;
+    let client = shared_http_client()?;
 
     let mut builder = client.post(url);
     // 空 Key 用于本地无鉴权端点：不发 Authorization 头，避免服务端误判。
@@ -613,5 +716,48 @@ mod tests {
             .unwrap()
             .contains("英语"));
         assert_eq!(messages[1]["content"][1]["type"], "image_url");
+    }
+
+    #[test]
+    fn small_image_under_threshold_is_kept_lossless() {
+        let mut png = Vec::new();
+        let img = image::RgbaImage::from_pixel(120, 80, image::Rgba([10, 20, 30, 255]));
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        assert!(png.len() <= OPENAI_IMAGE_RAW_MAX_BYTES);
+
+        let data_url = prepare_image_data_url_from_bytes(&png, "image/png");
+        assert!(
+            data_url.starts_with("data:image/png;base64,"),
+            "小图应保持原始 PNG 直传，实际: {}",
+            &data_url[..data_url.len().min(40)]
+        );
+    }
+
+    #[test]
+    fn oversized_dimension_image_is_downscaled_and_composited_to_jpeg() {
+        let mut png = Vec::new();
+        // 2400x1200 超过 2048 阈值，且带全透明像素（0, 0, 0, 0）验证白底合成
+        let img = image::RgbaImage::from_pixel(2400, 1200, image::Rgba([0, 0, 0, 0]));
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+
+        let data_url = prepare_image_data_url_from_bytes(&png, "image/png");
+        assert!(
+            data_url.starts_with("data:image/jpeg;base64,"),
+            "超尺寸图应重编码为 JPEG，实际前缀: {}",
+            &data_url[..data_url.len().min(40)]
+        );
+
+        let b64 = data_url.strip_prefix("data:image/jpeg;base64,").unwrap();
+        let decoded_bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let decoded_img = image::load_from_memory(&decoded_bytes).unwrap().to_rgb8();
+        assert_eq!(decoded_img.width(), 2048);
+        assert_eq!(decoded_img.height(), 1024);
+        // 全透明像素经白底合成后应接近纯白 (255, 255, 255)
+        let px = decoded_img.get_pixel(100, 100);
+        assert!(px[0] >= 250 && px[1] >= 250 && px[2] >= 250, "透明背景未合成白底: {px:?}");
     }
 }
