@@ -59,6 +59,10 @@ hostname = "0.4"
 iroh = "1.0.3"
 ts-rs = "12"
 
+[target.'cfg(unix)'.dependencies]
+# 快捷动作超时按进程组 kill(-pid)；仅用于 automation.rs 的 Unix 分支
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_DataExchange"] }
 # ONNX 推理仅 Windows 编译：onnxruntime 的 /MD CRT 与 mnn 的 /MT 假设只能

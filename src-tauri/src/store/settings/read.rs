@@ -126,11 +126,12 @@ impl Store {
             return false;
         };
         match settings.ocr_engine.as_str() {
-            "openai" => settings.cloud_ocr.openai_profiles.iter().any(|profile| {
-                !profile.api_key.is_empty()
-                    && !profile.base_url.is_empty()
-                    && !profile.model.is_empty()
-            }),
+            // Key 可为空：本地 vLLM/Ollama 等无鉴权端点也是合法配置。
+            "openai" => settings
+                .cloud_ocr
+                .openai_profiles
+                .iter()
+                .any(|profile| !profile.base_url.is_empty() && !profile.model.is_empty()),
             _ => false,
         }
     }

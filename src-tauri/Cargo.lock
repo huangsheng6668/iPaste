@@ -3064,6 +3064,7 @@ dependencies = [
  "image 0.25.10",
  "iroh",
  "keyring",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",

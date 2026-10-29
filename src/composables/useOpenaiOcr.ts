@@ -72,8 +72,9 @@ export function useOpenaiOcr() {
     { deep: true, immediate: true },
   );
 
+  // Key 可留空：本地无鉴权端点（vLLM/Ollama 等）不需要。
   const formComplete = computed(() =>
-    Boolean(openaiBaseUrl.value.trim() && openaiModel.value.trim() && openaiApiKey.value.trim()),
+    Boolean(openaiBaseUrl.value.trim() && openaiModel.value.trim()),
   );
   const isEditingExisting = computed(() =>
     Boolean(selectedProfileId.value && profiles.value.some((profile) => profile.id === selectedProfileId.value)),

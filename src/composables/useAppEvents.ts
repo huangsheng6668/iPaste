@@ -151,12 +151,10 @@ export async function useAppEvents(store: IpasteStore): Promise<void> {
   await subscribe<DeviceClipReceived>(IPASTE_EVENTS.deviceClipReceived, () => {
     ui.pushToast(t("deviceSync.clipReceived"));
     scheduleDeviceSyncReload();
-    scheduleDeviceSyncReload();
   });
 
   await subscribe<DeviceCategoryReceived>(IPASTE_EVENTS.deviceCategoryReceived, () => {
     ui.pushToast(t("deviceSync.categoryReceived"));
-    scheduleDeviceSyncReload();
     scheduleDeviceSyncReload();
   });
 

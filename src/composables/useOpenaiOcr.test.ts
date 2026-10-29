@@ -120,6 +120,28 @@ describe("useOpenaiOcr", () => {
     expect(formComplete.value).toBe(true);
   });
 
+  it("本地无鉴权端点留空 API Key 时表单仍可保存/测试", () => {
+    const settings = useSettingsStore();
+    settings.cloudOcr = {
+      openaiProfiles: [{
+        id: "local",
+        name: "Ollama",
+        baseUrl: "http://localhost:11434/v1",
+        model: "llava",
+        apiKey: "",
+      }],
+      openaiActiveProfileId: "local",
+      openaiBaseUrl: "http://localhost:11434/v1",
+      openaiModel: "llava",
+      openaiApiKey: "",
+      openaiPrompts: [{ role: "system", content: "Extract text." }],
+    };
+
+    const { formComplete, openaiConfigured } = useOpenaiOcr();
+    expect(formComplete.value).toBe(true);
+    expect(openaiConfigured.value).toBe(true);
+  });
+
   it("多个接口时默认编辑主接口，并可切换到其他接口", () => {
     const settings = useSettingsStore();
     settings.cloudOcr = {

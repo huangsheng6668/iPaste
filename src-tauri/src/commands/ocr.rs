@@ -4,7 +4,7 @@ use crate::models::{
     AppSettings, AppState, CloudOcrPromptMessage, ImageOcrResult, OcrInstallStatus,
     OcrResultPayload, OpenaiOcrProfile,
 };
-use crate::util::{clean_api_key, clean_openai_base_url, clean_openai_model};
+use crate::util::{clean_openai_base_url, clean_openai_model};
 
 use super::apply_settings_update;
 
@@ -135,7 +135,7 @@ pub(crate) async fn test_openai_ocr(
 ) -> Result<bool, AppError> {
     let base_url = clean_openai_base_url(base_url)?;
     let model = clean_openai_model(model)?;
-    let api_key = clean_api_key(api_key).map_err(|_| "请输入 API Key".to_string())?;
+    let api_key = api_key.trim().to_string();
     tokio::task::spawn_blocking(move || {
         crate::ocr::openai::test_connection(&base_url, &model, &api_key, prompts.as_deref())
     })

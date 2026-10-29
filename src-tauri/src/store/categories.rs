@@ -387,10 +387,36 @@ impl Store {
     pub(crate) fn delete_category(&self, id: String) -> Result<(), String> {
         let mut conn = self.connect()?;
         let tx = conn.transaction().map_err(|error| error.to_string())?;
+        let image_rows = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT content_hash, text FROM category_items
+                     WHERE category_id = ?1 AND clip_type = 'image'",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(params![id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| error.to_string())?;
+            collect_rows(rows)?
+        };
+        // category_items 由外键级联删除，收藏计数要在删除前按成员数回退。
+        tx.execute(
+            "UPDATE clips SET favorite_count = MAX(favorite_count - 1, 0)
+             WHERE id IN (SELECT clip_snapshot_id FROM category_items WHERE category_id = ?1)",
+            params![id],
+        )
+        .map_err(|error| error.to_string())?;
         self.record_tombstone_with_conn(&tx, "category", &id)?;
         tx.execute("DELETE FROM categories WHERE id = ?1", params![id])
             .map_err(|error| error.to_string())?;
         tx.commit().map_err(|error| error.to_string())?;
+        for (hash, text) in image_rows {
+            if let Err(reason) = self.cleanup_image_row_files(&conn, &hash, &text) {
+                eprintln!("[image] 删除分类图片清理失败（{hash}）：{reason}");
+            }
+        }
         Ok(())
     }
 
@@ -502,10 +528,35 @@ impl Store {
     pub(crate) fn remove_category_item(&self, id: String) -> Result<(), String> {
         let mut conn = self.connect()?;
         let tx = conn.transaction().map_err(|error| error.to_string())?;
-        self.record_tombstone_with_conn(&tx, "category_item", &id)?;
-        tx.execute("DELETE FROM category_items WHERE id = ?1", params![id])
+        let item_row: Option<(String, String, String, String)> = tx
+            .query_row(
+                "SELECT clip_snapshot_id, clip_type, content_hash, text FROM category_items WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
             .map_err(|error| error.to_string())?;
+        self.record_tombstone_with_conn(&tx, "category_item", &id)?;
+        let removed = tx
+            .execute("DELETE FROM category_items WHERE id = ?1", params![id])
+            .map_err(|error| error.to_string())?;
+        if removed > 0 {
+            if let Some((clip_snapshot_id, _, _, _)) = &item_row {
+                tx.execute(
+                    "UPDATE clips SET favorite_count = MAX(favorite_count - 1, 0) WHERE id = ?1",
+                    params![clip_snapshot_id],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
         tx.commit().map_err(|error| error.to_string())?;
+        if let Some((_, clip_type, hash, text)) = item_row {
+            if clip_type == "image" {
+                if let Err(reason) = self.cleanup_image_row_files(&conn, &hash, &text) {
+                    eprintln!("[image] 分类条目图片清理失败（{hash}）：{reason}");
+                }
+            }
+        }
         Ok(())
     }
 

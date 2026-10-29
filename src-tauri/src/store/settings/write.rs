@@ -353,8 +353,8 @@ impl Store {
     ) -> Result<AppSettings, String> {
         let base_url = crate::util::clean_openai_base_url(profile.base_url)?;
         let model = crate::util::clean_openai_model(profile.model)?;
-        let api_key = crate::util::clean_api_key(profile.api_key)
-            .map_err(|_| "请输入 API Key".to_string())?;
+        // 本地无鉴权端点允许空 Key；留空即清除该配置的凭据。
+        let api_key = profile.api_key.trim().to_string();
         let requested_id = profile.id.trim().to_string();
         let conn = self.connect()?;
         let mut profiles = self.stored_openai_ocr_profiles_with_conn(&conn)?;
@@ -408,7 +408,11 @@ impl Store {
             active_profile_id = profile_id.clone();
         }
 
-        super::super::secrets::put_openai_ocr_profile_api_key(&profile_id, &api_key)?;
+        if api_key.is_empty() {
+            super::super::secrets::delete_openai_ocr_profile_api_key(&profile_id)?;
+        } else {
+            super::super::secrets::put_openai_ocr_profile_api_key(&profile_id, &api_key)?;
+        }
         self.save_openai_ocr_prompts_with_conn(&conn, prompts)?;
         self.write_openai_ocr_profiles_with_conn(&conn, &profiles, &active_profile_id)?;
         self.settings_with_conn(&conn)
@@ -466,8 +470,8 @@ impl Store {
     ) -> Result<AppSettings, String> {
         let base_url = crate::util::clean_openai_base_url(base_url)?;
         let model = crate::util::clean_openai_model(model)?;
-        let api_key =
-            crate::util::clean_api_key(api_key).map_err(|_| "请输入 API Key".to_string())?;
+        // 本地无鉴权端点允许空 Key；留空即清除旧单配置的凭据。
+        let api_key = api_key.trim().to_string();
         let conn = self.connect()?;
         if self
             .setting_value_with_conn(&conn, "openai_ocr_profiles")?
@@ -475,7 +479,11 @@ impl Store {
             .and_then(|raw| serde_json::from_str::<Vec<OpenaiOcrProfile>>(raw).ok())
             .is_none()
         {
-            super::super::secrets::put_openai_ocr_api_key(&api_key)?;
+            if api_key.is_empty() {
+                super::super::secrets::delete_openai_ocr_api_key()?;
+            } else {
+                super::super::secrets::put_openai_ocr_api_key(&api_key)?;
+            }
             self.upsert_setting_value_with_conn(&conn, "openai_ocr_base_url", &base_url)?;
             self.upsert_setting_value_with_conn(&conn, "openai_ocr_model", &model)?;
             self.upsert_setting_value_with_conn(&conn, "openai_api_key", "")?;
@@ -513,7 +521,11 @@ impl Store {
         if profile.name.trim().is_empty() {
             profile.name = model;
         }
-        super::super::secrets::put_openai_ocr_profile_api_key(&active_profile_id, &api_key)?;
+        if api_key.is_empty() {
+            super::super::secrets::delete_openai_ocr_profile_api_key(&active_profile_id)?;
+        } else {
+            super::super::secrets::put_openai_ocr_profile_api_key(&active_profile_id, &api_key)?;
+        }
         self.save_openai_ocr_prompts_with_conn(&conn, prompts)?;
         self.write_openai_ocr_profiles_with_conn(&conn, &profiles, &active_profile_id)?;
         self.settings_with_conn(&conn)

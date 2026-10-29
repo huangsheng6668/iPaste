@@ -111,10 +111,9 @@ pub(crate) fn localized_language_name(language: Option<&str>) -> &'static str {
     }
 }
 
+/// API Key 不是必需项：本地 vLLM/Ollama 等无鉴权端点允许留空。
 fn profile_is_complete(profile: &OpenaiOcrProfile) -> bool {
-    !profile.base_url.trim().is_empty()
-        && !profile.model.trim().is_empty()
-        && !profile.api_key.trim().is_empty()
+    !profile.base_url.trim().is_empty() && !profile.model.trim().is_empty()
 }
 
 fn profile_label(profile: &OpenaiOcrProfile) -> &str {
@@ -151,7 +150,7 @@ fn run_profile_failover<T>(
             "所有可用的 OpenAI 兼容接口均触发限流（HTTP 429），请稍后重试或补充接口。最后一次响应：{message}"
         )),
         None => Err(
-            "OpenAI 兼容接口未配置完整（需要接口地址、模型与 API Key），请在 设置 → 图片 OCR 中保存"
+            "OpenAI 兼容接口未配置完整（需要接口地址与模型；本地无鉴权端点可留空 API Key），请在 设置 → 图片 OCR 中保存"
                 .to_string(),
         ),
     }
@@ -172,7 +171,7 @@ pub(crate) fn recognize_image_openai_profiles(
         .collect();
     if usable.is_empty() {
         return Err(
-            "OpenAI 兼容接口未配置完整（需要接口地址、模型与 API Key），请在 设置 → 图片 OCR 中保存"
+            "OpenAI 兼容接口未配置完整（需要接口地址与模型；本地无鉴权端点可留空 API Key），请在 设置 → 图片 OCR 中保存"
                 .to_string(),
         );
     }
@@ -287,14 +286,14 @@ fn send_request(
             OpenaiRequestError::new(None, format!("OpenAI 兼容接口客户端构建失败：{error}"))
         })?;
 
-    let response = client
-        .post(url)
-        .bearer_auth(api_key)
-        .json(request)
-        .send()
-        .map_err(|error| {
-            OpenaiRequestError::new(None, format!("OpenAI 兼容接口请求失败：{error}"))
-        })?;
+    let mut builder = client.post(url);
+    // 空 Key 用于本地无鉴权端点：不发 Authorization 头，避免服务端误判。
+    if !api_key.trim().is_empty() {
+        builder = builder.bearer_auth(api_key);
+    }
+    let response = builder.json(request).send().map_err(|error| {
+        OpenaiRequestError::new(None, format!("OpenAI 兼容接口请求失败：{error}"))
+    })?;
 
     let http_status = response.status();
     let body = response.text().map_err(|error| {
@@ -458,9 +457,17 @@ mod tests {
     #[test]
     fn missing_config_is_guided_error() {
         let mut incomplete = profile("missing");
-        incomplete.api_key.clear();
+        incomplete.base_url.clear();
         let error = recognize_image_openai_profiles("x.png", None, &[incomplete], &[]).unwrap_err();
         assert!(error.contains("OpenAI 兼容接口"), "got: {error}");
+    }
+
+    #[test]
+    fn profile_without_api_key_is_complete_for_local_endpoints() {
+        let mut local = profile("local");
+        local.base_url = "http://localhost:11434/v1".to_string();
+        local.api_key.clear();
+        assert!(profile_is_complete(&local));
     }
 
     fn profile(id: &str) -> crate::models::OpenaiOcrProfile {

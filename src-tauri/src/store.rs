@@ -121,6 +121,14 @@ impl Store {
         // 一次性遗留清理（明文 Key 迁移 / 已移除引擎的凭据与占位行）：
         // 原先挂在设置读取路径上，读一次设置就写一次库/凭据库。
         store.cleanup_legacy_secrets(&conn);
+        // 启动 GC：此刻 watcher / LAN 尚未启动，不存在「文件已写、行未插」的
+        // 并发窗口；失败只记日志，不影响启动。
+        if let Err(reason) = store.gc_orphan_image_files() {
+            eprintln!("[image] 启动图片清理失败：{reason}");
+        }
+        if let Err(reason) = store.reap_running_automation_runs(&conn) {
+            eprintln!("[automation] 清理遗留运行记录失败：{reason}");
+        }
 
         if is_first_launch {
             store.seed_default_clips(&conn)?;

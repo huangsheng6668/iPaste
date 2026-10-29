@@ -202,6 +202,13 @@ impl Store {
         )
         .map_err(|error| error.to_string())?;
 
+        // 仅新建条目计数；上面命中已有条目的幂等分支已提前返回，不会重复加。
+        tx.execute(
+            "UPDATE clips SET favorite_count = favorite_count + 1 WHERE id = ?1",
+            params![item.clip_snapshot_id],
+        )
+        .map_err(|error| error.to_string())?;
+
         tx.commit().map_err(|error| error.to_string())?;
         Ok(item)
     }

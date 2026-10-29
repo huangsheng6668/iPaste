@@ -1,6 +1,7 @@
 // store/clips.rs — 剪贴板捕获/查询/CRUD
+use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -213,11 +214,32 @@ impl Store {
         // （datetime(col) 会让 DELETE 退化为全表扫描，5k 条实测 ~1.7ms/次）。
         let cutoff = (Utc::now() - ChronoDuration::days(retention_days))
             .to_rfc3339_opts(SecondsFormat::Secs, true);
+        // 先记下即将过期的图片文件：行删除后还要确认分类快照是否仍引用。
+        let expired_images = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT content_hash, text FROM clips
+                     WHERE is_pinned = 0 AND last_captured_at < ?1 AND clip_type = 'image'",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map(params![cutoff], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| error.to_string())?;
+            collect_rows(rows)?
+        };
         conn.execute(
             "DELETE FROM clips WHERE is_pinned = 0 AND last_captured_at < ?1",
             params![cutoff],
         )
         .map_err(|error| error.to_string())?;
+        for (hash, text) in expired_images {
+            // 清理失败不能阻断面板快照读取；残留文件由下次启动 GC 兜底。
+            if let Err(reason) = self.cleanup_image_row_files(conn, &hash, &text) {
+                eprintln!("[image] 过期图片清理失败（{hash}）：{reason}");
+            }
+        }
         Ok(())
     }
 
@@ -521,6 +543,137 @@ impl Store {
         thumb.save(&thumb_path).map_err(|error| error.to_string())
     }
 
+    /// 图片行删除后的文件清理：哈希命名文件按 content_hash 判引用；旧版本
+    /// 用任意文件名落盘时，text 记录的实际路径也按 text 判引用。分类条目是
+    /// 快照，可能与历史条目共享同一图片，必须两张表都确认无引用才删。
+    pub(super) fn cleanup_image_row_files(
+        &self,
+        conn: &Connection,
+        hash: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        let dir = self.image_dir()?;
+        let canonical = dir.join(format!("{}.png", safe_filename(hash)));
+        if !Self::image_hash_referenced(conn, hash)? {
+            self.remove_image_file(&dir, &canonical);
+        }
+        if !text.starts_with("data:") {
+            let path = PathBuf::from(text);
+            // 只处理应用图片目录内的文件，避免误删用户数据。
+            if path != canonical && path.parent() == Some(dir.as_path()) {
+                if !Self::image_text_path_referenced(conn, text)? {
+                    self.remove_image_file(&dir, &path);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn image_hash_referenced(conn: &Connection, hash: &str) -> Result<bool, String> {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM clips WHERE content_hash = ?1)
+                    OR EXISTS(SELECT 1 FROM category_items WHERE content_hash = ?1)",
+            params![hash],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    fn image_text_path_referenced(conn: &Connection, text: &str) -> Result<bool, String> {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM clips WHERE clip_type = 'image' AND text = ?1)
+                    OR EXISTS(SELECT 1 FROM category_items WHERE clip_type = 'image' AND text = ?1)",
+            params![text],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    /// 原图与同目录 thumbs/ 下的同名缩略图。缺失静默；其他错误只记日志，
+    /// 文件清理不能回滚数据库操作。
+    fn remove_image_file(&self, dir: &Path, path: &Path) {
+        Self::remove_file_logged(path);
+        if let Some(name) = path.file_name() {
+            Self::remove_file_logged(&dir.join("thumbs").join(name));
+        }
+    }
+
+    fn remove_file_logged(path: &Path) {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => eprintln!("[image] 删除图片文件失败（{}）：{error}", path.display()),
+        }
+    }
+
+    /// 启动 GC：清掉数据库已无引用的图片文件。只处理 64 位十六进制命名的
+    /// .png，旧版本的任意文件名保持不动（无法可靠区分是否用户文件）。
+    pub(crate) fn gc_orphan_image_files(&self) -> Result<usize, String> {
+        let conn = self.connect()?;
+        let mut referenced = HashSet::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT content_hash, text FROM clips WHERE clip_type = 'image'
+                     UNION ALL
+                     SELECT content_hash, text FROM category_items WHERE clip_type = 'image'",
+                )
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| error.to_string())?;
+            for row in rows {
+                let (hash, text) = row.map_err(|error| error.to_string())?;
+                referenced.insert(safe_filename(&hash));
+                if !text.starts_with("data:") {
+                    if let Some(stem) = Path::new(&text)
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                    {
+                        referenced.insert(stem.to_string());
+                    }
+                }
+            }
+        }
+
+        let dir = self.image_dir()?;
+        let mut removed = 0usize;
+        for subdir in [dir.clone(), dir.join("thumbs")] {
+            let entries = match fs::read_dir(&subdir) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.to_string()),
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file()
+                    || path.extension().and_then(|value| value.to_str()) != Some("png")
+                {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+                    continue;
+                };
+                if stem.len() != 64 || !stem.chars().all(|char| char.is_ascii_hexdigit()) {
+                    continue;
+                }
+                if referenced.contains(stem) {
+                    continue;
+                }
+                match fs::remove_file(&path) {
+                    Ok(()) => removed += 1,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        eprintln!("[image] 启动清理图片失败（{}）：{error}", path.display())
+                    }
+                }
+            }
+        }
+        Ok(removed)
+    }
+
     fn image_dir(&self) -> Result<PathBuf, String> {
         let dir = self
             .db_path
@@ -629,26 +782,60 @@ impl Store {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| error.to_string())?;
-        let hash = tx
+        let row = tx
             .query_row(
-                "SELECT content_hash FROM clips WHERE id = ?1",
+                "SELECT content_hash, clip_type, text FROM clips WHERE id = ?1",
                 params![id],
-                |row| row.get::<_, String>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
             )
             .optional()
             .map_err(|error| error.to_string())?;
-        if hash.is_some() {
+        if row.is_some() {
             tx.execute("DELETE FROM clips WHERE id = ?1", params![id])
                 .map_err(|error| error.to_string())?;
         }
         tx.commit().map_err(|error| error.to_string())?;
-        Ok(hash)
+        let Some((hash, clip_type, text)) = row else {
+            return Ok(None);
+        };
+        if clip_type == "image" {
+            self.cleanup_image_row_files(&conn, &hash, &text)?;
+        }
+        Ok(Some(hash))
     }
 
     pub(crate) fn clear_clips(&self) -> Result<usize, String> {
-        let conn = self.connect()?;
-        conn.execute("DELETE FROM clips", [])
-            .map_err(|error| error.to_string())
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let image_rows = {
+            let mut stmt = tx
+                .prepare("SELECT content_hash, text FROM clips WHERE clip_type = 'image'")
+                .map_err(|error| error.to_string())?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| error.to_string())?;
+            collect_rows(rows)?
+        };
+        let deleted = tx
+            .execute("DELETE FROM clips", [])
+            .map_err(|error| error.to_string())?;
+        tx.commit().map_err(|error| error.to_string())?;
+        for (hash, text) in image_rows {
+            if let Err(reason) = self.cleanup_image_row_files(&conn, &hash, &text) {
+                eprintln!("[image] 清空历史图片清理失败（{hash}）：{reason}");
+            }
+        }
+        Ok(deleted)
     }
 
     pub(crate) fn rename_clip(
@@ -850,6 +1037,8 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::models::{CapturedClipboardItem, SearchResult};
     use crate::store::test_support::{seed_clip, seed_n_clips, temp_store};
     use crate::util::hash_text;
@@ -884,6 +1073,102 @@ mod tests {
         assert_eq!((decoded.width(), decoded.height()), (480, 240));
         // 幂等：重复保存同名内容不报错、不重复生成。
         store.save_image_bytes("thumb-hash-1", &png).unwrap();
+    }
+
+    fn insert_test_image(store: &crate::store::Store, hash: &str) -> (String, PathBuf, PathBuf) {
+        let png = test_png_bytes(64, 64);
+        let (clip, _, _) = store
+            .insert_captured_item(CapturedClipboardItem {
+                clip_type: "image".to_string(),
+                content_hash: hash.to_string(),
+                preview_text: "64 x 64".to_string(),
+                text: String::new(),
+                image_bytes: Some(png),
+                display_name: None,
+            })
+            .unwrap()
+            .unwrap();
+        let original = PathBuf::from(&clip.text);
+        let thumb = original
+            .parent()
+            .unwrap()
+            .join("thumbs")
+            .join(original.file_name().unwrap());
+        (clip.id, original, thumb)
+    }
+
+    #[test]
+    fn delete_clip_removes_image_and_thumbnail() {
+        let store = temp_store();
+        let (id, original, thumb) = insert_test_image(&store, &"a".repeat(64));
+        assert!(original.exists() && thumb.exists());
+        store.delete_clip_returning_hash(id).unwrap();
+        assert!(!original.exists(), "删除条目后原图应被清理");
+        assert!(!thumb.exists(), "删除条目后缩略图应被清理");
+    }
+
+    #[test]
+    fn category_snapshot_keeps_image_until_item_removed() {
+        let store = temp_store();
+        let (id, original, thumb) = insert_test_image(&store, &"b".repeat(64));
+        let created = store
+            .create_category_with_clip("图像".to_string(), "#0D9488".to_string(), id.clone())
+            .unwrap();
+        store.delete_clip_returning_hash(id).unwrap();
+        assert!(original.exists(), "分类快照仍引用该图片，文件必须保留");
+        store.remove_category_item(created.item.id).unwrap();
+        assert!(
+            !original.exists() && !thumb.exists(),
+            "最后一个引用移除后应清理"
+        );
+    }
+
+    #[test]
+    fn clear_clips_keeps_images_referenced_by_category_snapshot() {
+        let store = temp_store();
+        let (id, original, _thumb) = insert_test_image(&store, &"c".repeat(64));
+        let created = store
+            .create_category_with_clip("快照".to_string(), "#2563EB".to_string(), id)
+            .unwrap();
+        store.clear_clips().unwrap();
+        assert!(original.exists(), "清空历史不应删除分类快照引用的图片");
+        store.remove_category_item(created.item.id).unwrap();
+        assert!(!original.exists());
+    }
+
+    #[test]
+    fn prune_expired_removes_image_files() {
+        let store = temp_store();
+        let (_id, original, thumb) = insert_test_image(&store, &"d".repeat(64));
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "UPDATE clips SET last_captured_at = '2000-01-01T00:00:00Z'",
+            [],
+        )
+        .unwrap();
+        store.prune_expired_with_conn(&conn, 1).unwrap();
+        assert!(!original.exists() && !thumb.exists());
+    }
+
+    #[test]
+    fn gc_orphan_image_files_removes_only_unreferenced_hash_files() {
+        let store = temp_store();
+        let (_, original, thumb) = insert_test_image(&store, &"e".repeat(64));
+        let dir = store.image_dir().unwrap();
+        std::fs::create_dir_all(dir.join("thumbs")).unwrap();
+        let orphan_hash = "f".repeat(64);
+        let orphan = dir.join(format!("{orphan_hash}.png"));
+        let orphan_thumb = dir.join("thumbs").join(format!("{orphan_hash}.png"));
+        std::fs::write(&orphan, b"orphan").unwrap();
+        std::fs::write(&orphan_thumb, b"orphan").unwrap();
+        let legacy = dir.join("legacy-image.png");
+        std::fs::write(&legacy, b"legacy").unwrap();
+
+        let removed = store.gc_orphan_image_files().unwrap();
+        assert_eq!(removed, 2, "只应清理两张无引用的哈希命名文件");
+        assert!(original.exists() && thumb.exists(), "被引用文件必须保留");
+        assert!(!orphan.exists() && !orphan_thumb.exists());
+        assert!(legacy.exists(), "非哈希命名的旧文件不应被 GC 触碰");
     }
 
     #[test]

@@ -62,34 +62,21 @@ pub(crate) fn spawn_clipboard_watcher(
             continue;
         }
 
-        // 一级门控：平台变化序号（Windows GetClipboardSequenceNumber /
-        // macOS NSPasteboard.changeCount）未变 → 剪贴板内容与上次观测一致，
-        // 整轮跳过完整读取。read_current_clipboard 对图片会走 DIB 拷贝 +
-        // PNG 重编码 + SHA-256，每 700ms 无条件执行在图片常驻剪贴板时是持续
-        // 的 CPU/内存浪费；序号相同即可判定"已捕获过"，无需再读。
+        // 一级门控（快路径是唯一判定点）：平台变化序号（Windows
+        // GetClipboardSequenceNumber / macOS NSPasteboard.changeCount）与上次
+        // 捕获/回写记录的 marker 一致 → 剪贴板内容未变，整轮跳过完整读取
+        // （内容拷贝 + 图片 DIB 拷贝/PNG 重编码 + SHA-256），只睡
+        // POLL_IDLE_INTERVAL；不等号时按 POLL_INTERVAL 全读。
         //
         // marker 不变量：序号在三种时机更新——watcher 捕获新内容（下方光标
         // 写回）、iPaste 自身写剪贴板（remember_current_clipboard_marker）、
         // 删除联动清空（forget_current_clipboard_marker 归位 None）。任何
-        // 内容变化都会 bump 序号，因此"序号相同"⇒ 内容未变。
-        // 平台不支持序号（None）或 marker 未初始化（None，如清空后）时退化
-        // 为每轮全读，行为与此前一致。
-        let before_change_id = clipboard_change_id();
-        let last_change_id = last_clipboard_change_id
-            .lock()
-            .map(|value| *value)
-            .unwrap_or(None);
-        if let (Some(current), Some(last)) = (before_change_id, last_change_id) {
-            if current == last {
-                thread::sleep(Duration::from_millis(700));
-                continue;
-            }
-        }
-
-        // 快路径：平台 change id 与上次捕获/回写记录一致 → 剪贴板内容未变，
-        // 跳过完整读取（内容拷贝 + 图片 PNG 重编码 + 哈希）。marker 的 change id
+        // 内容变化都会 bump 序号，因此"序号相同"⇒ 内容未变。marker 的 change id
         // 由写入方在写入完成时采样（clipboard.rs），不会把其他进程的写入误记
-        // 成自己的内容；仍保留定期复核兜底。
+        // 成自己的内容。
+        // 平台不支持序号（None）或 marker 未初始化（None，如清空后）时退化
+        // 为每轮全读，行为与此前一致；仍保留定期复核兜底。
+        let before_change_id = clipboard_change_id();
         let fast_path_idle = fast_path_hits < POLL_FAST_PATH_RECHECK
             && is_unchanged_since_last_capture(
                 last_clipboard_change_id

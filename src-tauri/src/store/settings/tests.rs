@@ -452,6 +452,62 @@ mod cloud_ocr_keyring_tests {
     }
 
     #[test]
+    fn openai_profile_without_api_key_is_allowed_and_clears_stored_credential() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_openai_ocr_api_key();
+        let store = temp_store();
+
+        let saved = store
+            .save_openai_ocr_profile(profile("", "local-model", "key-to-clear"), None)
+            .unwrap();
+        let id = saved.cloud_ocr.openai_active_profile_id.clone();
+        assert_eq!(saved.cloud_ocr.openai_api_key, "key-to-clear");
+
+        let cleared = store
+            .save_openai_ocr_profile(profile(&id, "local-model", "   "), None)
+            .unwrap();
+        assert_eq!(cleared.cloud_ocr.openai_api_key, "");
+        assert_eq!(
+            secrets::get_openai_ocr_profile_api_key(&id).unwrap(),
+            None,
+            "留空 Key 保存即清除该配置的凭据"
+        );
+
+        store.update_ocr_engine("openai".to_string()).unwrap();
+        assert!(
+            store.cloud_ocr_engine_ready(),
+            "无 Key 的本地无鉴权端点也算配置完整"
+        );
+
+        store.update_ocr_engine("local".to_string()).unwrap();
+        let _ = store.clear_openai_ocr_config();
+    }
+
+    #[test]
+    fn legacy_openai_config_accepts_empty_key_and_clears_legacy_credential() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_openai_ocr_api_key();
+        secrets::put_openai_ocr_api_key("legacy-key").unwrap();
+        let store = temp_store();
+
+        let updated = store
+            .update_openai_ocr_config(
+                "http://localhost:11434/v1".into(),
+                "llava".into(),
+                "   ".into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(updated.cloud_ocr.openai_api_key, "");
+        assert_eq!(
+            secrets::get_openai_ocr_api_key().unwrap(),
+            None,
+            "旧存储分支留空 Key 时删除 legacy 凭据"
+        );
+        let _ = store.clear_openai_ocr_config();
+    }
+
+    #[test]
     fn legacy_openai_config_and_key_read_as_legacy_profile_without_migration() {
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _ = secrets::delete_openai_ocr_api_key();

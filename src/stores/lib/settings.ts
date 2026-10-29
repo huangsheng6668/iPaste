@@ -88,7 +88,6 @@ export function cleanOpenaiProfiles(profiles: unknown): OpenaiOcrProfile[] {
   return cleaned;
 }
 
-/** 云 OCR（OpenAI 兼容）是否至少有一个配置齐 base/model/key 的接口。 */
 /**
  * 设置项登记表（Task 37）：键名 → 后端命令 / 本地清洗器 / 写法语义的唯一来源。
  *
@@ -148,9 +147,10 @@ export type SettingKey = keyof typeof SETTINGS_SCHEMA;
 /** 全部设置键（读取镜像与测试遍历用）。 */
 export const SETTING_KEYS = Object.keys(SETTINGS_SCHEMA) as SettingKey[];
 
+/** 云 OCR 是否至少有一个齐 base/model 的接口；本地无鉴权端点可不填 Key。 */
 export function isOpenaiOcrConfigured(cloudOcr: CloudOcrSettings): boolean {
   return (cloudOcr.openaiProfiles ?? []).some(
-    (profile) => profile.baseUrl && profile.model && profile.apiKey,
+    (profile) => profile.baseUrl && profile.model,
   );
 }
 

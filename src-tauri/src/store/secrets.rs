@@ -6,6 +6,8 @@ use keyring::Entry;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+use crate::util::LockRecover;
+
 const SERVICE: &str = "iPaste";
 const ACCOUNT: &str = "cloud_api_key";
 const ACCOUNT_DEVICE: &str = "device_sync_secret";
@@ -28,12 +30,7 @@ fn entry_for(account: &str) -> Result<Entry, String> {
 
 /// 读缓存 → 未命中回源凭据库；仅成功结果入缓存。
 fn read_cached(account: &str) -> Result<Option<String>, String> {
-    if let Some(hit) = cache()
-        .lock()
-        .expect("secrets 缓存锁中毒")
-        .get(account)
-        .cloned()
-    {
+    if let Some(hit) = cache().lock_recover("secrets 缓存").get(account).cloned() {
         return Ok(hit);
     }
     let value = match entry_for(account)?.get_password() {
@@ -42,8 +39,7 @@ fn read_cached(account: &str) -> Result<Option<String>, String> {
         Err(e) => return Err(format!("读取系统凭据库失败：{e}")),
     };
     cache()
-        .lock()
-        .expect("secrets 缓存锁中毒")
+        .lock_recover("secrets 缓存")
         .insert(account.to_string(), value.clone());
     Ok(value)
 }
@@ -51,7 +47,7 @@ fn read_cached(account: &str) -> Result<Option<String>, String> {
 /// 写路径调用：丢弃缓存条目，下次读重新回源。删除即使失败也失效——
 /// 缓存只是读穿透层，失效最多多付一次读取，不会返回与库不符的值。
 fn invalidate_cached(account: &str) {
-    cache().lock().expect("secrets 缓存锁中毒").remove(account);
+    cache().lock_recover("secrets 缓存").remove(account);
 }
 
 pub(crate) fn put_api_key(value: &str) -> Result<(), String> {

@@ -543,3 +543,112 @@ fn get_category_for_clip_prefers_latest_category() {
         .expect("joined clip should resolve");
     assert_eq!(found.name, "newer", "most recently updated category wins");
 }
+
+fn favorite_count_of(conn: &rusqlite::Connection, clip_id: &str) -> i64 {
+    conn.query_row(
+        "SELECT favorite_count FROM clips WHERE id = ?1",
+        rusqlite::params![clip_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn clip_ids_of(conn: &rusqlite::Connection) -> Vec<String> {
+    let mut stmt = conn.prepare("SELECT id FROM clips ORDER BY id").unwrap();
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0)).unwrap();
+    rows.map(|row| row.unwrap()).collect()
+}
+
+#[test]
+fn favorite_count_tracks_add_and_remove_category_item() {
+    let store = temp_store();
+    let conn = store.connect().unwrap();
+    seed_clip(&conn, "text", "fav", "favorite me");
+    let clip_id = clip_ids_of(&conn)[0].clone();
+    let cat_id = create_category(&conn, "A", "#f00", 0);
+
+    let item = store
+        .add_clip_to_category(clip_id.clone(), cat_id.clone())
+        .unwrap();
+    assert_eq!(favorite_count_of(&conn, &clip_id), 1);
+
+    store
+        .add_clip_to_category(clip_id.clone(), cat_id.clone())
+        .unwrap();
+    assert_eq!(
+        favorite_count_of(&conn, &clip_id),
+        1,
+        "重复加入同分类不重复计数"
+    );
+
+    store.remove_category_item(item.id).unwrap();
+    assert_eq!(favorite_count_of(&conn, &clip_id), 0);
+
+    assert!(
+        store.remove_category_item("missing".to_string()).is_ok(),
+        "移除不存在的条目应幂等"
+    );
+    assert_eq!(favorite_count_of(&conn, &clip_id), 0, "计数不应下溢");
+}
+
+#[test]
+fn delete_category_decrements_favorite_count_per_member() {
+    let store = temp_store();
+    let conn = store.connect().unwrap();
+    seed_clip(&conn, "text", "one", "one");
+    seed_clip(&conn, "text", "two", "two");
+    let clip_ids = clip_ids_of(&conn);
+    let cat_id = create_category(&conn, "A", "#f00", 0);
+    for clip_id in &clip_ids {
+        store
+            .add_clip_to_category(clip_id.clone(), cat_id.clone())
+            .unwrap();
+    }
+    assert!(clip_ids
+        .iter()
+        .all(|clip_id| favorite_count_of(&conn, clip_id) == 1));
+
+    store.delete_category(cat_id).unwrap();
+    assert!(
+        clip_ids
+            .iter()
+            .all(|clip_id| favorite_count_of(&conn, clip_id) == 0),
+        "删分类应按成员数回退收藏计数"
+    );
+}
+
+#[test]
+fn received_category_item_increments_favorite_count_only_on_insert() {
+    let store = temp_store();
+    let text = "sync-favorite";
+    let hash = crate::util::hash_text(text);
+    let item = store
+        .insert_received_category_item(
+            "text".to_string(),
+            hash.clone(),
+            text.to_string(),
+            text.to_string(),
+            "工作".to_string(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let conn = store.connect().unwrap();
+    assert_eq!(favorite_count_of(&conn, &item.clip_snapshot_id), 1);
+
+    // 幂等命中已有条目：不重复加。
+    store
+        .insert_received_category_item(
+            "text".to_string(),
+            hash,
+            text.to_string(),
+            text.to_string(),
+            "工作".to_string(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(favorite_count_of(&conn, &item.clip_snapshot_id), 1);
+}

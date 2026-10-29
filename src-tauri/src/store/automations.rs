@@ -11,6 +11,9 @@ use super::Store;
 
 pub(crate) const AUTOMATION_COMMAND_MAX_LEN: usize = 4000;
 pub(crate) const AUTOMATION_LOG_LIMIT_BYTES: usize = 200 * 1024;
+/// 每个动作保留的最近运行记录数：超出部分在运行结束时清理，
+/// 避免带 200KB 日志的运行记录无限累积。
+const AUTOMATION_RUN_HISTORY_LIMIT: i64 = 50;
 
 impl Store {
     pub(crate) fn list_automations(&self) -> Result<Vec<AutomationAction>, String> {
@@ -179,11 +182,11 @@ impl Store {
         exit_code: Option<i64>,
     ) -> Result<(), String> {
         let finished_at = crate::util::now();
-        let started_at: String = conn
+        let (started_at, automation_id): (String, String) = conn
             .query_row(
-                "SELECT started_at FROM automation_runs WHERE id = ?1",
+                "SELECT started_at, automation_id FROM automation_runs WHERE id = ?1",
                 params![run_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|e| e.to_string())?;
         let duration_ms = chrono::DateTime::parse_from_rfc3339(&finished_at)
@@ -193,6 +196,46 @@ impl Store {
         conn.execute(
             "UPDATE automation_runs SET status = ?1, exit_code = ?2, finished_at = ?3, duration_ms = ?4 WHERE id = ?5",
             params![status, exit_code, finished_at, duration_ms, run_id],
+        )
+        .map_err(|e| e.to_string())?;
+        if let Err(reason) =
+            self.prune_automation_runs_with_conn(conn, &automation_id, AUTOMATION_RUN_HISTORY_LIMIT)
+        {
+            eprintln!("[automation] 清理历史运行记录失败：{reason}");
+        }
+        Ok(())
+    }
+
+    /// 启动时清掉上一次进程遗留的 running 记录（运行器在应用进程内）。
+    /// 未引入 single-instance 插件：同时启动两个实例时，后启动者会把前者
+    /// 正在运行的记录标记失败；按单实例托盘应用假设接受。
+    pub(crate) fn reap_running_automation_runs(&self, conn: &Connection) -> Result<usize, String> {
+        let finished_at = crate::util::now();
+        conn.execute(
+            "UPDATE automation_runs
+             SET status = 'failed', finished_at = ?1, duration_ms = NULL
+             WHERE status = 'running'",
+            params![finished_at],
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    fn prune_automation_runs_with_conn(
+        &self,
+        conn: &Connection,
+        automation_id: &str,
+        keep: i64,
+    ) -> Result<(), String> {
+        conn.execute(
+            "DELETE FROM automation_runs
+             WHERE automation_id = ?1
+               AND id NOT IN (
+                 SELECT id FROM automation_runs
+                 WHERE automation_id = ?1
+                 ORDER BY started_at DESC, rowid DESC
+                 LIMIT ?2
+               )",
+            params![automation_id, keep],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -334,6 +377,66 @@ mod tests {
         let detail = store.get_automation_run_detail(&conn, &run_id).unwrap();
         assert!(detail.stdout_truncated);
         assert_eq!(detail.stdout.chars().count(), AUTOMATION_LOG_LIMIT_BYTES);
+    }
+
+    #[test]
+    fn reap_running_automation_runs_marks_failed_and_unblocks() {
+        let store = temp_store();
+        let action = store.create_automation(input("a", "echo 1")).unwrap();
+        let conn = store.connect().unwrap();
+        let run_id = store.insert_automation_run(&conn, &action.id).unwrap();
+        assert!(store.has_running_automation_run(&conn, &action.id).unwrap());
+
+        store.reap_running_automation_runs(&conn).unwrap();
+
+        assert!(!store.has_running_automation_run(&conn, &action.id).unwrap());
+        let (status, finished_at, duration): (String, Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT status, finished_at, duration_ms FROM automation_runs WHERE id = ?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert!(finished_at.is_some());
+        assert_eq!(duration, None);
+    }
+
+    #[test]
+    fn automation_runs_are_pruned_to_latest_limit() {
+        let store = temp_store();
+        let action = store.create_automation(input("a", "echo 1")).unwrap();
+        let conn = store.connect().unwrap();
+        for _ in 0..55 {
+            store.insert_automation_run(&conn, &action.id).unwrap();
+        }
+        let latest: String = conn
+            .query_row(
+                "SELECT id FROM automation_runs ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        store
+            .finish_automation_run(&conn, &latest, "success", Some(0))
+            .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automation_runs WHERE automation_id = ?1",
+                params![action.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, AUTOMATION_RUN_HISTORY_LIMIT);
+        let kept: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automation_runs WHERE id = ?1",
+                params![latest],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 1, "最新运行记录必须保留");
     }
 
     #[test]

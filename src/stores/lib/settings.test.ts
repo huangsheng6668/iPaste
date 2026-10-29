@@ -135,4 +135,18 @@ describe("cleanCloudOcrSettings", () => {
     expect(cleaned.openaiActiveProfileId).toBe("legacy");
     expect(isOpenaiOcrConfigured(cleaned)).toBe(true);
   });
+
+  it("无 API Key 的本地端点也算已配置", () => {
+    const cleaned = cleanCloudOcrSettings({
+      openaiProfiles: [{
+        id: "local",
+        name: "Ollama",
+        baseUrl: "http://localhost:11434/v1",
+        model: "llava",
+        apiKey: "",
+      }],
+      openaiActiveProfileId: "local",
+    });
+    expect(isOpenaiOcrConfigured(cleaned)).toBe(true);
+  });
 });
