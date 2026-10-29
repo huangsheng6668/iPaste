@@ -20,7 +20,7 @@ const tabLabel = computed(() => props.nextCategoryName || t("category.history"))
       class="keyboard-action-list"
     >
       <div class="keyboard-action-item font-medium text-[var(--text-1)]">
-        <kbd class="keyboard-kbd text-[var(--accent)] font-bold">↵</kbd>
+        <kbd class="keyboard-kbd keyboard-kbd-accent">↵</kbd>
         <span>{{ t("automation.run") }}</span>
       </div>
 
@@ -45,7 +45,7 @@ const tabLabel = computed(() => props.nextCategoryName || t("category.history"))
       class="keyboard-action-list"
     >
       <div class="keyboard-action-item font-medium text-[var(--text-1)]">
-        <kbd class="keyboard-kbd text-[var(--accent)] font-bold">↵</kbd>
+        <kbd class="keyboard-kbd keyboard-kbd-accent">↵</kbd>
         <span>{{ t("common.paste") }}</span>
       </div>
 

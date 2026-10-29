@@ -6,7 +6,7 @@ import type { PanelCommand, PanelContext } from "./panelKeymap";
 // 路由层测试：断言"什么时候接管按键"与"派发了哪条命令"。
 // 键位本身的判定由 panelKeymap.test.ts 覆盖；命令的副作用由 App.vue 的 dispatch 承担。
 
-// 注意：搜索框选择器（.raycast-search-input, .search-box input）本身含 "input" 子串，
+// 注意：搜索框选择器（.raycast-search-input）本身含 "input" 子串，
 // 必须先判搜索选择器，否则 isInput 替身会被误判成搜索框。
 function createFakeElement(options: { isSearch?: boolean; isInput?: boolean } = {}): EventTarget {
   return {

@@ -26,7 +26,7 @@ const techStack = computed(() => [
   <div class="settings-section">
     <section class="settings-panel settings-about-panel">
       <div class="settings-about-header">
-        <div class="settings-icon settings-icon-violet">
+        <div class="settings-icon">
           <Sparkles class="size-5" />
         </div>
         <div class="min-w-0">

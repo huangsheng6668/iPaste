@@ -55,7 +55,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="settings-section">
     <section class="settings-panel items-start">
-      <div class="settings-icon settings-icon-blue">
+      <div class="settings-icon">
         <Keyboard class="size-5" />
       </div>
 
@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="settings-panel items-start">
-      <div class="settings-icon settings-icon-blue">
+      <div class="settings-icon">
         <Monitor class="size-5" />
       </div>
 

@@ -71,7 +71,7 @@ function confirmClearAll() {
 <template>
   <section class="settings-panel settings-column-panel">
     <div class="settings-panel-heading">
-      <div class="settings-icon settings-icon-teal">
+      <div class="settings-icon">
         <Cloud class="size-5" />
       </div>
       <div class="min-w-0 flex-1">
@@ -280,7 +280,7 @@ function confirmClearAll() {
         v-if="isPromptsExpanded"
         class="mt-3 flex flex-col gap-3"
       >
-        <div class="rounded-[var(--r-md)] border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+        <div class="rounded-[var(--r-md)] border border-[var(--warning-border)] bg-[var(--warning-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--warning-text)]">
           {{ t("settings.openai.promptsVariableHint") }}
         </div>
 
@@ -306,7 +306,7 @@ function confirmClearAll() {
             </div>
             <button
               type="button"
-              class="cursor-pointer rounded p-1 text-[var(--text-3)] transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--text-3)]"
+              class="cursor-pointer rounded p-1 text-[var(--text-3)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--text-3)]"
               :disabled="openaiPrompts.length <= 1"
               :title="t('settings.openai.removePrompt')"
               :aria-label="t('settings.openai.removePrompt')"

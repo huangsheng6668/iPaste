@@ -58,6 +58,11 @@ const updater = useUpdater();
 // 窗口类型的唯一来源（useWindowRoute）：模板与脚本都读同一个值。
 const { windowKind, isMainWindow } = useWindowRoute();
 const isPreservingCurrentApp = ref(false);
+// 面板入场动画由原生可见性事件驱动：Tauri 显示窗口可能晚于组件挂载，
+// 若挂在挂载/入场类上会播在不可见时。隐藏时复位，再次唤出可重放。
+const panelEntering = ref(false);
+let panelVisible = false;
+let panelEnterTimer: ReturnType<typeof setTimeout> | null = null;
 let unlistenShortcutOpened: UnlistenFn | null = null;
 let unlistenPanelVisibilityChanged: UnlistenFn | null = null;
 let lastUpdateCheckAt = 0;
@@ -290,6 +295,10 @@ onUnmounted(() => {
 
   clearMoveSubmenuCloseTimer();
   clearSendSubmenuCloseTimer();
+  if (panelEnterTimer) {
+    clearTimeout(panelEnterTimer);
+    panelEnterTimer = null;
+  }
   cleanupClipListScroll();
   clearQuickPreviewTimer();
   cleanupItemDrag();
@@ -314,11 +323,23 @@ function applyPanelVisibility(
   const nativePanel = payload.visible && Boolean(payload.nativePanel);
   isPreservingCurrentApp.value = payload.visible && payload.preservesCurrentApp && !nativePanel;
   if (!payload.visible) {
+    panelVisible = false;
+    panelEntering.value = false;
     store.clearSearch();
     store.resetTypeFilter();
     resetClipListScroll();
     blurActiveElement();
     return;
+  }
+
+  if (!panelVisible) {
+    panelVisible = true;
+    panelEntering.value = true;
+    if (panelEnterTimer) clearTimeout(panelEnterTimer);
+    panelEnterTimer = setTimeout(() => {
+      panelEntering.value = false;
+      panelEnterTimer = null;
+    }, 180);
   }
 
   if (activateDefault) {
@@ -426,7 +447,7 @@ function moveAutomationSelection(delta: number) {
 }
 
 function focusSearchInput() {
-  const input = document.querySelector<HTMLInputElement>(".raycast-search-input, .search-box input");
+  const input = document.querySelector<HTMLInputElement>(".raycast-search-input");
   input?.focus();
   input?.select();
 }
@@ -475,10 +496,11 @@ function dispatchPanelCommand(command: PanelCommand, ctx: PanelContext) {
         if (!item) return;
 
         const key = contextItemKey(item);
-        if (pendingDeleteContextKey.value === key) {
+        // 键盘两击确认统一走 deleteConfirm；pendingDeleteContextKey 只属于右键菜单。
+        if (pendingDeleteByKey.value === key) {
           void clipMenu.deleteSelectedItem(item);
         } else {
-          pendingDeleteContextKey.value = key;
+          pendingDeleteByKey.value = key;
         }
       }
       return;
@@ -640,7 +662,7 @@ const nextCategoryLabel = computed(() => {
   <main
     v-else
     class="raycast-container"
-    :class="{ 'app-shell-preserve-current-app': isPreservingCurrentApp }"
+    :class="{ 'app-shell-preserve-current-app': isPreservingCurrentApp, 'panel-entering': panelEntering }"
     @click="closeFloatingLayers"
     @contextmenu="suppressDefaultContextMenu"
   >
@@ -648,7 +670,6 @@ const nextCategoryLabel = computed(() => {
     <CommandSearchBar
       :search-query="store.search"
       :shortcut="formattedShortcut"
-      :settings-open="false"
       :append-copy-enabled="store.isAppendCopyEnabled"
       :append-copy-timeout-minutes="settingsStore.appendCopyTimeoutMinutes"
       :has-update="updater.hasAvailableUpdate.value"
@@ -705,9 +726,10 @@ const nextCategoryLabel = computed(() => {
     <!-- Error Banner if any -->
     <div
       v-if="store.error"
-      class="error-banner m-2"
+      class="error-banner"
+      role="alert"
     >
-      <AlertCircle class="size-4" />
+      <AlertCircle class="size-3.5" />
       <span class="min-w-0 flex-1 truncate">{{ store.error }}</span>
     </div>
 

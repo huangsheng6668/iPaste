@@ -5,35 +5,9 @@ import { useDragSort } from "../composables/useDragSort";
 import CategoryRow from "./category/CategoryRow.vue";
 import CategoryContextMenu from "./category/CategoryContextMenu.vue";
 import { t } from "../i18n";
+import { CATEGORY_COLOR_OPTIONS } from "../lib/categoryColors";
 import { categoryDisplayName } from "../lib/format";
 import type { Category } from "../types";
-
-const CATEGORY_COLOR_OPTIONS = [
-  "#2563EB",
-  "#0891B2",
-  "#0D9488",
-  "#059669",
-  "#65A30D",
-  "#CA8A04",
-  "#D97706",
-  "#EA580C",
-  "#DC2626",
-  "#E11D48",
-  "#DB2777",
-  "#C026D3",
-  "#9333EA",
-  "#7C3AED",
-  "#4F46E5",
-  "#0284C7",
-  "#475569",
-  "#334155",
-  "#111827",
-  "#78716C",
-  "#A16207",
-  "#BE123C",
-  "#6D28D9",
-  "#0F766E",
-];
 
 const props = defineProps<{
   categories: Category[];
@@ -446,8 +420,8 @@ function countLabel(count: number | undefined) {
         tabindex="-1"
         @click="selectCategory('history')"
       >
-        <span class="category-count-dot category-count-dot-history">{{ countLabel(historyCount) }}</span>
         <span class="category-chip-label">{{ t("category.history") }}</span>
+        <span class="category-count">{{ countLabel(historyCount) }}</span>
       </button>
 
       <CategoryRow

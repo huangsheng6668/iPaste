@@ -81,7 +81,7 @@ async function updateLanguage(language: Language) {
 <template>
   <div class="settings-section">
     <section class="settings-panel settings-language-panel items-start">
-      <div class="settings-icon settings-icon-teal">
+      <div class="settings-icon">
         <Sparkles class="size-5" />
       </div>
 
@@ -104,7 +104,7 @@ async function updateLanguage(language: Language) {
     </section>
 
     <section class="settings-panel items-start">
-      <div class="settings-icon settings-icon-violet">
+      <div class="settings-icon">
         <Sun class="size-5" />
       </div>
 
@@ -142,7 +142,7 @@ async function updateLanguage(language: Language) {
     </section>
 
     <section class="settings-panel items-start">
-      <div class="settings-icon settings-icon-teal">
+      <div class="settings-icon">
         <Power class="size-5" />
       </div>
 
@@ -176,7 +176,7 @@ async function updateLanguage(language: Language) {
     </section>
 
     <section class="settings-panel items-start">
-      <div class="settings-icon settings-icon-blue">
+      <div class="settings-icon">
         <SlidersHorizontal class="size-5" />
       </div>
 
@@ -209,7 +209,7 @@ async function updateLanguage(language: Language) {
 
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-blue">
+        <div class="settings-icon">
           <AppWindow class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
@@ -255,7 +255,7 @@ async function updateLanguage(language: Language) {
 
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-teal">
+        <div class="settings-icon">
           <ClipboardPlus class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
@@ -284,7 +284,7 @@ async function updateLanguage(language: Language) {
 
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-blue">
+        <div class="settings-icon">
           <Database class="size-5" />
         </div>
         <div class="min-w-0">

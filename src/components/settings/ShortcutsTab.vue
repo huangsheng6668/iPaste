@@ -33,7 +33,7 @@ const {
   <div class="settings-section">
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-teal">
+        <div class="settings-icon">
           <Keyboard class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
@@ -101,7 +101,7 @@ const {
 
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-teal">
+        <div class="settings-icon">
           <ScanText class="size-5" />
         </div>
         <div class="min-w-0 flex-1">
@@ -169,7 +169,7 @@ const {
 
     <section class="settings-panel settings-column-panel">
       <div class="settings-panel-heading">
-        <div class="settings-icon settings-icon-blue">
+        <div class="settings-icon">
           <Keyboard class="size-5" />
         </div>
         <div class="min-w-0 flex-1">

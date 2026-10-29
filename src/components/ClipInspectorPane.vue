@@ -125,7 +125,7 @@ const linkHostname = computed(() => {
           <span class="clip-inspector-title">{{ detailTitle }}</span>
         </div>
 
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-0.5">
           <button
             type="button"
             class="icon-button"
@@ -203,8 +203,8 @@ const linkHostname = computed(() => {
               :style="{ backgroundColor: colorValue }"
             />
             <div class="flex flex-col gap-1 min-w-0 flex-1">
-              <span class="font-mono text-sm font-semibold text-[var(--text-1)]">{{ colorValue }}</span>
-              <span class="text-xs text-[var(--text-3)]">{{ typeLabel("color") }}</span>
+              <span class="font-mono text-[0.8125rem] font-semibold tracking-[0.01em] text-[var(--text-1)]">{{ colorValue }}</span>
+              <span class="text-[0.625rem] font-medium text-[var(--text-3)]">{{ typeLabel("color") }}</span>
             </div>
           </div>
 
@@ -227,7 +227,7 @@ const linkHostname = computed(() => {
               </span>
               <span
                 v-else
-                class="color-matrix-item-val truncate max-w-[120px]"
+                class="color-matrix-item-val truncate"
               >{{ fmt.value }}</span>
             </button>
           </div>
@@ -236,22 +236,22 @@ const linkHostname = computed(() => {
         <!-- Link Preview Box -->
         <div
           v-else-if="isLink"
-          class="flex flex-col gap-2 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-code)] p-3.5"
+          class="clip-inspector-link"
         >
-          <div class="flex items-center gap-2 text-xs font-semibold text-[var(--text-1)]">
-            <Globe class="size-4 text-[var(--accent)] shrink-0" />
+          <div class="clip-inspector-link-host">
+            <Globe class="size-3.5" />
             <span class="truncate">{{ linkHostname }}</span>
           </div>
-          <div class="font-mono text-xs text-[var(--text-2)] break-all select-text leading-relaxed">
+          <div class="clip-inspector-link-url">
             {{ item.text }}
           </div>
           <a
             :href="item.text"
             target="_blank"
             rel="noopener noreferrer"
-            class="btn-ghost self-start text-xs inline-flex items-center gap-1.5 mt-1 border border-[var(--border)]"
+            class="btn-ghost clip-inspector-link-button"
           >
-            <ExternalLink class="size-3.5" />
+            <ExternalLink class="size-3" />
             <span>{{ typeLabel("link") }}</span>
           </a>
         </div>
@@ -268,8 +268,11 @@ const linkHostname = computed(() => {
           <pre class="clip-inspector-code-content">{{ item.text }}</pre>
         </div>
 
-        <!-- Meta Info Card Footer with Chips -->
-        <div class="clip-inspector-meta-card tabular-nums">
+        <!-- Meta Info Ledger Footer -->
+        <div
+          class="clip-inspector-meta-card tabular-nums"
+          :class="{ 'clip-inspector-meta-card-pair': isImage }"
+        >
           <div class="clip-inspector-meta-item">
             <span class="clip-inspector-meta-label">{{ t("common.size") }}</span>
             <span class="clip-inspector-meta-val">{{ clipMetricText(item.clipType, item.text, item.previewText) }}</span>
@@ -283,7 +286,7 @@ const linkHostname = computed(() => {
             <span class="clip-inspector-meta-val">{{ lineCountText(lines) }}</span>
           </div>
 
-          <div class="clip-inspector-meta-item col-span-2">
+          <div class="clip-inspector-meta-item">
             <span class="clip-inspector-meta-label">{{ t("detail.copiedAt") }}</span>
             <span class="clip-inspector-meta-val">{{ formatTime(displayTime) }}</span>
           </div>
@@ -294,12 +297,10 @@ const linkHostname = computed(() => {
     <!-- Empty Inspector Placeholder -->
     <div
       v-else
-      class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[var(--text-3)]"
+      class="clip-inspector-empty"
     >
-      <Clipboard class="size-8 stroke-[1.5] opacity-50" />
-      <p class="text-xs">
-        {{ t("detail.noSelection") }}
-      </p>
+      <Clipboard class="size-8 stroke-[1.5]" />
+      <p>{{ t("detail.noSelection") }}</p>
     </div>
   </aside>
 </template>

@@ -22,13 +22,13 @@ const emit = defineEmits<{ (e: "confirm"): void; (e: "cancel"): void }>();
           <h2 class="dialog-title">
             {{ t("automation.confirmTitle", { name: action.name }) }}
           </h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm text-[var(--text-2)]">
             {{ t("automation.confirmDescription") }}
           </p>
-          <pre class="mt-3 max-h-40 overflow-auto rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-800">{{ action.command }}</pre>
+          <pre class="mt-3 max-h-40 overflow-auto rounded-[var(--r-md)] border border-[var(--border-hairline)] bg-[var(--surface-inset)] p-3 font-mono text-xs text-[var(--text-1)]">{{ action.command }}</pre>
           <p
             v-if="action.cwd"
-            class="mt-2 text-xs text-slate-500"
+            class="mt-2 text-xs text-[var(--text-3)]"
           >
             {{ t("automation.cwd") }}: {{ action.cwd }}
           </p>

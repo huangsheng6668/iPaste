@@ -312,7 +312,7 @@ async function openImage() {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-hairline);
   user-select: none;
 }
 
@@ -351,7 +351,7 @@ async function openImage() {
 .ocr-profile-pill.active {
   background: var(--surface);
   color: var(--text-1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-xs);
 }
 
 .ocr-profile-pill:disabled {
@@ -362,7 +362,7 @@ async function openImage() {
 .ocr-language-select {
   margin-left: 8px;
   padding: 2px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--text-1);
@@ -412,7 +412,7 @@ async function openImage() {
 }
 
 .ocr-result-state-error {
-  color: var(--accent);
+  color: var(--danger-strong);
 }
 
 .ocr-result-state-detail {
@@ -428,7 +428,7 @@ async function openImage() {
   width: 100%;
   height: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--surface-inset);
   color: var(--text-1);
@@ -439,7 +439,7 @@ async function openImage() {
 
 .ocr-result-textarea:focus {
   outline: 2px solid var(--accent);
-  outline-offset: -1px;
+  outline-offset: -2px;
 }
 
 .ocr-result-footer {
@@ -448,7 +448,7 @@ async function openImage() {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-hairline);
 }
 
 .ocr-result-count {
@@ -461,7 +461,7 @@ async function openImage() {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--text-1);
@@ -480,13 +480,12 @@ async function openImage() {
 }
 
 .ocr-result-button-primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  border-color: transparent;
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
 }
 
 .ocr-result-button-primary:hover:not(:disabled) {
-  background: var(--accent);
-  opacity: 0.9;
+  filter: brightness(1.06);
 }
 </style>

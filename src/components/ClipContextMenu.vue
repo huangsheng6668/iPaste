@@ -187,7 +187,7 @@ function clamp(value: number, min: number, max: number) {
       >
         <FolderInput class="size-4" />
         <span>{{ t("context.moveTo") }}</span>
-        <ChevronRight class="ml-auto size-4 text-slate-400" />
+        <ChevronRight class="ml-auto size-4 text-[var(--text-faint)]" />
       </button>
       <div
         v-if="showMoveSubmenu"
@@ -245,7 +245,7 @@ function clamp(value: number, min: number, max: number) {
       >
         <Send class="size-4" />
         <span>{{ t("deviceSync.sendTo.title") }}</span>
-        <ChevronRight class="ml-auto size-4 text-slate-400" />
+        <ChevronRight class="ml-auto size-4 text-[var(--text-faint)]" />
       </button>
       <div
         v-if="showSendSubmenu"
@@ -279,7 +279,7 @@ function clamp(value: number, min: number, max: number) {
             </span>
             <span
               v-if="!target.isAll && target.name"
-              class="font-mono text-xs text-slate-400"
+              class="font-mono text-xs text-[var(--text-3)]"
             >{{ fingerprintOf(target.id) }}</span>
           </button>
         </template>

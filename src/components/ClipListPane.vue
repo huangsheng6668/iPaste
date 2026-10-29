@@ -4,6 +4,7 @@ import { Image, Inbox, Type, Zap } from "lucide-vue-next";
 import ClipCard from "./ClipCard.vue";
 import AutomationCard from "./AutomationCard.vue";
 import { t } from "../i18n";
+import { categoryColorVars } from "../lib/categoryColors";
 import { contextItemKey } from "../lib/clipKeys";
 import { categoryDisplayName } from "../lib/format";
 import type { AutomationAction, Category, CategoryItem, ClipTypeFilter, ClipViewItem } from "../types";
@@ -60,14 +61,14 @@ function forwardListRef(el: Element | ComponentPublicInstance | null) {
 
 // —— 列表虚拟化（窗口化渲染）——
 // 历史条目可达数千条：全量渲染时几千个 ClipCard 实例 + 数万事件监听同时
-// 挂载，且任何一次 store 写入都要 patch 整棵列表。卡片是定高双行迷你卡
+// 挂载，且任何一次 store 写入都要 patch 整棵列表。卡片是定高双行账本行
 // （clip-mini-card：固定 padding + 两行 nowrap 文本 + 固定图标尺寸，
-// delete-confirming 只改描边/阴影不影响布局），按"实测高度 + 容器 gap"
-// 做窗口化：只渲染视口 ± OVERSCAN 条，上下用 spacer 撑起总高度，
+// delete-confirming 只改描边/阴影不影响布局），按"实测高度"做窗口化：
+// 只渲染视口 ± OVERSCAN 条，上下用 spacer 撑起总高度，
 // 滚动/选中跳转行为对使用者不可见。
-const ITEM_FALLBACK_HEIGHT = 52;
+const ITEM_FALLBACK_HEIGHT = 50;
 const OVERSCAN = 6;
-const LIST_GAP = 6; // .raycast-left-pane 的 gap: 0.375rem
+const LIST_GAP = 0; // .raycast-left-pane 的 gap: 0（行间用发丝分隔线）
 
 const listElement = ref<HTMLElement | null>(null);
 const viewportHeight = ref(0);
@@ -86,9 +87,8 @@ const virtualRange = computed(() => {
   const visibleCount = Math.ceil(Math.max(0, viewportHeight.value) / stride) + 1;
   const start = Math.max(0, first - OVERSCAN);
   const end = Math.min(total, first + visibleCount + OVERSCAN);
-  // 容器是 flex column + gap：spacer 与首卡之间也会计入一个 gap，
-  // 故 topSpacer 减一个 gap、bottomSpacer 按 (剩余条数) × stride 计算。
-  const topSpacer = start > 0 ? start * stride - LIST_GAP : 0;
+  // 行间无 gap：spacer 高度就是剩余条数 × 步长。
+  const topSpacer = start > 0 ? start * stride : 0;
   const bottomSpacer = (total - end) * stride;
   return { start, end, topSpacer, bottomSpacer };
 });
@@ -251,13 +251,13 @@ const emptyState = computed(() => {
         >
           <header class="flex items-center gap-1.5 px-1 py-0.5 text-xs text-[var(--text-2)] font-medium">
             <span
-              class="size-2 rounded-full shrink-0"
-              :style="{ backgroundColor: group.category.color }"
+              class="size-2 rounded-full shrink-0 bg-[var(--category-color)]"
+              :style="categoryColorVars(group.category.color)"
             />
             <span class="truncate">{{ categoryDisplayName(group.category.name) }}</span>
             <span class="text-[0.625rem] text-[var(--text-3)]">({{ group.items.length }})</span>
           </header>
-          <div class="flex flex-col gap-1">
+          <div class="flex flex-col gap-0">
             <ClipCard
               v-for="item in group.items"
               :key="item.id"
@@ -322,7 +322,7 @@ const emptyState = computed(() => {
       <!-- Infinite scroll loading shimmer -->
       <div
         v-if="selectedCategoryId === 'history' && isLoadingMore"
-        class="skeleton-card h-12 w-full rounded-md"
+        class="skeleton-card w-full"
       />
     </template>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Palette } from "lucide-vue-next";
 import { t } from "../../i18n";
+import { categoryColorVars } from "../../lib/categoryColors";
 import { contrastText } from "../../lib/colorFormat";
 import type { CSSProperties } from "vue";
 import type { Category } from "../../types";
@@ -54,16 +55,20 @@ const emit = defineEmits<{
   >
     <span
       v-if="!isEditing"
-      class="category-color-dot category-count-dot"
-      :style="{ backgroundColor: category.color, color: contrastText(category.color) }"
-    >
-      {{ count }}
-    </span>
+      class="category-color-dot"
+      :style="categoryColorVars(category.color)"
+    />
     <span
       v-if="!isEditing"
       class="category-chip-label"
     >
       {{ label }}
+    </span>
+    <span
+      v-if="!isEditing"
+      class="category-count"
+    >
+      {{ count }}
     </span>
     <input
       v-else

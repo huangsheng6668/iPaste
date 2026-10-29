@@ -25,7 +25,6 @@ function mountBar() {
     props: {
       searchQuery: "",
       shortcut: "Ctrl+Shift+V",
-      settingsOpen: false,
       appendCopyEnabled: false,
       appendCopyTimeoutMinutes: 1,
     },

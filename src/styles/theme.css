@@ -1,8 +1,10 @@
 /* ==========================================================================
-   iPaste design system — "Quiet Teal Precision"
+   iPaste design system — "Quiet Teal Precision / Hairline Ledger"
    --------------------------------------------------------------------------
    Neutral surfaces with a calm teal accent for focus and action states;
    orange/red is reserved for destructive or high-emphasis actions.
+   Structure comes from hairlines, alignment and a 2px accent spine —
+   shadows are reserved for floating layers.
    Semantic tokens for the light theme, overridden under `html.dark`.
    All custom component styles reference these tokens.
    ========================================================================== */
@@ -12,14 +14,24 @@
   --window-radius: 0.875rem;
 
   /* ---- radii ----
-     桌面工具气质：卡片与控件最大 8px（r-lg），
+     桌面工具气质：账本行本身方角，卡片/控件最大 8px（r-lg），
      只有窗口/对话框级浮层使用 r-xl。 */
-  --r-xs: 0.25rem;
-  --r-sm: 0.375rem;
-  --r-md: 0.5rem;
-  --r-lg: 0.5rem;
-  --r-xl: 0.75rem;
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
   --r-pill: 999px;
+
+  /* ---- control scale ----
+     控件高度与行高统一取值，避免各面板手写零碎数值。 */
+  --control-sm: 26px;
+  --control-md: 32px;
+  --control-lg: 36px;
+  --row-h: 50px;
+  --header-h: 44px;
+  --footer-h: 36px;
+  --spine-w: 2px;
 
   /* ---- spacing scale（4px 基网格）----
      组件内边距、间隙统一取自该刻度，不再手写零碎 rem。 */
@@ -32,15 +44,16 @@
   --sp-8: 2rem;
 
   /* ---- type scale（字号阶梯）----
-     xs=11 辅助/徽章, sm=12 次级/meta, md=13 正文（密集列表）,
-     lg=14 强调正文/菜单, xl=16 标题/搜索输入 */
+     2xs=10 微标签/计数, xs=11 辅助/徽章, sm=12 次级/meta,
+     md=13 正文（密集列表）, lg=14 强调正文/菜单, xl=16 标题/搜索输入 */
+  --text-2xs: 0.625rem;
   --text-xs: 0.6875rem;
   --text-sm: 0.75rem;
   --text-md: 0.8125rem;
   --text-lg: 0.875rem;
   --text-xl: 1rem;
 
-  /* ---- font weights（收敛 650/750 半档）---- */
+  /* ---- font weights（UI 内收敛 400/500/600）---- */
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
@@ -49,7 +62,7 @@
   /* ---- motion（过渡时长 150–200ms 区间内的统一刻度）---- */
   --dur-fast: 120ms;
   --dur-base: 160ms;
-  --dur-slow: 220ms;
+  --dur-slow: 200ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* ---- typography ---- */
@@ -60,61 +73,67 @@
     ui-monospace, "SF Pro Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
 
   /* ---- surfaces (Light) ---- */
-  --bg-app: #f4f5f8;
+  --bg-app: #f3f4f7;
   --surface: #ffffff;
   --surface-2: rgba(255, 255, 255, 0.85);
-  --surface-glass: rgba(255, 255, 255, 0.92);
-  --surface-inset: #eceef2;
-  --surface-hover: #ebecef;
+  --surface-glass: rgba(255, 255, 255, 0.94);
+  --surface-inset: #edeff3;
+  --surface-hover: #f5f6f9;
   --surface-active: rgba(13, 148, 136, 0.08);
-  --surface-code: #f0f2f7;
+  --surface-code: #f1f3f7;
+  --row-selected: rgba(13, 148, 136, 0.06);
 
   /* ---- borders (Light) ---- */
-  --border: rgba(0, 0, 0, 0.08);
-  --border-hairline: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.16);
-  --border-soft: rgba(0, 0, 0, 0.05);
-  --border-accent: rgba(13, 148, 136, 0.4);
+  --border: var(--border-hairline);
+  --border-hairline: #e6e8ee;
+  --border-strong: #d7dbe4;
+  --border-soft: #eef0f4;
+  --border-accent: rgba(13, 148, 136, 0.36);
 
-  /* ---- text (Light) ---- */
+  /* ---- text (Light) ----
+     1=主文字 2=必要元数据 3=次要文字 faint=装饰/禁用（不承载信息） */
   --text-1: #17181c;
-  --text-2: #64687a;
-  --text-3: #9ba0b2;
+  --text-2: #5b5f70;
+  --text-3: #666b7e;
+  --text-faint: #9ba0b2;
 
   /* ---- accent (Quiet Teal) ---- */
   --accent: #0d9488;
   --accent-strong: #0f766e;
   --accent-soft: rgba(13, 148, 136, 0.1);
   --accent-soft-2: rgba(13, 148, 136, 0.16);
+  --accent-fill: #0f766e;
+  --on-accent-fill: #ffffff;
   --on-accent: #ffffff;
   --focus-ring: rgba(13, 148, 136, 0.24);
 
   /* ---- status hues ---- */
   --success: #10b981;
   --success-soft: rgba(16, 185, 129, 0.12);
+  --success-border: rgba(16, 185, 129, 0.4);
   --danger: #ef4444;
   --danger-strong: #dc2626;
   --danger-soft: rgba(239, 68, 68, 0.1);
   --danger-border: rgba(239, 68, 68, 0.32);
+  --on-danger: #ffffff;
   --warning: #f59e0b;
   --warning-soft: rgba(245, 158, 11, 0.14);
+  --warning-text: #8a5a00;
+  --warning-border: rgba(202, 138, 4, 0.3);
   --info: #06b6d4;
   --info-soft: rgba(6, 182, 212, 0.12);
 
-  /* ---- shadows (Hairline precision) ---- */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* ---- shadows (Hairline precision) ----
+     xs 只给 1px 抬升控件；浮层才使用 pop/dialog/toast。 */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
   --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.06);
-  --shadow-selected: 0 0 0 2px var(--accent), 0 4px 12px rgba(13, 148, 136, 0.12);
   --shadow-pop: 0 16px 36px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05);
   --shadow-dialog: 0 24px 48px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08);
   --shadow-toast: 0 12px 28px rgba(0, 0, 0, 0.14);
-  --shadow-keycap: 0 1.5px 0 rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --glow-top-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 
   /* ---- patterns & micro-effects ---- */
   --checkerboard-pat: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
-  --radar-wave: rgba(13, 148, 136, 0.2);
 
   /* ---- tooltip ---- */
   --tooltip-bg: rgba(23, 24, 28, 0.94);
@@ -124,6 +143,13 @@
   --backdrop: rgba(18, 19, 22, 0.4);
   --backdrop-blur: blur(10px);
 
+  /* ---- overlay（OCR 遮罩，主题无关）---- */
+  --overlay-base: #000000;
+  --overlay-scrim: rgba(0, 0, 0, 0.72);
+  --overlay-scrim-strong: rgba(0, 0, 0, 0.86);
+  --on-overlay: #ffffff;
+  --overlay-error-bg: rgb(180 40 40 / 0.85);
+
   color-scheme: light;
 }
 
@@ -131,56 +157,59 @@
    Dark theme (Quiet Teal on Obsidian & Charcoal)
    -------------------------------------------------------------------------- */
 html.dark {
-  --bg-app: #121316;
+  --bg-app: #111216;
   --surface: #18191e;
   --surface-2: rgba(24, 25, 30, 0.85);
-  --surface-glass: rgba(24, 25, 30, 0.88);
+  --surface-glass: rgba(24, 25, 30, 0.94);
   --surface-inset: #121316;
-  --surface-hover: #22242b;
+  --surface-hover: #21232a;
   --surface-active: rgba(20, 184, 166, 0.12);
   --surface-code: #0e0f12;
+  --row-selected: rgba(20, 184, 166, 0.1);
 
-  --border: rgba(255, 255, 255, 0.08);
-  --border-hairline: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --border-soft: rgba(255, 255, 255, 0.05);
+  --border: var(--border-hairline);
+  --border-hairline: #26282f;
+  --border-strong: #33363f;
+  --border-soft: #202229;
   --border-accent: rgba(20, 184, 166, 0.45);
 
   --text-1: #ededef;
-  --text-2: #9094a6;
-  --text-3: #5d6175;
+  --text-2: #9a9eb0;
+  --text-3: #7d8296;
+  --text-faint: #555a6d;
 
   --accent: #14b8a6;
   --accent-strong: #2dd4bf;
   --accent-soft: rgba(20, 184, 166, 0.14);
   --accent-soft-2: rgba(20, 184, 166, 0.22);
+  --accent-fill: #14b8a6;
+  --on-accent-fill: #0c0d10;
   --on-accent: #ffffff;
   --focus-ring: rgba(20, 184, 166, 0.3);
 
   --success: #10b981;
   --success-soft: rgba(16, 185, 129, 0.14);
+  --success-border: rgba(16, 185, 129, 0.42);
   --danger: #ef4444;
   --danger-strong: #f87171;
   --danger-soft: rgba(239, 68, 68, 0.14);
   --danger-border: rgba(239, 68, 68, 0.36);
   --warning: #f59e0b;
   --warning-soft: rgba(245, 158, 11, 0.15);
+  --warning-text: #fbbf24;
+  --warning-border: rgba(251, 191, 36, 0.3);
   --info: #06b6d4;
   --info-soft: rgba(6, 182, 212, 0.14);
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-card-hover: 0 4px 14px rgba(0, 0, 0, 0.4);
-  --shadow-selected: 0 0 0 2px var(--accent), 0 4px 16px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 20px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-dialog: 0 28px 64px rgba(0, 0, 0, 0.65), 0 6px 18px rgba(0, 0, 0, 0.35);
   --shadow-toast: 0 14px 36px rgba(0, 0, 0, 0.5);
-  --shadow-keycap: 0 1.5px 0 rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.25);
-  --glow-top-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
   /* ---- patterns & micro-effects ---- */
   --checkerboard-pat: repeating-conic-gradient(rgba(255, 255, 255, 0.04) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
-  --radar-wave: rgba(20, 184, 166, 0.25);
 
   --tooltip-bg: rgba(18, 19, 22, 0.96);
   --tooltip-text: #ededef;
@@ -189,32 +218,4 @@ html.dark {
   --backdrop-blur: blur(12px);
 
   color-scheme: dark;
-}
-
-/* --------------------------------------------------------------------------
-   Tailwind utility color re-alias (dark mode)
-   -------------------------------------------------------------------------- */
-html.dark {
-  --color-white: #18191e;
-  --color-black: #0c0d10;
-  --color-slate-50: #121316;
-  --color-slate-100: #18191e;
-  --color-slate-200: #22242b;
-  --color-slate-300: #2c2f38;
-  --color-slate-400: #5d6175;
-  --color-slate-500: #7b8096;
-  --color-slate-600: #9094a6;
-  --color-slate-700: #b5b9cc;
-  --color-slate-800: #ced2e3;
-  --color-slate-900: #ededef;
-  --color-slate-950: #f7f8fa;
-  --color-red-50: rgba(239, 68, 68, 0.12);
-  --color-red-100: rgba(239, 68, 68, 0.18);
-  --color-red-200: rgba(239, 68, 68, 0.32);
-  --color-red-600: #ef4444;
-  --color-red-700: #f87171;
-  --color-teal-50: rgba(13, 148, 136, 0.12);
-  --color-teal-700: #2dd4bf;
-  --color-blue-600: #38bdf8;
-  --color-emerald-600: #10b981;
 }

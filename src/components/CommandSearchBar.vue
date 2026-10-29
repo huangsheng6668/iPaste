@@ -12,7 +12,6 @@ const logoUrl = new URL("../../src-tauri/icons/32x32.png", import.meta.url).href
 defineProps<{
   searchQuery: string;
   shortcut: string;
-  settingsOpen: boolean;
   appendCopyEnabled: boolean;
   appendCopyTimeoutMinutes: number;
   hasUpdate?: boolean;
@@ -64,7 +63,7 @@ defineExpose({
     >
       <div class="flex items-center gap-2">
         <img
-          class="size-6 shrink-0 rounded-md shadow-sm select-none"
+          class="size-[1.375rem] shrink-0 select-none rounded-[var(--r-sm)]"
           :src="logoUrl"
           alt=""
         >
@@ -75,7 +74,7 @@ defineExpose({
         class="raycast-search-input-wrap"
         @mousedown.stop
       >
-        <Search class="size-4 shrink-0 text-[var(--text-3)] transition-colors" />
+        <Search class="raycast-search-field-icon shrink-0" />
         <input
           ref="searchInputRef"
           class="raycast-search-input"
@@ -89,14 +88,14 @@ defineExpose({
         <button
           v-if="searchQuery"
           type="button"
-          class="inline-flex size-4 items-center justify-center rounded-full text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors"
+          class="inline-flex size-[1.125rem] items-center justify-center rounded-[var(--r-xs)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-1)]"
           @click="clearSearch"
         >
           <X class="size-3" />
         </button>
         <kbd
           v-else-if="!isSearchFocused"
-          class="keyboard-kbd text-[0.625rem] opacity-60 pointer-events-none select-none"
+          class="keyboard-kbd pointer-events-none select-none"
         >{{ searchShortcutHint }}</kbd>
       </div>
 
@@ -156,7 +155,6 @@ defineExpose({
         <button
           type="button"
           class="icon-button"
-          :class="{ 'icon-button-active': settingsOpen }"
           :aria-label="t('topBar.openSettings')"
           :data-tooltip="t('topBar.openSettings')"
           @click="emit('toggleSettings')"

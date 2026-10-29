@@ -37,7 +37,7 @@ export function usePanelKeyboard(deps: PanelKeyboardDeps) {
 
   function isSearchTarget(target: EventTarget | null): boolean {
     if (!target || typeof (target as HTMLElement).closest !== "function") return false;
-    return Boolean((target as HTMLElement).closest(".raycast-search-input, .search-box input"));
+    return Boolean((target as HTMLElement).closest(".raycast-search-input"));
   }
 
   /** 搜索框内是否选中了文本（此时 Ctrl/Cmd+C 放行给浏览器）。 */

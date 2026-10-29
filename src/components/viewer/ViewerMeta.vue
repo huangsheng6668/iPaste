@@ -12,12 +12,12 @@ defineProps<{
 </script>
 
 <template>
-  <h1 class="truncate text-base font-semibold text-slate-950">
+  <h1 class="truncate text-base font-semibold text-[var(--text-1)]">
     {{ title }}
   </h1>
   <p
     v-if="item"
-    class="truncate text-xs text-slate-500"
+    class="truncate text-xs text-[var(--text-2)]"
   >
     {{ typeLabel(item.clipType) }} · {{ formatTime(displayTime) }}
   </p>

@@ -57,16 +57,16 @@ async function changeEngine(event: Event) {
    （结果窗的左间距、查看器 OCR 面板的 flex 收缩）由使用方上下文样式提供 */
 .ocr-language-select {
   padding: 2px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-hairline);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--text-1);
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
 .ocr-language-select:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 </style>

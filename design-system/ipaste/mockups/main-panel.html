@@ -1,0 +1,2364 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iPaste · Hairline Ledger · 主面板视觉稿</title>
+<style>
+/* ==========================================================================
+   Tokens — Quiet Teal Precision / Hairline Ledger
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  --bg-app: #f3f4f7;
+  --surface: #ffffff;
+  --surface-inset: #edeff3;
+  --surface-hover: #f5f6f9;
+  --surface-glass: rgba(255, 255, 255, 0.94);
+  --surface-code: #f1f3f7;
+  --row-selected: rgba(13, 148, 136, 0.06);
+
+  --text-1: #17181c;
+  --text-2: #5b5f70;
+  --text-3: #666b7e;
+  --text-faint: #9ba0b2;
+
+  --border-hairline: #e6e8ee;
+  --border-soft: #eef0f4;
+  --border-strong: #d7dbe4;
+  --border-accent: rgba(13, 148, 136, 0.36);
+
+  --accent: #0d9488;
+  --accent-strong: #0f766e;
+  --accent-soft: rgba(13, 148, 136, 0.1);
+  --accent-fill: #0f766e;
+  --on-accent-fill: #ffffff;
+
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.07);
+  --danger-border: rgba(220, 38, 38, 0.28);
+  --warning-text: #8a5a00;
+  --warning-soft: rgba(202, 138, 4, 0.1);
+  --warning-border: rgba(202, 138, 4, 0.3);
+
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-pop:
+    0 14px 34px -12px rgba(15, 23, 42, 0.28),
+    0 2px 8px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(15, 23, 42, 0.05);
+
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --window-radius: 14px;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --page-bg: #e9ebf1;
+  --page-grid: rgba(23, 24, 28, 0.045);
+  --panel-shadow:
+    0 30px 70px -28px rgba(15, 23, 42, 0.35),
+    0 8px 24px -12px rgba(15, 23, 42, 0.16);
+  --checker-base: #f7f8fb;
+  --checker: #e9ecf2;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-app: #111216;
+  --surface: #18191e;
+  --surface-inset: #121316;
+  --surface-hover: #21232a;
+  --surface-glass: rgba(24, 25, 30, 0.94);
+  --surface-code: #0e0f12;
+  --row-selected: rgba(20, 184, 166, 0.1);
+
+  --text-1: #ededef;
+  --text-2: #9a9eb0;
+  --text-3: #7d8296;
+  --text-faint: #555a6d;
+
+  --border-hairline: #26282f;
+  --border-soft: #202229;
+  --border-strong: #33363f;
+  --border-accent: rgba(20, 184, 166, 0.4);
+
+  --accent: #14b8a6;
+  --accent-strong: #2dd4bf;
+  --accent-soft: rgba(20, 184, 166, 0.14);
+  --accent-fill: #14b8a6;
+  --on-accent-fill: #0c0d10;
+
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.32);
+  --warning-text: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.1);
+  --warning-border: rgba(251, 191, 36, 0.3);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop:
+    0 18px 40px -12px rgba(0, 0, 0, 0.7),
+    0 2px 10px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+
+  --page-bg: #0b0c0f;
+  --page-grid: rgba(255, 255, 255, 0.035);
+  --panel-shadow:
+    0 36px 90px -30px rgba(0, 0, 0, 0.75),
+    0 10px 30px -14px rgba(0, 0, 0, 0.6);
+  --checker-base: #1b1d23;
+  --checker: #23262e;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--page-bg);
+  background-image:
+    linear-gradient(var(--page-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--page-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center top;
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.ic {
+  width: var(--ic, 14px);
+  height: var(--ic, 14px);
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+/* ==========================================================================
+   Presentation page
+   ========================================================================== */
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 44px 32px 56px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 30px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.lede {
+  max-width: 560px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
+.controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+}
+
+.seg button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.seg button:hover {
+  color: var(--text-1);
+}
+
+.seg button.is-on {
+  background: var(--surface);
+  color: var(--text-1);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--text-3);
+  border-bottom: 1.5px solid var(--text-3);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.select-wrap select {
+  appearance: none;
+  height: 30px;
+  min-width: 156px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ---- frame ------------------------------------------------------------- */
+
+.frame {
+  --panel-w: 560px;
+  width: var(--panel-w);
+  margin: 0 auto;
+  transition: width 180ms var(--ease-out);
+}
+
+.frame-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.frame-bar span:last-child {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 16px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.lg-line {
+  width: 14px;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.lg-spine {
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.lg-mono {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
+.lg-card {
+  width: 12px;
+  height: 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.18);
+}
+
+.footnote {
+  margin: 14px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   Panel shell
+   ========================================================================== */
+
+.panel {
+  position: relative;
+  width: 100%;
+  height: 620px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--window-radius);
+  background: var(--surface);
+  box-shadow: var(--panel-shadow);
+  user-select: none;
+  animation: panel-in 180ms var(--ease-out) both;
+  transition: background-color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+
+.raycast-top-section {
+  flex: 0 0 auto;
+}
+
+/* ---- search row --------------------------------------------------------- */
+
+.raycast-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+
+.raycast-pointer-logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
+}
+
+.raycast-pointer-logo .ic {
+  --ic: 13px;
+}
+
+.raycast-search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+  color: var(--text-1);
+  transition: background-color 120ms var(--ease-out), border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+
+.raycast-search-field-icon {
+  color: var(--text-3);
+  --ic: 14px;
+}
+
+.raycast-search-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+}
+
+.raycast-search-input input::placeholder {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.raycast-search-input.is-focused {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field-clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-3);
+}
+
+.field-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.field-clear .ic {
+  --ic: 12px;
+}
+
+.field-kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+
+.icon-button:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.icon-button .ic {
+  --ic: 15px;
+}
+
+.top-bar-divider {
+  width: 1px;
+  height: 18px;
+  flex: 0 0 1px;
+  margin: 0 3px;
+  background: var(--border-hairline);
+}
+
+/* ---- category rail ------------------------------------------------------ */
+
+.category-rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 8px;
+  overflow: hidden;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out), border-color 120ms var(--ease-out);
+}
+
+.category-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.category-chip-active {
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.category-chip-active:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.chip-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--dot, var(--text-faint));
+}
+
+.chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  background: var(--surface-inset);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.category-chip-active .chip-count {
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+
+.category-chip-new {
+  border-style: dashed;
+  border-color: var(--border-hairline);
+  color: var(--text-3);
+}
+
+.category-chip-new .ic {
+  --ic: 12px;
+}
+
+.category-chip-new:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+/* ---- type filter -------------------------------------------------------- */
+
+.type-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.type-filter-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+}
+
+.type-filter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+
+.type-filter-option .ic {
+  --ic: 12px;
+}
+
+.type-filter-option:hover {
+  color: var(--text-1);
+}
+
+.type-filter-option-active {
+  background: var(--surface);
+  border-color: var(--border-hairline);
+  color: var(--text-1);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs);
+}
+
+.type-filter-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.type-filter-option-active .type-filter-count {
+  color: var(--text-2);
+}
+
+.type-filter-hint {
+  padding: 1px 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+/* ---- error banner ------------------------------------------------------- */
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 7px 8px 7px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-1);
+}
+
+.error-banner > .ic {
+  --ic: 13px;
+  color: var(--danger);
+}
+
+.error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-retry {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.error-retry:hover {
+  background: var(--danger-soft);
+}
+
+.error-dismiss {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-3);
+}
+
+.error-dismiss:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.error-dismiss .ic {
+  --ic: 12px;
+}
+
+/* ==========================================================================
+   Split / ledger
+   ========================================================================== */
+
+.raycast-main-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(264px, 44%, 300px);
+}
+
+.raycast-left-pane {
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 6px 8px 8px;
+  overflow-y: auto;
+  background: var(--surface);
+  scrollbar-width: none;
+}
+
+.raycast-left-pane::-webkit-scrollbar {
+  display: none;
+}
+
+.clip-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- ledger row --------------------------------------------------------- */
+
+.clip-mini-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 8px;
+  width: 100%;
+  min-height: 50px;
+  padding: 5px 10px 5px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: transparent;
+  text-align: left;
+  color: var(--text-1);
+  transition: background-color 120ms var(--ease-out);
+}
+
+.clip-mini-card:hover {
+  background: var(--surface-hover);
+}
+
+.clip-mini-card-selected {
+  background: var(--row-selected);
+}
+
+.clip-mini-card-selected:hover {
+  background: var(--row-selected);
+}
+
+.clip-mini-card-selected::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.clip-mini-card.is-focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.clip-card-delete-confirming {
+  z-index: 1;
+  background: var(--danger-soft);
+  box-shadow:
+    inset 0 0 0 1px var(--danger),
+    0 0 0 2px var(--danger-border);
+}
+
+.clip-card-delete-confirming:hover {
+  background: var(--danger-soft);
+}
+
+.clip-card-delete-confirming::before {
+  background: var(--danger);
+}
+
+.clip-card-delete-confirming .clip-row-hint {
+  display: none;
+}
+
+.clip-card-delete-confirming .clip-row-icon {
+  border-color: transparent;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.clip-row-icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface-inset);
+  color: var(--text-2);
+}
+
+.clip-row-icon .ic {
+  --ic: 12px;
+}
+
+.clip-mini-card-selected .clip-row-icon {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.clip-row-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.clip-row-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.clip-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+}
+
+.clip-row-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 88px;
+  height: 16px;
+  padding: 0 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: var(--r-xs);
+  background: var(--surface-inset);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tag-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--dot, var(--text-faint));
+}
+
+.clip-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 15px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.clip-row-meta > i {
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+.clip-row-hint {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--r-xs);
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.clip-row-hint .ic {
+  --ic: 10px;
+}
+
+.clip-mini-card-selected .clip-row-hint {
+  display: inline-flex;
+}
+
+.clip-row-danger-note {
+  display: none;
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.clip-card-delete-confirming .clip-row-danger-note {
+  display: inline;
+}
+
+/* ---- search fallback / empty -------------------------------------------- */
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+}
+
+.result-group + .result-group {
+  margin-top: 6px;
+}
+
+.result-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.result-group-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.empty-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 100%;
+  padding: 16px;
+  text-align: center;
+}
+
+.empty-glyph {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+  color: var(--text-3);
+}
+
+.empty-glyph .ic {
+  --ic: 20px;
+}
+
+.empty-glyph-lg .ic {
+  --ic: 26px;
+}
+
+.empty-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+}
+
+.empty-desc {
+  max-width: 220px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+/* ==========================================================================
+   Inspector
+   ========================================================================== */
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+
+.inspector-header {
+  flex: 0 0 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.inspector-type {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface-inset);
+  color: var(--text-2);
+}
+
+.inspector-type .ic {
+  --ic: 13px;
+}
+
+.inspector-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.inspector-actions {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.inspector-actions .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.inspector-actions .icon-button .ic {
+  --ic: 14px;
+}
+
+.inspector-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.view {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---- well --------------------------------------------------------------- */
+
+.well {
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-code);
+}
+
+.well-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-hairline);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.well-head span:last-child {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+
+.well-body {
+  margin: 0;
+  padding: 10px 12px 12px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tok-k {
+  color: var(--text-2);
+}
+
+.tok-p {
+  color: var(--text-3);
+}
+
+/* ---- ledger meta -------------------------------------------------------- */
+
+.ledger-meta {
+  display: grid;
+  grid-template-columns: 1fr;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.frame[data-width="720"] .ledger-meta {
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+
+.frame[data-width="720"] .ledger-row:nth-child(odd) {
+  padding-right: 16px;
+  border-right: 1px solid var(--border-soft);
+}
+
+.frame[data-width="720"] .ledger-row:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.ledger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 28px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ledger-row:last-child {
+  border-bottom: 0;
+}
+
+.ledger-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.ledger-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- color view --------------------------------------------------------- */
+
+.color-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.color-swatch {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border-radius: var(--r-md);
+  background: var(--swatch, var(--accent));
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.14);
+}
+
+.color-id {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.color-hex {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-1);
+}
+
+.color-name {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+.format-list {
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+}
+
+.format-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.format-row:last-child {
+  border-bottom: 0;
+}
+
+.format-label {
+  width: 34px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.format-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.format-copy {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.format-copy:hover {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+
+.format-copy .ic {
+  --ic: 11px;
+}
+
+/* ---- image view --------------------------------------------------------- */
+
+.checker {
+  background-color: var(--checker-base);
+  background-image:
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%),
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+}
+
+.image-frame {
+  position: relative;
+  height: 210px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+}
+
+.image-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.image-actions button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: rgba(0, 0, 0, 0.72);
+  color: #ffffff;
+}
+
+.image-actions button:hover {
+  background: rgba(0, 0, 0, 0.86);
+}
+
+.image-actions button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+.image-actions .ic {
+  --ic: 14px;
+}
+
+/* fake screenshot: captured content keeps its own light palette */
+.shot {
+  width: 86%;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 5px;
+  background: #fbfcfe;
+}
+
+.shot-bar {
+  height: 14px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-bottom: 1px solid #e3e7ee;
+  background: #eef1f6;
+}
+
+.shot-bar span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #c3c9d4;
+}
+
+.shot-bar em {
+  margin-left: 4px;
+  font-family: var(--font-ui);
+  font-size: 5px;
+  font-style: normal;
+  font-weight: 500;
+  color: #8b91a0;
+}
+
+.shot-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.shot-side {
+  width: 22%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px;
+  border-right: 1px solid #e6eaf0;
+  background: #f5f7fa;
+}
+
+.shot-side i {
+  height: 4px;
+  border-radius: 2px;
+  background: #dde2ea;
+}
+
+.shot-side i:first-child {
+  width: 70%;
+  background: #0f766e;
+}
+
+.shot-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+}
+
+.shot-kpis {
+  display: flex;
+  gap: 4px;
+}
+
+.shot-kpis b {
+  flex: 1 1 0;
+  height: 14px;
+  border: 1px solid #e3e8f0;
+  border-radius: 3px;
+  background: #eef2f7;
+}
+
+.shot-chart {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid #e9edf3;
+  border-radius: 3px;
+  background: #fafbfd;
+}
+
+.shot-chart u {
+  flex: 1 1 0;
+  height: var(--h);
+  border-radius: 1px 1px 0 0;
+  background: #99f6e4;
+  text-decoration: none;
+}
+
+.shot-chart u:nth-child(3n + 2) {
+  background: #14b8a6;
+}
+
+/* ---- empty view --------------------------------------------------------- */
+
+.view-empty {
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.panel-footer {
+  flex: 0 0 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.hint-end {
+  margin-left: auto;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-xs);
+  background: var(--surface-inset);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.kbd-accent {
+  color: var(--accent-strong);
+}
+
+/* ==========================================================================
+   Floating layer
+   ========================================================================== */
+
+.context-menu {
+  position: absolute;
+  top: 248px;
+  left: 132px;
+  z-index: 30;
+  width: 208px;
+  padding: 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface-glass);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: var(--shadow-pop);
+  animation: pop-in 120ms var(--ease-out) both;
+}
+
+.cm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-1);
+}
+
+.cm-item:hover {
+  background: var(--surface-hover);
+}
+
+.cm-item .ic {
+  --ic: 13px;
+  color: var(--text-3);
+}
+
+.cm-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-kbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.cm-chev {
+  margin-left: auto;
+  --ic: 12px;
+  color: var(--text-faint);
+}
+
+.cm-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-hairline);
+}
+
+.cm-item.is-danger {
+  color: var(--danger);
+}
+
+.cm-item.is-danger .ic {
+  color: var(--danger);
+}
+
+.cm-item.is-danger .cm-kbd {
+  color: var(--danger);
+  opacity: 0.72;
+}
+
+/* ==========================================================================
+   Motion
+   ========================================================================== */
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 28px 16px 40px;
+  }
+
+  .page-head {
+    gap: 20px;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     Icon sprite (lucide geometry)
+     ========================================================================== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+    <symbol id="i-clipboard-plus" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 14h6"/><path d="M12 11v6"/></symbol>
+    <symbol id="i-clipboard-check" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-scan-text" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8h8"/><path d="M7 12h10"/><path d="M7 16h6"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-braces" viewBox="0 0 24 24"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+    <symbol id="i-droplet" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M15 2v5h5"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+    <symbol id="i-maximize" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></symbol>
+    <symbol id="i-corner" viewBox="0 0 24 24"><path d="M20 4v7a4 4 0 0 1-4 4H4"/><path d="m9 10-5 5 5 5"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">iPaste · UI refresh · Phase 0</p>
+      <h1 class="page-title">Hairline Ledger</h1>
+      <p class="lede">
+        把主面板做成一台安静的精密仪器账本：发丝分隔线、2px 青绿脊线、等宽 tabular 元数据。
+        检查器内容区由约 208px 扩到 240px（560 宽窗口），列表一屏从约 6.8 条提升到约 9 条。
+      </p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <span class="control-label">主题</span>
+        <div class="seg" role="group" aria-label="主题">
+          <button type="button" data-theme-btn="light" class="is-on" aria-pressed="true">Light</button>
+          <button type="button" data-theme-btn="dark" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+      <div class="control">
+        <span class="control-label">窗口宽度</span>
+        <div class="seg" role="group" aria-label="窗口宽度">
+          <button type="button" data-width-btn="560" class="is-on" aria-pressed="true">560</button>
+          <button type="button" data-width-btn="720" aria-pressed="false">720</button>
+        </div>
+      </div>
+      <div class="control">
+        <label class="control-label" for="state-select">状态</label>
+        <div class="select-wrap">
+          <select id="state-select">
+            <option value="text">文本 · 选中</option>
+            <option value="color">颜色片段</option>
+            <option value="image">图片片段</option>
+            <option value="empty">空态</option>
+            <option value="search">搜索回退</option>
+            <option value="menu">右键菜单</option>
+            <option value="delete">删除确认</option>
+            <option value="error">错误横幅</option>
+            <option value="focus">键盘焦点</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="frame" id="frame" data-width="560">
+    <div class="frame-bar">
+      <span>Main panel</span>
+      <span id="frame-meta">560 × 620 · LIGHT</span>
+    </div>
+
+    <div class="panel" role="application" aria-label="iPaste 主面板视觉稿">
+      <div class="raycast-top-section">
+        <!-- search row -->
+        <div class="raycast-search-row">
+          <span class="raycast-pointer-logo" aria-hidden="true">
+            <svg class="ic"><use href="#i-clipboard"/></svg>
+          </span>
+
+          <div class="raycast-search-input is-focused" id="search-field">
+            <svg class="ic raycast-search-field-icon"><use href="#i-search"/></svg>
+            <input id="search-input" type="text" value="" placeholder="Search history" aria-label="搜索" readonly spellcheck="false">
+            <button class="field-clear" id="field-clear" type="button" aria-label="清除搜索" hidden>
+              <svg class="ic"><use href="#i-x"/></svg>
+            </button>
+            <kbd class="field-kbd">⌘F</kbd>
+          </div>
+
+          <div class="search-actions">
+            <button class="icon-button" type="button" title="检查更新"><svg class="ic"><use href="#i-download"/></svg></button>
+            <button class="icon-button" type="button" title="追加复制"><svg class="ic"><use href="#i-clipboard-plus"/></svg></button>
+            <button class="icon-button" type="button" title="截图 OCR"><svg class="ic"><use href="#i-scan-text"/></svg></button>
+            <button class="icon-button" type="button" title="跨设备同步"><svg class="ic"><use href="#i-wifi"/></svg></button>
+            <span class="top-bar-divider" aria-hidden="true"></span>
+            <button class="icon-button" type="button" title="设置"><svg class="ic"><use href="#i-settings"/></svg></button>
+            <button class="icon-button" type="button" title="关闭"><svg class="ic"><use href="#i-x"/></svg></button>
+          </div>
+        </div>
+
+        <!-- category rail -->
+        <div class="category-rail">
+          <button class="category-chip category-chip-active" type="button">
+            History <span class="chip-count">128</span>
+          </button>
+          <button class="category-chip" type="button">
+            <span class="chip-dot" style="--dot:#2563eb"></span>Work <span class="chip-count">12</span>
+          </button>
+          <button class="category-chip" type="button">
+            <span class="chip-dot" style="--dot:#db2777"></span>Design <span class="chip-count">8</span>
+          </button>
+          <button class="category-chip" type="button">
+            <span class="chip-dot" style="--dot:#0d9488"></span>Code <span class="chip-count">17</span>
+          </button>
+          <button class="category-chip category-chip-new" type="button">
+            <svg class="ic"><use href="#i-plus"/></svg>New
+          </button>
+        </div>
+
+        <!-- type filter -->
+        <div class="type-filter-bar">
+          <div class="type-filter-segment" role="group" aria-label="类型筛选">
+            <button class="type-filter-option type-filter-option-active" type="button" aria-pressed="true">
+              <svg class="ic"><use href="#i-layers"/></svg>全部<span class="type-filter-count">128</span>
+            </button>
+            <button class="type-filter-option" type="button" aria-pressed="false">
+              <svg class="ic"><use href="#i-type"/></svg>文本<span class="type-filter-count">96</span>
+            </button>
+            <button class="type-filter-option" type="button" aria-pressed="false">
+              <svg class="ic"><use href="#i-image"/></svg>图片<span class="type-filter-count">32</span>
+            </button>
+          </div>
+          <kbd class="type-filter-hint">⌘G</kbd>
+        </div>
+
+        <!-- error banner -->
+        <div class="error-banner" id="error-banner" hidden>
+          <svg class="ic"><use href="#i-alert"/></svg>
+          <span class="error-text">Couldn't load clipboard history.</span>
+          <button class="error-retry" type="button">Retry</button>
+          <button class="error-dismiss" type="button" aria-label="关闭错误提示"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+      </div>
+
+      <div class="raycast-main-split">
+        <div class="raycast-left-pane" id="list-pane">
+          <!-- ledger rows -->
+          <div class="clip-list" id="clip-list">
+            <div class="clip-mini-card clip-mini-card-selected" data-row="1" role="option" aria-selected="true">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-braces"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line"><span class="clip-title">API response shape</span></span>
+                <span class="clip-row-meta"><span>Code</span><i>·</i><span>1.2 KB</span><i>·</i><span>2m ago</span><span class="clip-row-hint"><svg class="ic"><use href="#i-corner"/></svg>Paste</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="2" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-link"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line"><span class="clip-title">Linear · Issue #482</span></span>
+                <span class="clip-row-meta"><span>Link</span><i>·</i><span>linear.app</span><i>·</i><span>14m ago</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="3" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-type"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line">
+                  <span class="clip-title">Meeting notes — Q4 planning</span>
+                  <span class="clip-row-tag"><span class="tag-dot" style="--dot:#2563eb"></span>Work</span>
+                </span>
+                <span class="clip-row-meta"><span>Text</span><i>·</i><span>6 lines</span><i>·</i><span>26m ago</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="4" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-image"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line"><span class="clip-title">Screenshot 2026-10-29 at 09.12.44</span></span>
+                <span class="clip-row-meta"><span>Image</span><i>·</i><span>1440 × 900</span><i>·</i><span>32m ago</span><span class="clip-row-danger-note">Enter to delete</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="5" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-droplet"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line"><span class="clip-title">#0D9488</span></span>
+                <span class="clip-row-meta"><span>Color</span><i>·</i><span>HEX</span><i>·</i><span>1h ago</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="6" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-file"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line">
+                  <span class="clip-title">docker-compose.yml</span>
+                  <span class="clip-row-tag"><span class="tag-dot" style="--dot:#0d9488"></span>Code</span>
+                </span>
+                <span class="clip-row-meta"><span>File</span><i>·</i><span>3.4 KB</span><i>·</i><span>2h ago</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="7" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-type"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line">
+                  <span class="clip-title">Customer interview quotes</span>
+                  <span class="clip-row-tag"><span class="tag-dot" style="--dot:#db2777"></span>Design</span>
+                </span>
+                <span class="clip-row-meta"><span>Text</span><i>·</i><span>14 lines</span><i>·</i><span>3h ago</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="8" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-image"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line"><span class="clip-title">Dashboard export</span></span>
+                <span class="clip-row-meta"><span>Image</span><i>·</i><span>2.1 MB</span><i>·</i><span>4h ago</span></span>
+              </span>
+            </div>
+
+            <div class="clip-mini-card" data-row="9" role="option" aria-selected="false">
+              <span class="clip-row-icon"><svg class="ic"><use href="#i-braces"/></svg></span>
+              <span class="clip-row-body">
+                <span class="clip-row-line">
+                  <span class="clip-title">tauri.conf.json snippet</span>
+                  <span class="clip-row-tag"><span class="tag-dot" style="--dot:#0d9488"></span>Code</span>
+                </span>
+                <span class="clip-row-meta"><span>Code</span><i>·</i><span>1.4 KB</span><i>·</i><span>5h ago</span></span>
+              </span>
+            </div>
+          </div>
+
+          <!-- search fallback -->
+          <div class="search-results" id="search-results" hidden>
+            <div class="result-group">
+              <div class="result-group-head">
+                <span class="tag-dot" style="--dot:#2563eb"></span>Work<span class="result-group-count">(2)</span>
+              </div>
+              <div class="clip-mini-card" role="option" aria-selected="false">
+                <span class="clip-row-icon"><svg class="ic"><use href="#i-type"/></svg></span>
+                <span class="clip-row-body">
+                  <span class="clip-row-line"><span class="clip-title">API v2 migration checklist</span></span>
+                  <span class="clip-row-meta"><span>Text</span><i>·</i><span>9 lines</span><i>·</i><span>1d ago</span></span>
+                </span>
+              </div>
+              <div class="clip-mini-card" role="option" aria-selected="false">
+                <span class="clip-row-icon"><svg class="ic"><use href="#i-type"/></svg></span>
+                <span class="clip-row-body">
+                  <span class="clip-row-line"><span class="clip-title">API rate limit notes</span></span>
+                  <span class="clip-row-meta"><span>Text</span><i>·</i><span>4 lines</span><i>·</i><span>3d ago</span></span>
+                </span>
+              </div>
+            </div>
+
+            <div class="result-group">
+              <div class="result-group-head">
+                <span class="tag-dot" style="--dot:#0d9488"></span>Code<span class="result-group-count">(1)</span>
+              </div>
+              <div class="clip-mini-card" role="option" aria-selected="false">
+                <span class="clip-row-icon"><svg class="ic"><use href="#i-braces"/></svg></span>
+                <span class="clip-row-body">
+                  <span class="clip-row-line"><span class="clip-title">fetchWithRetry.ts</span></span>
+                  <span class="clip-row-meta"><span>Code</span><i>·</i><span>2.1 KB</span><i>·</i><span>6d ago</span></span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- empty list -->
+          <div class="empty-list" id="empty-list" hidden>
+            <span class="empty-glyph"><svg class="ic"><use href="#i-inbox"/></svg></span>
+            <p class="empty-title">Nothing here yet</p>
+            <p class="empty-desc">Copy text or an image — it will land here, ready to paste.</p>
+          </div>
+        </div>
+
+        <!-- inspector -->
+        <aside class="inspector">
+          <div class="inspector-header">
+            <span class="inspector-type"><svg class="ic" id="inspector-icon"><use href="#i-braces"/></svg></span>
+            <span class="inspector-title" id="inspector-title">API response shape</span>
+            <span class="inspector-actions">
+              <button class="icon-button" type="button" title="复制"><svg class="ic"><use href="#i-copy"/></svg></button>
+              <button class="icon-button" type="button" title="放大查看"><svg class="ic"><use href="#i-maximize"/></svg></button>
+              <button class="icon-button" type="button" title="粘贴"><svg class="ic"><use href="#i-clipboard-check"/></svg></button>
+            </span>
+          </div>
+
+          <div class="inspector-body">
+            <!-- code / text well -->
+            <div class="view" data-view="code">
+              <div class="well">
+                <div class="well-head"><span>JSON · UTF-8</span><span>6 lines</span></div>
+                <pre class="well-body"><span class="tok-p">{</span>
+  <span class="tok-k">"id"</span><span class="tok-p">:</span> <span>"clip_8f21"</span><span class="tok-p">,</span>
+  <span class="tok-k">"kind"</span><span class="tok-p">:</span> <span>"text"</span><span class="tok-p">,</span>
+  <span class="tok-k">"content"</span><span class="tok-p">:</span> <span>"API response shape"</span><span class="tok-p">,</span>
+  <span class="tok-k">"created_at"</span><span class="tok-p">:</span> <span>"09:41:22Z"</span>
+<span class="tok-p">}</span></pre>
+              </div>
+              <div class="ledger-meta">
+                <div class="ledger-row"><span class="ledger-label">Size</span><span class="ledger-value">412 B</span></div>
+                <div class="ledger-row"><span class="ledger-label">Lines</span><span class="ledger-value">6</span></div>
+                <div class="ledger-row"><span class="ledger-label">Copied</span><span class="ledger-value">09:41</span></div>
+                <div class="ledger-row"><span class="ledger-label">Source</span><span class="ledger-value">VS Code</span></div>
+              </div>
+            </div>
+
+            <div class="view" data-view="text" hidden>
+              <div class="well">
+                <div class="well-head"><span>Plain text</span><span>6 lines</span></div>
+                <pre class="well-body">Q4 planning — 2026-10-29
+
+- Ship LAN sync v5 to beta by Nov 8
+- OCR defaults to fast mode under 8 GB
+- Clipboard retention drops to 45 days
+- Audit onboarding copy for tone</pre>
+              </div>
+              <div class="ledger-meta">
+                <div class="ledger-row"><span class="ledger-label">Size</span><span class="ledger-value">318 B</span></div>
+                <div class="ledger-row"><span class="ledger-label">Lines</span><span class="ledger-value">6</span></div>
+                <div class="ledger-row"><span class="ledger-label">Copied</span><span class="ledger-value">10:15</span></div>
+                <div class="ledger-row"><span class="ledger-label">Source</span><span class="ledger-value">Notion</span></div>
+              </div>
+            </div>
+
+            <div class="view" data-view="color" hidden>
+              <div class="color-top">
+                <span class="color-swatch" style="--swatch:#0d9488"></span>
+                <span class="color-id">
+                  <span class="color-hex">#0D9488</span>
+                  <span class="color-name">Teal 600 · sRGB</span>
+                </span>
+              </div>
+              <div class="format-list">
+                <div class="format-row">
+                  <span class="format-label">HEX</span><span class="format-value">#0D9488</span>
+                  <button class="format-copy" type="button" title="复制 HEX"><svg class="ic"><use href="#i-copy"/></svg></button>
+                </div>
+                <div class="format-row">
+                  <span class="format-label">RGB</span><span class="format-value">13, 148, 136</span>
+                  <button class="format-copy" type="button" title="复制 RGB"><svg class="ic"><use href="#i-copy"/></svg></button>
+                </div>
+                <div class="format-row">
+                  <span class="format-label">HSL</span><span class="format-value">175, 84%, 32%</span>
+                  <button class="format-copy" type="button" title="复制 HSL"><svg class="ic"><use href="#i-copy"/></svg></button>
+                </div>
+              </div>
+              <div class="ledger-meta">
+                <div class="ledger-row"><span class="ledger-label">Copied</span><span class="ledger-value">11:02</span></div>
+                <div class="ledger-row"><span class="ledger-label">Source</span><span class="ledger-value">Figma</span></div>
+              </div>
+            </div>
+
+            <div class="view" data-view="image" hidden>
+              <div class="image-frame checker">
+                <div class="shot" aria-hidden="true">
+                  <div class="shot-bar"><span></span><span></span><span></span><em>dashboard.ipaste.app</em></div>
+                  <div class="shot-body">
+                    <div class="shot-side"><i></i><i></i><i></i><i></i><i></i></div>
+                    <div class="shot-main">
+                      <div class="shot-kpis"><b></b><b></b><b></b></div>
+                      <div class="shot-chart">
+                        <u style="--h:34%"></u><u style="--h:52%"></u><u style="--h:44%"></u><u style="--h:66%"></u>
+                        <u style="--h:58%"></u><u style="--h:78%"></u><u style="--h:62%"></u><u style="--h:88%"></u>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="image-actions">
+                  <button type="button" title="复制图片"><svg class="ic"><use href="#i-copy"/></svg></button>
+                  <button type="button" title="识别文字"><svg class="ic"><use href="#i-scan-text"/></svg></button>
+                  <button type="button" title="放大查看"><svg class="ic"><use href="#i-maximize"/></svg></button>
+                </div>
+              </div>
+              <div class="ledger-meta">
+                <div class="ledger-row"><span class="ledger-label">Dimensions</span><span class="ledger-value">1440 × 900</span></div>
+                <div class="ledger-row"><span class="ledger-label">Size</span><span class="ledger-value">284 KB</span></div>
+                <div class="ledger-row"><span class="ledger-label">Copied</span><span class="ledger-value">09:12</span></div>
+                <div class="ledger-row"><span class="ledger-label">Format</span><span class="ledger-value">PNG</span></div>
+              </div>
+            </div>
+
+            <div class="view view-empty" data-view="empty" hidden>
+              <span class="empty-glyph empty-glyph-lg"><svg class="ic"><use href="#i-inbox"/></svg></span>
+              <p class="empty-title">No clip selected</p>
+              <p class="empty-desc">Copy something to start your history. Use ↑ ↓ to move, ↵ to paste.</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="panel-footer">
+        <span class="hint"><kbd class="kbd kbd-accent">↵</kbd>Paste</span>
+        <span class="hint"><kbd class="kbd">⌘C</kbd>Copy</span>
+        <span class="hint"><kbd class="kbd">Space</kbd>Preview</span>
+        <span class="hint"><kbd class="kbd">⌫</kbd>Delete</span>
+        <span class="hint hint-end"><kbd class="kbd">Esc</kbd>Close</span>
+      </div>
+
+      <!-- context menu -->
+      <div class="context-menu" id="context-menu" role="menu" hidden>
+        <div class="cm-item"><span class="cm-label">Paste</span><kbd class="cm-kbd">↵</kbd></div>
+        <div class="cm-item"><span class="cm-label">Copy</span><kbd class="cm-kbd">⌘C</kbd></div>
+        <div class="cm-item"><span class="cm-label">Copy as plain text</span><kbd class="cm-kbd">⇧⌘C</kbd></div>
+        <div class="cm-sep"></div>
+        <div class="cm-item"><svg class="ic"><use href="#i-folder-plus"/></svg><span class="cm-label">Add to category</span><svg class="ic cm-chev"><use href="#i-chevron-right"/></svg></div>
+        <div class="cm-item"><svg class="ic"><use href="#i-send"/></svg><span class="cm-label">Send to device</span><svg class="ic cm-chev"><use href="#i-chevron-right"/></svg></div>
+        <div class="cm-sep"></div>
+        <div class="cm-item"><svg class="ic"><use href="#i-pencil"/></svg><span class="cm-label">Rename</span><kbd class="cm-kbd">F2</kbd></div>
+        <div class="cm-item is-danger"><svg class="ic"><use href="#i-trash"/></svg><span class="cm-label">Delete</span><kbd class="cm-kbd">⌫</kbd></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="legend-item"><i class="lg-line"></i>1px 发丝分隔</span>
+      <span class="legend-item"><i class="lg-spine"></i>2px 青绿脊线</span>
+      <span class="legend-item"><i class="lg-mono">012</i>等宽 tabular 元数据</span>
+      <span class="legend-item"><i class="lg-card"></i>阴影只给浮层</span>
+    </div>
+
+    <p class="footnote">
+      对比度抽检：--text-2 6.3:1 · --text-3 4.6:1（亮/暗） · --accent-fill 5.4:1（亮）/ 7.9:1（暗）
+    </p>
+  </section>
+</div>
+
+<script>
+(function () {
+  const root = document.documentElement;
+  const frame = document.getElementById("frame");
+  const frameMeta = document.getElementById("frame-meta");
+  const stateSelect = document.getElementById("state-select");
+
+  const textInput = document.getElementById("search-input");
+  const fieldClear = document.getElementById("field-clear");
+  const searchField = document.getElementById("search-field");
+
+  const clipList = document.getElementById("clip-list");
+  const searchResults = document.getElementById("search-results");
+  const emptyList = document.getElementById("empty-list");
+  const errorBanner = document.getElementById("error-banner");
+  const contextMenu = document.getElementById("context-menu");
+
+  const rows = Array.from(document.querySelectorAll(".clip-list .clip-mini-card"));
+  const views = Array.from(document.querySelectorAll(".view"));
+  const inspectorTitle = document.getElementById("inspector-title");
+  const inspectorIcon = document.getElementById("inspector-icon").querySelector("use");
+
+  const themeButtons = Array.from(document.querySelectorAll("[data-theme-btn]"));
+  const widthButtons = Array.from(document.querySelectorAll("[data-width-btn]"));
+
+  const VIEW_META = {
+    code: { title: "API response shape", icon: "#i-braces" },
+    text: { title: "Meeting notes — Q4 planning", icon: "#i-type" },
+    color: { title: "#0D9488", icon: "#i-droplet" },
+    image: { title: "Screenshot 2026-10-29 09.12.44", icon: "#i-image" },
+    empty: { title: "No selection", icon: "#i-inbox" }
+  };
+
+  const CONFIG = {
+    text: { row: 1, view: "code", list: "rows" },
+    color: { row: 5, view: "color", list: "rows" },
+    image: { row: 4, view: "image", list: "rows" },
+    empty: { row: null, view: "empty", list: "empty" },
+    search: { row: null, view: "code", list: "search", query: "api" },
+    menu: { row: 3, view: "text", list: "rows", menu: true },
+    delete: { row: 4, view: "image", list: "rows", danger: 4 },
+    error: { row: 1, view: "code", list: "rows", error: true },
+    focus: { row: 3, view: "text", list: "rows", focus: 3 }
+  };
+
+  let theme = "light";
+  let width = 560;
+  const params = new URLSearchParams(location.search);
+
+  function updateFrameMeta() {
+    frameMeta.textContent = width + " × 620 · " + (theme === "dark" ? "DARK" : "LIGHT");
+  }
+
+  // 演示页在窄视口下按比例缩放整套面板，保持 560/720 的真实内部布局。
+  function fitFrame() {
+    const page = document.querySelector(".page");
+    const styles = getComputedStyle(page);
+    const available = page.clientWidth
+      - parseFloat(styles.paddingLeft)
+      - parseFloat(styles.paddingRight);
+    const scale = Math.min(1, available / width);
+    frame.style.zoom = String(scale);
+  }
+
+  function setTheme(next) {
+    theme = next;
+    root.dataset.theme = next;
+    themeButtons.forEach(function (button) {
+      const active = button.dataset.themeBtn === next;
+      button.classList.toggle("is-on", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    updateFrameMeta();
+  }
+
+  function setWidth(next) {
+    width = Number(next);
+    frame.dataset.width = String(width);
+    frame.style.setProperty("--panel-w", width + "px");
+    widthButtons.forEach(function (button) {
+      const active = button.dataset.widthBtn === String(width);
+      button.classList.toggle("is-on", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    updateFrameMeta();
+    fitFrame();
+  }
+
+  function syncRowHints(selectedRow) {
+    rows.forEach(function (row) {
+      const meta = row.querySelector(".clip-row-meta");
+      if (!meta) return;
+      const existing = meta.querySelector(".clip-row-hint");
+      if (row === selectedRow) {
+        if (existing) return;
+        const hint = document.createElement("span");
+        hint.className = "clip-row-hint";
+        hint.innerHTML = '<svg class="ic"><use href="#i-corner"/></svg>Paste';
+        meta.appendChild(hint);
+      } else if (existing) {
+        existing.remove();
+      }
+    });
+  }
+
+  function applyState(name) {
+    const config = CONFIG[name] || CONFIG.text;
+    textInput.value = config.query || "";
+    fieldClear.hidden = !config.query;
+    searchField.classList.toggle("is-focused", !config.focus);
+
+    clipList.hidden = config.list !== "rows";
+    searchResults.hidden = config.list !== "search";
+    emptyList.hidden = config.list !== "empty";
+
+    rows.forEach(function (row) {
+      const index = Number(row.dataset.row);
+      const selected = index === config.row;
+      row.classList.toggle("clip-mini-card-selected", selected);
+      row.classList.toggle("clip-card-delete-confirming", index === config.danger);
+      row.classList.toggle("is-focus", index === config.focus);
+      row.setAttribute("aria-selected", String(selected));
+    });
+
+    syncRowHints(rows.find(function (row) {
+      return Number(row.dataset.row) === config.row;
+    }) || null);
+
+    views.forEach(function (view) {
+      view.hidden = view.dataset.view !== config.view;
+    });
+
+    const meta = VIEW_META[config.view];
+    inspectorTitle.textContent = meta.title;
+    inspectorIcon.setAttribute("href", meta.icon);
+
+    contextMenu.hidden = !config.menu;
+    errorBanner.hidden = !config.error;
+
+    document.getElementById("list-pane").scrollTop = 0;
+  }
+
+  themeButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      setTheme(button.dataset.themeBtn);
+    });
+  });
+
+  widthButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      setWidth(button.dataset.widthBtn);
+    });
+  });
+
+  stateSelect.addEventListener("change", function () {
+    applyState(stateSelect.value);
+  });
+
+  fieldClear.addEventListener("click", function () {
+    textInput.value = "";
+    fieldClear.hidden = true;
+  });
+
+  const startTheme = params.get("theme") === "dark" ? "dark" : "light";
+  const startWidth = params.get("width") === "720" ? 720 : 560;
+  const requestedState = params.get("state");
+  const startState = requestedState && Object.prototype.hasOwnProperty.call(CONFIG, requestedState)
+    ? requestedState
+    : "text";
+
+  setTheme(startTheme);
+  setWidth(startWidth);
+  stateSelect.value = startState;
+  applyState(startState);
+  window.addEventListener("resize", fitFrame);
+})();
+</script>
+</body>
+</html>

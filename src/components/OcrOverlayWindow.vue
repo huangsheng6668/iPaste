@@ -146,7 +146,7 @@ onUnmounted(() => {
   cursor: crosshair;
   user-select: none;
   touch-action: none;
-  background: #000;
+  background: var(--overlay-base);
 }
 
 .ocr-overlay-frame {
@@ -162,15 +162,15 @@ onUnmounted(() => {
 .ocr-overlay-dim {
   position: absolute;
   inset: 0;
-  background: rgb(0 0 0 / 0.72);
+  background: var(--overlay-scrim);
 }
 
 /* 框选中心透亮、四周压暗：以巨大 box-shadow 代替整层遮罩挖洞 */
 .ocr-overlay-selection {
   position: absolute;
   border: 2px solid var(--accent);
-  border-radius: 2px;
-  box-shadow: 0 0 0 100000px rgb(0 0 0 / 0.72);
+  border-radius: var(--r-xs);
+  box-shadow: 0 0 0 100000px var(--overlay-scrim);
 }
 
 .ocr-overlay-hint {
@@ -179,16 +179,16 @@ onUnmounted(() => {
   bottom: 48px;
   transform: translateX(-50%);
   padding: 6px 14px;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 0.65);
-  color: #fff;
-  font-size: 0.8125rem;
+  border-radius: var(--r-lg);
+  background: var(--overlay-scrim-strong);
+  color: var(--on-overlay);
+  font-size: var(--text-md);
   pointer-events: none;
 }
 
 .ocr-overlay-hint-error {
   max-width: 80vw;
-  background: rgb(180 40 40 / 0.85);
+  background: var(--overlay-error-bg);
   text-align: center;
   overflow-wrap: anywhere;
 }

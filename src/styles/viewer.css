@@ -17,10 +17,6 @@
   background: var(--bg-app);
 }
 
-html.dark .clip-viewer-shell {
-  border-color: var(--border-hairline);
-}
-
 .clip-viewer-toolbar {
   position: relative;
   display: flex;
@@ -64,10 +60,10 @@ html.dark .clip-viewer-shell {
   font-weight: 600;
   box-shadow: var(--shadow-xs);
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    box-shadow 140ms ease;
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .viewer-icon-button {
@@ -85,7 +81,7 @@ html.dark .clip-viewer-shell {
 
 .viewer-icon-button:disabled {
   cursor: not-allowed;
-  opacity: 0.42;
+  opacity: 0.45;
 }
 
 .viewer-icon-button:disabled:hover {
@@ -102,22 +98,20 @@ html.dark .clip-viewer-shell {
 
 .viewer-action-button-primary {
   border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
 }
 
 .viewer-action-button-primary:hover {
   border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-  filter: brightness(1.08);
-  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.38);
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
+  filter: brightness(1.06);
 }
 
 .viewer-action-button:disabled {
   cursor: not-allowed;
-  opacity: 0.48;
+  opacity: 0.45;
 }
 
 .viewer-action-button:disabled:hover {
@@ -128,12 +122,12 @@ html.dark .clip-viewer-shell {
 
 .viewer-action-button-primary:disabled:hover {
   border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
 }
 
 .viewer-action-button-danger {
-  color: var(--danger);
+  color: var(--danger-strong);
 }
 
 .viewer-action-button-danger:hover {
@@ -168,16 +162,11 @@ html.dark .clip-viewer-shell {
   color: var(--text-1);
   font:
     0.9375rem/1.55 var(--font-sans);
-  box-shadow:
-    inset 0 1px 2px rgba(24, 26, 45, 0.04),
-    0 12px 32px rgba(24, 26, 45, 0.08);
 }
 
 .viewer-editor:focus {
   border-color: var(--accent);
-  box-shadow:
-    inset 0 1px 2px rgba(24, 26, 45, 0.04),
-    0 0 0 3px var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
 }
 
@@ -274,7 +263,7 @@ html.dark .clip-viewer-shell {
   padding: 0 0.5rem;
   color: var(--text-2);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
   line-height: 1;
   user-select: none;
 }
@@ -288,7 +277,7 @@ html.dark .clip-viewer-shell {
   position: absolute;
   inset: 0;
   z-index: 1;
-  transition: transform 120ms ease;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 
 .viewer-image-stage-dragging .viewer-image-frame {
@@ -304,7 +293,7 @@ html.dark .clip-viewer-shell {
   object-fit: contain;
   pointer-events: none;
   transform-origin: center;
-  transition: transform 140ms ease;
+  transition: transform var(--dur-fast) var(--ease-out);
   user-select: none;
 }
 
@@ -395,8 +384,8 @@ html.dark .clip-viewer-shell {
   box-shadow: var(--shadow-pop);
   backdrop-filter: blur(18px);
   transition:
-    transform 160ms ease,
-    opacity 160ms ease;
+    transform var(--dur-base) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out);
 }
 
 .viewer-image-ocr-panel-collapsed {
@@ -429,10 +418,10 @@ html.dark .clip-viewer-shell {
   justify-content: center;
   border: 1px solid var(--border-soft);
   border-right: 0;
-  border-radius: 0.5625rem 0 0 0.5625rem;
+  border-radius: var(--r-md) 0 0 var(--r-md);
   background: var(--surface-glass);
   color: var(--text-2);
-  box-shadow: -8px 10px 26px rgba(24, 26, 45, 0.12);
+  box-shadow: var(--shadow-pop);
   transform: translateY(-50%);
   pointer-events: auto;
   backdrop-filter: blur(18px);
@@ -446,8 +435,8 @@ html.dark .clip-viewer-shell {
 .viewer-image-ocr-panel-collapsed .viewer-image-ocr-toggle {
   left: -2.5rem;
   border-right: 1px solid var(--border-soft);
-  border-radius: 0.5625rem;
-  box-shadow: 0 10px 26px rgba(24, 26, 45, 0.14);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
 }
 
 .viewer-image-ocr-heading {
@@ -462,7 +451,7 @@ html.dark .clip-viewer-shell {
   margin: 0;
   color: var(--text-1);
   font-size: 0.875rem;
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
   line-height: 1.2;
 }
 
@@ -501,7 +490,7 @@ html.dark .clip-viewer-shell {
 
 .viewer-image-ocr-error {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-strong);
 }
 
 .viewer-image-ocr-loading {
@@ -538,7 +527,7 @@ html.dark .clip-viewer-shell {
   inset: 0;
   content: "";
   background:
-    linear-gradient(180deg, transparent 0%, rgba(13, 148, 136, 0.16) 48%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, var(--accent-soft-2) 48%, transparent 100%),
     repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 6px);
   animation: image-ocr-scan 1.35s linear infinite;
 }
@@ -555,10 +544,10 @@ html.dark .clip-viewer-shell {
   top: -0.5rem;
   height: 2px;
   content: "";
-  background: #818cf8;
+  background: var(--accent);
   box-shadow:
-    0 0 16px rgba(20, 184, 166, 0.9),
-    0 0 40px rgba(13, 148, 136, 0.45);
+    0 0 16px var(--accent-soft-2),
+    0 0 40px var(--accent-soft);
   animation: image-ocr-scan-line 1.35s linear infinite;
 }
 
@@ -581,17 +570,15 @@ html.dark .clip-viewer-shell {
 .viewer-paste-button {
   margin-left: auto;
   border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
 }
 
 .viewer-paste-button:hover {
   border-color: transparent;
-  background: var(--accent);
-  color: var(--on-accent);
-  filter: brightness(1.08);
-  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.38);
+  background: var(--accent-fill);
+  color: var(--on-accent-fill);
+  filter: brightness(1.06);
 }
 
 .selection-paste-button {
@@ -602,13 +589,13 @@ html.dark .clip-viewer-shell {
   align-items: center;
   gap: 0.375rem;
   border: 1px solid transparent;
-  border-radius: 0.5625rem;
-  background: var(--accent);
+  border-radius: var(--r-md);
+  background: var(--accent-fill);
   padding: 0.3125rem 0.625rem;
-  color: #ffffff;
+  color: var(--on-accent-fill);
   font-size: 0.75rem;
   font-weight: 600;
-  box-shadow: 0 12px 28px rgba(24, 26, 45, 0.24);
+  box-shadow: var(--shadow-toast);
 }
 
 .selection-paste-button:hover {
@@ -621,7 +608,7 @@ html.dark .clip-viewer-shell {
   border-radius: var(--r-lg);
   background: var(--danger-soft);
   padding: 0.875rem 1rem;
-  color: var(--danger);
+  color: var(--danger-strong);
   font-size: 0.875rem;
 }
 
@@ -636,7 +623,7 @@ html.dark .clip-viewer-shell {
   background: var(--backdrop);
   padding: 1rem;
   backdrop-filter: var(--backdrop-blur);
-  animation: backdrop-in 160ms ease;
+  animation: backdrop-in var(--dur-base) var(--ease-out);
 }
 
 .viewer-close-dialog {
@@ -646,13 +633,13 @@ html.dark .clip-viewer-shell {
   background: var(--surface);
   padding: 1rem;
   box-shadow: var(--shadow-dialog);
-  animation: dialog-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: dialog-in var(--dur-base) var(--ease-out);
 }
 
 .viewer-close-dialog h2 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: var(--fw-semibold);
   color: var(--text-1);
 }
 

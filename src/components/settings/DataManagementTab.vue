@@ -44,7 +44,7 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
       <!-- Storage Overview Breakdown -->
       <section class="settings-panel settings-column-panel">
         <div class="settings-panel-heading">
-          <div class="settings-icon settings-icon-blue">
+          <div class="settings-icon">
             <HardDrive class="size-5" />
           </div>
           <div class="min-w-0 flex-1">
@@ -107,7 +107,7 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
       <!-- Cloud Sync Panel -->
       <section class="settings-panel settings-column-panel">
         <div class="settings-panel-heading">
-          <div class="settings-icon settings-icon-teal">
+          <div class="settings-icon">
             <Cloud class="size-5" />
           </div>
           <div class="min-w-0">

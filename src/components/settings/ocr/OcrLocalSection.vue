@@ -44,7 +44,7 @@ const {
     class="settings-panel settings-column-panel"
   >
     <div class="settings-panel-heading">
-      <div class="settings-icon settings-icon-violet">
+      <div class="settings-icon">
         <ScanText class="size-5" />
       </div>
       <div class="min-w-0 flex-1">

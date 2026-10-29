@@ -26,7 +26,7 @@ const emit = defineEmits<{
           :action="action"
           @run="emit('run', action)"
         />
-        <div class="flex justify-end border-t border-slate-200 px-4 py-2">
+        <div class="flex justify-end border-t border-[var(--border-hairline)] px-4 py-2">
           <button
             type="button"
             class="btn-ghost"
