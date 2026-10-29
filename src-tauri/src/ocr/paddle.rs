@@ -18,6 +18,33 @@ pub(crate) struct PaddleLine {
     pub height: f64, // 像素，轴对齐
 }
 
+pub(crate) const PADDLE_MAX_SIDE: u32 = 2560;
+
+pub(crate) fn compute_resize_scale(
+    width: u32,
+    height: u32,
+    max_side: u32,
+) -> Option<(u32, u32, f64)> {
+    let longest = width.max(height);
+    if longest <= max_side || max_side == 0 {
+        return None;
+    }
+    let scale = max_side as f64 / longest as f64;
+    let new_w = ((width as f64 * scale).round() as u32).max(1);
+    let new_h = ((height as f64 * scale).round() as u32).max(1);
+    let inv_scale = width as f64 / new_w as f64;
+    Some((new_w, new_h, inv_scale))
+}
+
+pub(crate) fn scale_paddle_lines(lines: &mut [PaddleLine], inv_scale: f64) {
+    for line in lines.iter_mut() {
+        line.left *= inv_scale;
+        line.top *= inv_scale;
+        line.width *= inv_scale;
+        line.height *= inv_scale;
+    }
+}
+
 /// 行级结果 → 词级 ImageOcrWord：
 /// 每行 split_line_tokens 切词；
 /// - 横向文本（height <= width）：token 按 char 数比例横向切分行框；
@@ -116,33 +143,45 @@ pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) 
             cx_b.partial_cmp(&cx_a).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // 将 X 坐标重叠相近的框聚合成同一竖列
-        let mut columns: Vec<Vec<PaddleLine>> = Vec::new();
+        // 将 X 坐标重叠相近的框聚合成同一竖列（增量维护均值）
+        struct ColAcc {
+            lines: Vec<PaddleLine>,
+            sum_cx: f64,
+            sum_width: f64,
+        }
+        let mut columns: Vec<ColAcc> = Vec::new();
         for line in sorted {
             let cx = line.left + line.width / 2.0;
             let target_col = columns.iter_mut().find(|col| {
-                let col_cx: f64 =
-                    col.iter().map(|it| it.left + it.width / 2.0).sum::<f64>() / col.len() as f64;
-                let avg_w: f64 = col.iter().map(|it| it.width).sum::<f64>() / col.len() as f64;
+                let col_cx = col.sum_cx / col.lines.len() as f64;
+                let avg_w = col.sum_width / col.lines.len() as f64;
                 let tolerance = avg_w.max(line.width) * 0.75;
                 (cx - col_cx).abs() <= tolerance
             });
-            if let Some(col) = target_col {
-                col.push(line);
-            } else {
-                columns.push(vec![line]);
+            match target_col {
+                Some(col) => {
+                    col.sum_cx += cx;
+                    col.sum_width += line.width;
+                    col.lines.push(line);
+                }
+                None => columns.push(ColAcc {
+                    sum_cx: cx,
+                    sum_width: line.width,
+                    lines: vec![line],
+                }),
             }
         }
 
         // 每列内部按 Y 坐标从上往下（升序）
         let mut result = Vec::new();
-        for mut col in columns {
-            col.sort_by(|a, b| {
+        for col in columns {
+            let mut col_lines = col.lines;
+            col_lines.sort_by(|a, b| {
                 a.top
                     .partial_cmp(&b.top)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            result.extend(col);
+            result.extend(col_lines);
         }
         result
     } else {
@@ -200,13 +239,50 @@ pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) 
     }
 }
 
-/// 进程级引擎缓存：键为 "{mode}:{is_manga}"，模式变更时重建。
+/// 空闲多久后主动释放 MNN 引擎模型权重。
+#[cfg(not(target_os = "macos"))]
+const PADDLE_IDLE_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+#[cfg(not(target_os = "macos"))]
+static PADDLE_ACTIVITY_GEN: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// 进程级引擎缓存：键为 "{mode}:{is_manga}"，模式变更或空闲 5 分钟后释放。
 /// 存 `Arc` 而非 `Box::leak` 出的 `&'static`：模式切换（或设置里换引擎配置）
 /// 后旧引擎随缓存替换而释放——MNN 会话持着模型权重，leak 版每切一次模式
 /// 就永久多占一份。在飞识别持有的 Arc 克隆会推迟到底层 Drop，安全。
 #[cfg(not(target_os = "macos"))]
-static ENGINE: std::sync::Mutex<Option<(String, std::sync::Arc<ocr_rs::OcrEngine>)>> =
-    std::sync::Mutex::new(None);
+static ENGINE: std::sync::Mutex<
+    Option<(String, std::sync::Arc<ocr_rs::OcrEngine>, std::time::Instant)>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn clear_engine_cache() {
+    if let Ok(mut cache) = ENGINE.lock() {
+        *cache = None;
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn schedule_paddle_idle_unload() {
+    use std::sync::atomic::Ordering;
+    let gen = PADDLE_ACTIVITY_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(PADDLE_IDLE_SHUTDOWN).await;
+        if PADDLE_ACTIVITY_GEN.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        if let Ok(mut cache) = ENGINE.lock() {
+            let should_drop = cache
+                .as_ref()
+                .map(|(_, _, last_used)| last_used.elapsed() >= PADDLE_IDLE_SHUTDOWN)
+                .unwrap_or(false);
+            if should_drop {
+                *cache = None;
+            }
+        }
+    });
+}
 
 /// 取当前模式的引擎：命中缓存直接返回 Arc 克隆；否则校验模型齐全后构建并缓存。
 #[cfg(not(target_os = "macos"))]
@@ -217,9 +293,13 @@ fn ensure_engine(
 ) -> Result<std::sync::Arc<ocr_rs::OcrEngine>, String> {
     let cache_key = format!("{mode}:{is_manga}");
     let mut cache = ENGINE.lock().map_err(|error| error.to_string())?;
-    if let Some((cached_key, engine)) = cache.as_ref() {
+    if let Some((cached_key, engine, last_used)) = cache.as_mut() {
         if cached_key == &cache_key {
-            return Ok(engine.clone());
+            *last_used = std::time::Instant::now();
+            let engine = engine.clone();
+            drop(cache);
+            schedule_paddle_idle_unload();
+            return Ok(engine);
         }
     }
 
@@ -239,7 +319,9 @@ fn ensure_engine(
     let engine = ocr_rs::OcrEngine::new(&paths.det, &paths.rec, &paths.charset, Some(config))
         .map_err(|error| format!("初始化 PaddleOCR 引擎失败：{error}"))?;
     let engine = std::sync::Arc::new(engine);
-    *cache = Some((cache_key, engine.clone()));
+    *cache = Some((cache_key, engine.clone(), std::time::Instant::now()));
+    drop(cache);
+    schedule_paddle_idle_unload();
     Ok(engine)
 }
 
@@ -270,6 +352,7 @@ pub(crate) fn recognize_with_mode(
         return Err("图片文件不存在".to_string());
     }
     let image = image::open(&image_path).map_err(|error| format!("无法读取图片：{error}"))?;
+    let (orig_width, orig_height) = (image.width(), image.height());
 
     let is_manga = profile
         .as_deref()
@@ -277,14 +360,30 @@ pub(crate) fn recognize_with_mode(
         .unwrap_or(false);
 
     let engine = ensure_engine(app, mode, is_manga)?;
+    let rotated_mode = if is_manga || mode == "best" {
+        ocr_rs::RotatedTextMode::Robust
+    } else {
+        ocr_rs::RotatedTextMode::Disabled
+    };
     let options = ocr_rs::RecognizeOptions::new()
-        .with_rotated_text_mode(ocr_rs::RotatedTextMode::Robust)
+        .with_rotated_text_mode(rotated_mode)
         .with_vertical_aspect_ratio(if is_manga { 1.15 } else { 1.3 });
+
+    let resize_plan = compute_resize_scale(orig_width, orig_height, PADDLE_MAX_SIDE);
+    let working_image = match resize_plan {
+        Some((new_w, new_h, _)) => std::borrow::Cow::Owned(image.resize_exact(
+            new_w,
+            new_h,
+            image::imageops::FilterType::Triangle,
+        )),
+        None => std::borrow::Cow::Borrowed(&image),
+    };
+
     let items = engine
-        .recognize_with_options(&image, &options)
+        .recognize_with_options(&working_image, &options)
         .map_err(|error| format!("PaddleOCR 识别失败：{error}"))?;
 
-    let raw_lines: Vec<PaddleLine> = items
+    let mut raw_lines: Vec<PaddleLine> = items
         .iter()
         .map(|item| PaddleLine {
             text: item.text.clone(),
@@ -296,8 +395,12 @@ pub(crate) fn recognize_with_mode(
         })
         .collect();
 
+    if let Some((_, _, inv_scale)) = resize_plan {
+        scale_paddle_lines(&mut raw_lines, inv_scale);
+    }
+
     let lines = sort_paddle_lines(raw_lines, is_manga);
-    let words = paddle_lines_to_words(&lines, image.width(), image.height());
+    let words = paddle_lines_to_words(&lines, orig_width, orig_height);
     let text = lines
         .iter()
         .map(|line| line.text.trim())
@@ -429,5 +532,61 @@ mod tests {
     fn empty_lines_yield_no_words() {
         assert!(paddle_lines_to_words(&[], 640, 480).is_empty());
         assert!(paddle_lines_to_words(&[line("   ")], 640, 480).is_empty());
+    }
+
+    #[test]
+    fn sort_paddle_lines_vertical_clusters_multi_line_columns_with_incremental_mean() {
+        // 右列两个框（X 略微抖动：300 与 304，上下排列），左列一个框（X=100）
+        let right_bottom = PaddleLine {
+            text: "右列下".to_string(),
+            confidence: 0.9,
+            left: 304.0,
+            top: 140.0,
+            width: 20.0,
+            height: 100.0,
+        };
+        let right_top = PaddleLine {
+            text: "右列上".to_string(),
+            confidence: 0.9,
+            left: 300.0,
+            top: 20.0,
+            width: 20.0,
+            height: 100.0,
+        };
+        let left_only = PaddleLine {
+            text: "左列".to_string(),
+            confidence: 0.9,
+            left: 100.0,
+            top: 30.0,
+            width: 20.0,
+            height: 100.0,
+        };
+        let sorted = sort_paddle_lines(vec![left_only, right_bottom, right_top], true);
+        let texts: Vec<&str> = sorted.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, vec!["右列上", "右列下", "左列"]);
+    }
+
+    #[test]
+    fn compute_resize_scale_and_rescale_lines_preserve_original_coordinates() {
+        assert!(compute_resize_scale(1920, 1080, 2560).is_none());
+
+        let (new_w, new_h, inv_scale) = compute_resize_scale(5120, 2880, 2560).unwrap();
+        assert_eq!(new_w, 2560);
+        assert_eq!(new_h, 1440);
+        assert!((inv_scale - 2.0).abs() < 1e-6);
+
+        let mut lines = vec![PaddleLine {
+            text: "标题".to_string(),
+            confidence: 0.95,
+            left: 50.0,
+            top: 100.0,
+            width: 200.0,
+            height: 30.0,
+        }];
+        scale_paddle_lines(&mut lines, inv_scale);
+        assert!((lines[0].left - 100.0).abs() < 1e-6);
+        assert!((lines[0].top - 200.0).abs() < 1e-6);
+        assert!((lines[0].width - 400.0).abs() < 1e-6);
+        assert!((lines[0].height - 60.0).abs() < 1e-6);
     }
 }

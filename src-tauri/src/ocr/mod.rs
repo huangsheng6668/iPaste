@@ -141,6 +141,7 @@ pub(crate) fn remove_assets(
 
     #[cfg(not(target_os = "macos"))]
     {
+        paddle::clear_engine_cache();
         let mode = store.settings()?.ocr_mode.as_str();
         let root = installer::ocr_root_dir(app)?;
         if root.exists() {

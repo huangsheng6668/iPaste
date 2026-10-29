@@ -4,7 +4,7 @@
 //!
 //! Python 路径采用按需常驻的推理服务进程（stdin/stdout 按行交换 JSON）：
 //! 冷启动需重付 import 依赖 + 权重加载（实测数秒），常驻后单次识别仅剩推理耗时；
-//! 空闲超过 MOCR_IDLE_SHUTDOWN 后在下次调用时回收，避免长期占用 GPU/内存。
+//! 空闲超过 MOCR_IDLE_SHUTDOWN 后主动延时回收，避免长期占用 GPU/内存。
 
 use std::{
     path::{Path, PathBuf},
@@ -25,7 +25,7 @@ use crate::ocr::tokens::split_line_tokens;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// 空闲多久后在下次调用时重启（回收 GPU 显存与 Python 常驻内存）。
+/// 空闲多久后主动回收（释放 GPU 显存与 Python/ONNX 常驻内存）。
 const MOCR_IDLE_SHUTDOWN: Duration = Duration::from_secs(5 * 60);
 /// 单次请求的等待上限：需覆盖首次冷启动（依赖 import + 权重加载）。
 const MOCR_RESPONSE_TIMEOUT: Duration = Duration::from_secs(180);
@@ -111,6 +111,32 @@ impl MocrServer {
 static MOCR_SERVER: OnceLock<tokio::sync::Mutex<Option<MocrServer>>> = OnceLock::new();
 static PYTHON_CANDIDATE: OnceLock<Option<PathBuf>> = OnceLock::new();
 static MODEL_CANDIDATE: OnceLock<Option<String>> = OnceLock::new();
+static MOCR_ACTIVITY_GEN: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn schedule_mocr_idle_shutdown() {
+    use std::sync::atomic::Ordering;
+    let gen = MOCR_ACTIVITY_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(MOCR_IDLE_SHUTDOWN).await;
+        if MOCR_ACTIVITY_GEN.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        if let Some(cell) = MOCR_SERVER.get() {
+            let mut guard = cell.lock().await;
+            let should_take = guard
+                .as_ref()
+                .map(|server| server.last_used.elapsed() >= MOCR_IDLE_SHUTDOWN)
+                .unwrap_or(false);
+            if should_take {
+                if let Some(mut server) = guard.take() {
+                    server.shutdown();
+                    let _ = server.child.wait().await;
+                }
+            }
+        }
+    });
+}
 
 use tauri::Manager;
 
@@ -242,8 +268,9 @@ async fn send_request(
     Ok(response)
 }
 
-/// 预热常驻推理服务（结果窗打开时后台调用）：启动进程并触发模型加载，
-/// 用户首次点击 manga profile 时通常已就绪。失败静默——不影响正常冷启动路径。
+/// 预热常驻推理服务：启动进程并触发模型加载。
+/// 失败静默——不影响正常冷启动路径。
+#[allow(dead_code)]
 pub(crate) async fn prewarm_server(app: &tauri::AppHandle) {
     let cell = MOCR_SERVER.get_or_init(|| tokio::sync::Mutex::new(None));
     let mut guard = cell.lock().await;
@@ -267,6 +294,7 @@ pub(crate) async fn prewarm_server(app: &tauri::AppHandle) {
     }
     server.last_used = Instant::now();
     *guard = Some(server);
+    schedule_mocr_idle_shutdown();
 }
 
 /// 应用退出时回收常驻推理进程（防止孤儿进程残留占用内存/显存）。
@@ -307,6 +335,8 @@ async fn request_via_server(
         // 通信失败可能意味着进程已死：回收以便下次重建
         server.shutdown();
         *guard = None;
+    } else {
+        schedule_mocr_idle_shutdown();
     }
     result
 }
