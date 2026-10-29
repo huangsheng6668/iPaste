@@ -129,16 +129,102 @@ fn profile_label(profile: &OpenaiOcrProfile) -> &str {
     }
 }
 
+const PROFILE_COOLDOWN_DURATION: Duration = Duration::from_secs(60);
+
+static PROFILE_COOLDOWNS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+> = std::sync::OnceLock::new();
+
+fn cooldown_map(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>> {
+    PROFILE_COOLDOWNS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub(crate) fn is_failover_eligible(error: &OpenaiRequestError) -> bool {
+    match error.status {
+        None => true,
+        Some(429 | 500 | 502 | 503 | 504) => true,
+        Some(_) => false,
+    }
+}
+
+pub(crate) fn order_profiles_with_cooldown(
+    mut profiles: Vec<OpenaiOcrProfile>,
+    active_profile_id: &str,
+    cooldowns: &std::collections::HashMap<String, std::time::Instant>,
+    now: std::time::Instant,
+) -> Vec<OpenaiOcrProfile> {
+    if let Some(index) = profiles
+        .iter()
+        .position(|profile| profile.id == active_profile_id)
+    {
+        let active = profiles.remove(index);
+        profiles.insert(0, active);
+    }
+
+    let mut healthy = Vec::with_capacity(profiles.len());
+    let mut cooling = Vec::new();
+    for profile in profiles {
+        let is_cooling = cooldowns
+            .get(&profile.id)
+            .and_then(|failed_at| now.checked_duration_since(*failed_at))
+            .map(|elapsed| elapsed < PROFILE_COOLDOWN_DURATION)
+            .unwrap_or(false);
+        if is_cooling {
+            cooling.push(profile);
+        } else {
+            healthy.push(profile);
+        }
+    }
+
+    if healthy.is_empty() {
+        cooling
+    } else {
+        healthy.extend(cooling);
+        healthy
+    }
+}
+
+pub(crate) fn order_profiles_for_request(
+    profiles: Vec<OpenaiOcrProfile>,
+    active_profile_id: &str,
+) -> Vec<OpenaiOcrProfile> {
+    let now = std::time::Instant::now();
+    if let Ok(mut guard) = cooldown_map().lock() {
+        guard.retain(|_, failed_at| {
+            now.checked_duration_since(*failed_at)
+                .map(|elapsed| elapsed < PROFILE_COOLDOWN_DURATION)
+                .unwrap_or(false)
+        });
+        order_profiles_with_cooldown(profiles, active_profile_id, &guard, now)
+    } else {
+        order_profiles_with_cooldown(
+            profiles,
+            active_profile_id,
+            &std::collections::HashMap::new(),
+            now,
+        )
+    }
+}
+
 fn run_profile_failover<T>(
     profiles: &[OpenaiOcrProfile],
     mut attempt: impl FnMut(&OpenaiOcrProfile) -> Result<T, OpenaiRequestError>,
 ) -> Result<T, String> {
-    let mut last_rate_limit = None;
+    let mut last_failover_error: Option<OpenaiRequestError> = None;
     for profile in profiles {
         match attempt(profile) {
-            Ok(value) => return Ok(value),
-            Err(error) if error.status == Some(429) => {
-                last_rate_limit = Some(error.message);
+            Ok(value) => {
+                if let Ok(mut guard) = cooldown_map().lock() {
+                    guard.remove(&profile.id);
+                }
+                return Ok(value);
+            }
+            Err(error) if is_failover_eligible(&error) => {
+                if let Ok(mut guard) = cooldown_map().lock() {
+                    guard.insert(profile.id.clone(), std::time::Instant::now());
+                }
+                last_failover_error = Some(error);
             }
             Err(error) => {
                 return Err(format!(
@@ -150,9 +236,14 @@ fn run_profile_failover<T>(
         }
     }
 
-    match last_rate_limit {
-        Some(message) => Err(format!(
-            "所有可用的 OpenAI 兼容接口均触发限流（HTTP 429），请稍后重试或补充接口。最后一次响应：{message}"
+    match last_failover_error {
+        Some(error) if error.status == Some(429) => Err(format!(
+            "所有可用的 OpenAI 兼容接口均触发限流（HTTP 429），请稍后重试或补充接口。最后一次响应：{}",
+            error.message
+        )),
+        Some(error) => Err(format!(
+            "所有可用的 OpenAI 兼容接口均暂时不可用，请检查网络或稍后重试。最后一次响应：{}",
+            error.message
         )),
         None => Err(
             "OpenAI 兼容接口未配置完整（需要接口地址与模型；本地无鉴权端点可留空 API Key），请在 设置 → 图片 OCR 中保存"
@@ -759,5 +850,89 @@ mod tests {
         // 全透明像素经白底合成后应接近纯白 (255, 255, 255)
         let px = decoded_img.get_pixel(100, 100);
         assert!(px[0] >= 250 && px[1] >= 250 && px[2] >= 250, "透明背景未合成白底: {px:?}");
+    }
+
+    #[test]
+    fn failover_eligibility_covers_429_5xx_and_network_errors() {
+        assert!(is_failover_eligible(&OpenaiRequestError::http(429, "rate limit")));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(500, "internal")));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(502, "bad gateway")));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(503, "unavailable")));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(504, "gateway timeout")));
+        assert!(is_failover_eligible(&OpenaiRequestError::new(
+            None,
+            "connection timed out".to_string()
+        )));
+
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(400, "bad request")));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(401, "unauthorized")));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(403, "forbidden")));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(404, "not found")));
+    }
+
+    #[test]
+    fn profile_failover_switches_on_503_and_network_timeout() {
+        let profiles = vec![profile("a"), profile("b"), profile("c")];
+        let mut attempted = Vec::new();
+        let result = run_profile_failover(&profiles, |candidate| {
+            attempted.push(candidate.id.clone());
+            match candidate.id.as_str() {
+                "a" => Err(OpenaiRequestError::new(None, "timeout".to_string())),
+                "b" => Err(OpenaiRequestError::http(503, "service unavailable")),
+                _ => Ok("recognized-from-c"),
+            }
+        })
+        .unwrap();
+        assert_eq!(attempted, vec!["a", "b", "c"]);
+        assert_eq!(result, "recognized-from-c");
+    }
+
+    #[test]
+    fn order_profiles_with_cooldown_demotes_recently_failed_profiles() {
+        let now = std::time::Instant::now();
+        let mut cooldowns = std::collections::HashMap::new();
+        cooldowns.insert("b".to_string(), now - Duration::from_secs(15));
+
+        let ordered = order_profiles_with_cooldown(
+            vec![profile("a"), profile("b"), profile("c")],
+            "b",
+            &cooldowns,
+            now,
+        );
+        let ids: Vec<&str> = ordered.iter().map(|p| p.id.as_str()).collect();
+        // b 虽然是主接口，但处于 60s 冷却期内，应下沉到队尾
+        assert_eq!(ids, vec!["a", "c", "b"]);
+    }
+
+    #[test]
+    fn order_profiles_with_cooldown_keeps_expired_or_all_cooling_order() {
+        let now = std::time::Instant::now();
+        let mut cooldowns = std::collections::HashMap::new();
+        // 已超过 60s 冷却期
+        cooldowns.insert("b".to_string(), now - Duration::from_secs(61));
+        let ordered = order_profiles_with_cooldown(
+            vec![profile("a"), profile("b")],
+            "b",
+            &cooldowns,
+            now,
+        );
+        assert_eq!(
+            ordered.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
+
+        // 全部都在冷却期内时保持原主接口优先顺序
+        cooldowns.insert("a".to_string(), now - Duration::from_secs(5));
+        cooldowns.insert("b".to_string(), now - Duration::from_secs(5));
+        let all_cooling = order_profiles_with_cooldown(
+            vec![profile("a"), profile("b")],
+            "b",
+            &cooldowns,
+            now,
+        );
+        assert_eq!(
+            all_cooling.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "a"]
+        );
     }
 }

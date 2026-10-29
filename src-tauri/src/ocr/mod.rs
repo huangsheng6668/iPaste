@@ -6,7 +6,7 @@
 use tauri::Emitter;
 
 use crate::events::EVENT_OCR_INSTALL_PROGRESS;
-use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus, OpenaiOcrProfile};
+use crate::models::{ImageOcrResult, OcrInstallProgress, OcrInstallStatus};
 // try_state 等方法来自 Manager trait；云引擎调度分支在 macOS 上也调用，
 // 导入不能按平台裁剪
 use tauri::Manager;
@@ -229,10 +229,11 @@ pub(crate) fn vision_language_locale(language: &str) -> Option<&'static str> {
 
 /// 主接口移到首位；其余保持设置中的列表顺序。只调整本次识别的副本，
 /// 不改变用户保存的接口顺序与主接口选择。
+#[cfg(test)]
 fn ordered_openai_profiles(
-    mut profiles: Vec<OpenaiOcrProfile>,
+    mut profiles: Vec<crate::models::OpenaiOcrProfile>,
     active_profile_id: &str,
-) -> Vec<OpenaiOcrProfile> {
+) -> Vec<crate::models::OpenaiOcrProfile> {
     if let Some(index) = profiles
         .iter()
         .position(|profile| profile.id == active_profile_id)
@@ -264,7 +265,7 @@ pub(crate) async fn recognize_image(
     {
         let cloud = settings.cloud_ocr;
         let profiles =
-            ordered_openai_profiles(cloud.openai_profiles, &cloud.openai_active_profile_id);
+            openai::order_profiles_for_request(cloud.openai_profiles, &cloud.openai_active_profile_id);
         let img_path = image_path.clone();
         // manga 档位且语言为空时按日语提示
         let effective_language = if is_manga && language.is_none() {
