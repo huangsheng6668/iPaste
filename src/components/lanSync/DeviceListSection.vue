@@ -1,13 +1,23 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { t, type I18nKey } from "../../i18n";
-import { fingerprintOf, sendTargets as buildSendTargets, statusKey, type DeviceStatusKey } from "../../lib/deviceDisplay";
+import {
+  fingerprintOf,
+  sendTargets as buildSendTargets,
+  SEND_TARGET_ALL,
+  statusKey,
+  type DeviceStatusKey,
+} from "../../lib/deviceDisplay";
+import { categoryDisplayName } from "../../lib/format";
 import type { AutoSyncMode } from "../../types/generated/AutoSyncMode";
+import type { Category } from "../../types/generated/Category";
 import type { DeviceInfo } from "../../types/generated/DeviceInfo";
 
 const props = defineProps<{
   devices: DeviceInfo[];
-  /** useTwoStepConfirm 的 confirmingKey：处于撤销二击确认态的设备 nodeId。 */
+  /** 分类列表（发送内容可选项；空数组时只能发当前剪贴板）。 */
+  categories: Category[];
+  /** 两击撤销确认：处于确认态的设备 nodeId。 */
   confirmingRevokeId: string | null;
   /** 设备列表加载失败横幅（useDeviceSync.loadError）。 */
   loadError: string | null;
@@ -20,15 +30,36 @@ const emit = defineEmits<{
   disconnect: [nodeId: string];
   revoke: [nodeId: string];
   remove: [nodeId: string];
-  sendCurrent: [];
+  /** 发送：categoryId 为 null 表示发当前剪贴板；targetId 为 `__all__` 表示全部在线。 */
+  send: [categoryId: string | null, targetId: string];
 }>();
+
+// 「发送内容」选择：空串 = 当前剪贴板，否则为分类 id。
+const sendCategoryId = ref("");
+const sendTargetId = ref<string>(SEND_TARGET_ALL);
+
+const onlineTargets = computed(() => buildSendTargets(props.devices));
+
+// 设备离线/撤销后目标可能已不在列表：回落到「全部在线」，避免对幽灵目标发送。
+watch(
+  () => props.devices,
+  () => {
+    if (!onlineTargets.value.some((target) => target.id === sendTargetId.value)) {
+      sendTargetId.value = SEND_TARGET_ALL;
+    }
+  },
+);
+
+function onSend() {
+  emit("send", sendCategoryId.value || null, sendTargetId.value);
+}
 
 function isRevoked(entry: DeviceInfo) {
   return Boolean(entry.device.revokedAt);
 }
 
 // 复用 sendTargets 纯函数判定「有可发送目标」：除 __all__ 外还有在线未撤销设备。
-const hasOnlineDevice = computed(() => buildSendTargets(props.devices).length > 1);
+const hasOnlineDevice = computed(() => onlineTargets.value.length > 1);
 
 // DeviceOnline 的 serde 值（connected）与 i18n key（online）不同名，显式映射保住字面量类型。
 const STATUS_LABEL_KEYS: Record<DeviceStatusKey, I18nKey> = {
@@ -145,13 +176,55 @@ function onAutoSyncChange(entry: DeviceInfo, event: Event) {
     >
       {{ actionError }}
     </p>
-    <button
-      type="button"
-      class="lan-button"
-      :disabled="!hasOnlineDevice"
-      @click="emit('sendCurrent')"
-    >
-      {{ t("deviceSync.sendTo.current") }}
-    </button>
+    <!-- 发送内容：可选当前剪贴板或某个分类（整组发送），并显式选择目标设备 -->
+    <div class="lan-send-controls">
+      <label
+        class="lan-label"
+        for="lan-send-content"
+      >{{ t("deviceSync.sendContent.label") }}</label>
+      <select
+        id="lan-send-content"
+        v-model="sendCategoryId"
+        class="lan-select"
+      >
+        <option value="">
+          {{ t("deviceSync.sendContent.current") }}
+        </option>
+        <option
+          v-for="category in categories"
+          :key="category.id"
+          :value="category.id"
+        >
+          {{ categoryDisplayName(category.name) }}
+        </option>
+      </select>
+
+      <label
+        class="lan-label"
+        for="lan-send-target"
+      >{{ t("deviceSync.sendTarget.label") }}</label>
+      <select
+        id="lan-send-target"
+        v-model="sendTargetId"
+        class="lan-select"
+      >
+        <option
+          v-for="target in onlineTargets"
+          :key="target.id"
+          :value="target.id"
+        >
+          {{ target.isAll ? t("deviceSync.sendTo.all") : (target.name ?? fingerprintOf(target.id)) }}
+        </option>
+      </select>
+
+      <button
+        type="button"
+        class="lan-button lan-button-primary"
+        :disabled="!hasOnlineDevice"
+        @click="onSend"
+      >
+        {{ t("deviceSync.send.button") }}
+      </button>
+    </div>
   </section>
 </template>

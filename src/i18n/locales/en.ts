@@ -477,5 +477,9 @@ export const en = {
   "deviceSync.sendTo.title": "Send to…",
   "deviceSync.sendTo.all": "All online devices",
   "deviceSync.sendTo.none": "No devices online",
-  "deviceSync.sendTo.current": "Send current clipboard",
+  "deviceSync.sendContent.label": "Content",
+  "deviceSync.sendContent.current": "Current clipboard",
+  "deviceSync.sendTarget.label": "Target device",
+  "deviceSync.send.button": "Send",
+  "deviceSync.send.currentSent": "Current clipboard sent",
 } as const;

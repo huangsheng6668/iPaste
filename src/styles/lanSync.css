@@ -294,6 +294,13 @@
   z-index: 11;
 }
 
+/* 发送内容选择：内容下拉 + 目标下拉 + 发送按钮，纵向紧凑排列 */
+.lan-send-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* —— 短码配对：大号 PIN + 附近设备列表 —— */
 .lan-pin-row { display: flex; align-items: baseline; gap: 8px; }
 .lan-pin {

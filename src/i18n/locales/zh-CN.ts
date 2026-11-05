@@ -477,5 +477,9 @@ export const zhCN = {
   "deviceSync.sendTo.title": "发送到…",
   "deviceSync.sendTo.all": "全部在线设备",
   "deviceSync.sendTo.none": "暂无在线设备",
-  "deviceSync.sendTo.current": "发送当前剪贴板",
+  "deviceSync.sendContent.label": "发送内容",
+  "deviceSync.sendContent.current": "当前剪贴板",
+  "deviceSync.sendTarget.label": "目标设备",
+  "deviceSync.send.button": "发送",
+  "deviceSync.send.currentSent": "已发送当前剪贴板",
 } as const;

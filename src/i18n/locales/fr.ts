@@ -466,5 +466,9 @@ export const fr = {
   "deviceSync.sendTo.title": "Envoyer à…",
   "deviceSync.sendTo.all": "Tous les appareils en ligne",
   "deviceSync.sendTo.none": "Aucun appareil en ligne",
-  "deviceSync.sendTo.current": "Envoyer le presse-papiers actuel",
+  "deviceSync.sendContent.label": "Contenu",
+  "deviceSync.sendContent.current": "Presse-papiers actuel",
+  "deviceSync.sendTarget.label": "Appareil cible",
+  "deviceSync.send.button": "Envoyer",
+  "deviceSync.send.currentSent": "Presse-papiers actuel envoyé",
 } as const;

@@ -466,5 +466,9 @@ export const ko = {
   "deviceSync.sendTo.title": "보내기…",
   "deviceSync.sendTo.all": "모든 온라인 기기",
   "deviceSync.sendTo.none": "온라인 기기 없음",
-  "deviceSync.sendTo.current": "현재 클립보드 보내기",
+  "deviceSync.sendContent.label": "내용",
+  "deviceSync.sendContent.current": "현재 클립보드",
+  "deviceSync.sendTarget.label": "대상 기기",
+  "deviceSync.send.button": "보내기",
+  "deviceSync.send.currentSent": "현재 클립보드를 보냈습니다",
 } as const;

@@ -466,5 +466,9 @@ export const es = {
   "deviceSync.sendTo.title": "Enviar a…",
   "deviceSync.sendTo.all": "Todos los dispositivos en línea",
   "deviceSync.sendTo.none": "No hay dispositivos en línea",
-  "deviceSync.sendTo.current": "Enviar portapapeles actual",
+  "deviceSync.sendContent.label": "Contenido",
+  "deviceSync.sendContent.current": "Portapapeles actual",
+  "deviceSync.sendTarget.label": "Dispositivo de destino",
+  "deviceSync.send.button": "Enviar",
+  "deviceSync.send.currentSent": "Portapapeles actual enviado",
 } as const;

@@ -466,5 +466,9 @@ export const ja = {
   "deviceSync.sendTo.title": "送信先…",
   "deviceSync.sendTo.all": "オンラインの全デバイス",
   "deviceSync.sendTo.none": "オンラインのデバイスなし",
-  "deviceSync.sendTo.current": "現在のクリップボードを送信",
+  "deviceSync.sendContent.label": "内容",
+  "deviceSync.sendContent.current": "現在のクリップボード",
+  "deviceSync.sendTarget.label": "送信先デバイス",
+  "deviceSync.send.button": "送信",
+  "deviceSync.send.currentSent": "現在のクリップボードを送信しました",
 } as const;

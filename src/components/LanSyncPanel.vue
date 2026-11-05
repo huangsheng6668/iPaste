@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { windowHandle } from "../platform/window";
 import { X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
 import { useDeviceSync } from "../composables/useDeviceSync";
-import { joinErrorKey } from "../lib/deviceDisplay";
+import { joinErrorKey, SEND_TARGET_ALL } from "../lib/deviceDisplay";
+import { showError, useUiStore } from "../stores/uiStore";
 import { useTwoStepConfirm } from "../composables/useTwoStepConfirm";
 import { useInviteCountdown } from "../composables/useInviteCountdown";
 import { useSyncTransportSettings } from "../composables/useSyncTransportSettings";
@@ -16,6 +17,7 @@ import JoinSection from "./lanSync/JoinSection.vue";
 import RelaySettingsSection from "./lanSync/RelaySettingsSection.vue";
 import PairConfirmDialog from "./lanSync/PairConfirmDialog.vue";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
+import type { Category } from "../types/generated/Category";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
 const sync = useDeviceSync();
@@ -79,8 +81,38 @@ function onRemove(nodeId: string) {
 
 // —— 手动发送（设备列表 section 底部快捷按钮）——
 
-function onSendCurrent() {
-  void runDeviceAction(() => ipasteApi.deviceSendClip(null, { kind: "current" }));
+// —— 发送内容（当前剪贴板 / 某个分类）——
+// 分类列表由本窗口自行加载：Tauri 多窗口各自独立，主面板的 Pinia store
+// 不跨窗口共享。
+const categories = ref<Category[]>([]);
+
+onMounted(async () => {
+  try {
+    categories.value = await ipasteApi.listCategories();
+  } catch (unknownError) {
+    // 分类拉取失败只降级为「只能发当前剪贴板」；不阻断设备管理其余功能。
+    console.warn("[ipaste] list_categories failed:", unknownError);
+  }
+});
+
+async function onSend(categoryId: string | null, targetId: string) {
+  const target = targetId === SEND_TARGET_ALL ? null : targetId;
+  try {
+    if (!categoryId) {
+      await ipasteApi.deviceSendClip(target, { kind: "current" });
+      useUiStore().pushToast(t("deviceSync.send.currentSent"));
+      return;
+    }
+    const result = await ipasteApi.deviceSendCategory(target, categoryId);
+    const ui = useUiStore();
+    if (result.failed > 0) {
+      ui.pushToast(t("category.sendPartial", { sent: result.sent, failed: result.failed }));
+      return;
+    }
+    ui.pushToast(t("category.sent", { name: result.categoryName, sent: result.sent }));
+  } catch (unknownError) {
+    showError(unknownError);
+  }
 }
 
 // —— 邀请（host 侧）——
@@ -180,6 +212,7 @@ onUnmounted(() => {
 
     <DeviceListSection
       :devices="devices"
+      :categories="categories"
       :confirming-revoke-id="confirmingKey"
       :load-error="loadError"
       :action-error="actionError"
@@ -187,7 +220,7 @@ onUnmounted(() => {
       @disconnect="onDisconnect"
       @revoke="onRevoke"
       @remove="onRemove"
-      @send-current="onSendCurrent"
+      @send="onSend"
     />
 
     <InviteSection

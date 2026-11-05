@@ -466,5 +466,9 @@ export const de = {
   "deviceSync.sendTo.title": "Senden an…",
   "deviceSync.sendTo.all": "Alle online Geräte",
   "deviceSync.sendTo.none": "Keine Geräte online",
-  "deviceSync.sendTo.current": "Aktuelle Zwischenablage senden",
+  "deviceSync.sendContent.label": "Inhalt",
+  "deviceSync.sendContent.current": "Aktuelle Zwischenablage",
+  "deviceSync.sendTarget.label": "Zielgerät",
+  "deviceSync.send.button": "Senden",
+  "deviceSync.send.currentSent": "Aktuelle Zwischenablage gesendet",
 } as const;
