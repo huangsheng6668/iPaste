@@ -244,8 +244,7 @@ pub(crate) fn sort_paddle_lines(lines: Vec<PaddleLine>, is_manga_profile: bool) 
 const PADDLE_IDLE_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 #[cfg(not(target_os = "macos"))]
-static PADDLE_ACTIVITY_GEN: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static PADDLE_ACTIVITY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 进程级引擎缓存：键为 "{mode}:{is_manga}"，模式变更或空闲 5 分钟后释放。
 /// 存 `Arc` 而非 `Box::leak` 出的 `&'static`：模式切换（或设置里换引擎配置）
@@ -253,7 +252,11 @@ static PADDLE_ACTIVITY_GEN: std::sync::atomic::AtomicU64 =
 /// 就永久多占一份。在飞识别持有的 Arc 克隆会推迟到底层 Drop，安全。
 #[cfg(not(target_os = "macos"))]
 static ENGINE: std::sync::Mutex<
-    Option<(String, std::sync::Arc<ocr_rs::OcrEngine>, std::time::Instant)>,
+    Option<(
+        String,
+        std::sync::Arc<ocr_rs::OcrEngine>,
+        std::time::Instant,
+    )>,
 > = std::sync::Mutex::new(None);
 
 #[cfg(not(target_os = "macos"))]

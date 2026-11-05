@@ -111,8 +111,7 @@ impl MocrServer {
 static MOCR_SERVER: OnceLock<tokio::sync::Mutex<Option<MocrServer>>> = OnceLock::new();
 static PYTHON_CANDIDATE: OnceLock<Option<PathBuf>> = OnceLock::new();
 static MODEL_CANDIDATE: OnceLock<Option<String>> = OnceLock::new();
-static MOCR_ACTIVITY_GEN: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static MOCR_ACTIVITY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn schedule_mocr_idle_shutdown() {
     use std::sync::atomic::Ordering;

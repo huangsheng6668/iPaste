@@ -2,19 +2,32 @@
 //! 广播包不含 PIN、不含票据秘密；地址只留在后端缓存，永不透给前端。
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+use crate::models::NearbyDevice;
+
+// 以下仅在非测试构建（真实 UDP）中使用。CI 的 `clippy --all-targets -D warnings`
+// 会编译 lib test 目标，那时调用点被 `#[cfg(not(test))]` 排除，若不一并排除
+// 这些符号会以 dead_code / unused_imports 报错。
+#[cfg(not(test))]
+use std::sync::Arc;
+#[cfg(not(test))]
 use tokio::net::UdpSocket;
 
+#[cfg(not(test))]
 use crate::events::{NearbyDevicesChanged, EVENT_NEARBY_DEVICES};
+#[cfg(not(test))]
 use crate::lan_sync::LanEventSink;
-use crate::models::NearbyDevice;
+#[cfg(not(test))]
 use crate::util::LockRecover;
 
+#[cfg(not(test))]
 pub(crate) const DISCOVERY_PORT: u16 = 42691;
 pub(crate) const DISCOVERY_MAGIC: &str = "ipaste-discovery-v1";
+#[cfg(not(test))]
 pub(crate) const BROADCAST_INTERVAL: Duration = Duration::from_secs(2);
 pub(crate) const NEARBY_TTL: Duration = Duration::from_secs(8);
 pub(crate) const MAX_NEARBY: usize = 16;
@@ -182,6 +195,7 @@ impl Discovery {
     }
 }
 
+#[cfg(not(test))]
 pub(crate) fn emit_nearby(sink: &dyn LanEventSink, discovery: &Discovery) {
     let devices = discovery.table.lock_recover("nearby").list();
     let value =
@@ -191,6 +205,7 @@ pub(crate) fn emit_nearby(sink: &dyn LanEventSink, discovery: &Discovery) {
 
 /// host 侧：邀请存活期间每 2s 广播一次固定快照；still_active 为 false 即停
 ///（取消 / 过期 / 核销 / 被新邀请覆盖）。端口异常只记 warning，不打断配对。
+#[cfg(not(test))]
 pub(crate) fn spawn_broadcast_loop<F>(
     packet: DiscoveryPacket,
     still_active: F,
@@ -228,6 +243,7 @@ where
 
 /// guest 侧：应用启动即常驻监听固定端口；列表变化才 emit，1s tick 做 TTL 清理。
 /// 端口被占 / 防火墙拦 UDP 时仅记 warning，附近列表为空，票据路径不受影响。
+#[cfg(not(test))]
 pub(crate) fn spawn_listener(
     discovery: Arc<Discovery>,
     sink: Arc<dyn LanEventSink>,

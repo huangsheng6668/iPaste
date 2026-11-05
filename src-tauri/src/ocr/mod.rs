@@ -401,8 +401,10 @@ pub(crate) async fn recognize_image(
         if let Some(hit) = lookup_cached_result(&cache_key) {
             return Ok(hit);
         }
-        let profiles =
-            openai::order_profiles_for_request(cloud.openai_profiles, &cloud.openai_active_profile_id);
+        let profiles = openai::order_profiles_for_request(
+            cloud.openai_profiles,
+            &cloud.openai_active_profile_id,
+        );
         let img_path = image_path.clone();
         // manga 档位且语言为空时按日语提示
         let effective_language = if is_manga && language.is_none() {
@@ -538,7 +540,10 @@ mod language_tests {
 
         // 插入第 33 条，应淘汰最久未使用的 key 1，保留 key 0
         cache.insert(sample_key(999), sample_result("text-999"));
-        assert!(cache.get(&sample_key(1)).is_none(), "最久未访问的 key 1 应被淘汰");
+        assert!(
+            cache.get(&sample_key(1)).is_none(),
+            "最久未访问的 key 1 应被淘汰"
+        );
         assert_eq!(cache.get(&sample_key(0)).unwrap().text, "text-0");
         assert_eq!(cache.get(&sample_key(999)).unwrap().text, "text-999");
     }

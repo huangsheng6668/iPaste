@@ -135,8 +135,8 @@ static PROFILE_COOLDOWNS: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
 > = std::sync::OnceLock::new();
 
-fn cooldown_map(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>> {
+fn cooldown_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
+{
     PROFILE_COOLDOWNS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -843,31 +843,62 @@ mod tests {
         );
 
         let b64 = data_url.strip_prefix("data:image/jpeg;base64,").unwrap();
-        let decoded_bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let decoded_bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
         let decoded_img = image::load_from_memory(&decoded_bytes).unwrap().to_rgb8();
         assert_eq!(decoded_img.width(), 2048);
         assert_eq!(decoded_img.height(), 1024);
         // 全透明像素经白底合成后应接近纯白 (255, 255, 255)
         let px = decoded_img.get_pixel(100, 100);
-        assert!(px[0] >= 250 && px[1] >= 250 && px[2] >= 250, "透明背景未合成白底: {px:?}");
+        assert!(
+            px[0] >= 250 && px[1] >= 250 && px[2] >= 250,
+            "透明背景未合成白底: {px:?}"
+        );
     }
 
     #[test]
     fn failover_eligibility_covers_429_5xx_and_network_errors() {
-        assert!(is_failover_eligible(&OpenaiRequestError::http(429, "rate limit")));
-        assert!(is_failover_eligible(&OpenaiRequestError::http(500, "internal")));
-        assert!(is_failover_eligible(&OpenaiRequestError::http(502, "bad gateway")));
-        assert!(is_failover_eligible(&OpenaiRequestError::http(503, "unavailable")));
-        assert!(is_failover_eligible(&OpenaiRequestError::http(504, "gateway timeout")));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(
+            429,
+            "rate limit"
+        )));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(
+            500, "internal"
+        )));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(
+            502,
+            "bad gateway"
+        )));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(
+            503,
+            "unavailable"
+        )));
+        assert!(is_failover_eligible(&OpenaiRequestError::http(
+            504,
+            "gateway timeout"
+        )));
         assert!(is_failover_eligible(&OpenaiRequestError::new(
             None,
             "connection timed out".to_string()
         )));
 
-        assert!(!is_failover_eligible(&OpenaiRequestError::http(400, "bad request")));
-        assert!(!is_failover_eligible(&OpenaiRequestError::http(401, "unauthorized")));
-        assert!(!is_failover_eligible(&OpenaiRequestError::http(403, "forbidden")));
-        assert!(!is_failover_eligible(&OpenaiRequestError::http(404, "not found")));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(
+            400,
+            "bad request"
+        )));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(
+            401,
+            "unauthorized"
+        )));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(
+            403,
+            "forbidden"
+        )));
+        assert!(!is_failover_eligible(&OpenaiRequestError::http(
+            404,
+            "not found"
+        )));
     }
 
     #[test]
@@ -910,12 +941,8 @@ mod tests {
         let mut cooldowns = std::collections::HashMap::new();
         // 已超过 60s 冷却期
         cooldowns.insert("b".to_string(), now - Duration::from_secs(61));
-        let ordered = order_profiles_with_cooldown(
-            vec![profile("a"), profile("b")],
-            "b",
-            &cooldowns,
-            now,
-        );
+        let ordered =
+            order_profiles_with_cooldown(vec![profile("a"), profile("b")], "b", &cooldowns, now);
         assert_eq!(
             ordered.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
             vec!["b", "a"]
@@ -924,14 +951,13 @@ mod tests {
         // 全部都在冷却期内时保持原主接口优先顺序
         cooldowns.insert("a".to_string(), now - Duration::from_secs(5));
         cooldowns.insert("b".to_string(), now - Duration::from_secs(5));
-        let all_cooling = order_profiles_with_cooldown(
-            vec![profile("a"), profile("b")],
-            "b",
-            &cooldowns,
-            now,
-        );
+        let all_cooling =
+            order_profiles_with_cooldown(vec![profile("a"), profile("b")], "b", &cooldowns, now);
         assert_eq!(
-            all_cooling.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            all_cooling
+                .iter()
+                .map(|p| p.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["b", "a"]
         );
     }
