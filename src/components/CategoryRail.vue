@@ -6,6 +6,9 @@ import CategoryRow from "./category/CategoryRow.vue";
 import CategoryContextMenu from "./category/CategoryContextMenu.vue";
 import { t } from "../i18n";
 import { CATEGORY_COLOR_OPTIONS } from "../lib/categoryColors";
+import { sendTargets as buildSendTargets, type SendTarget } from "../lib/deviceDisplay";
+import { isTauri } from "../lib/env";
+import { ipasteApi } from "../lib/ipasteApi";
 import { categoryDisplayName } from "../lib/format";
 import type { Category } from "../types";
 
@@ -27,6 +30,8 @@ const emit = defineEmits<{
   finishEditing: [];
   delete: [id: string];
   reorder: [categoryIds: string[]];
+  /** 整组发送：categoryId + 目标设备 id（`__all__` 哨兵 = 全部在线）。 */
+  sendCategory: [categoryId: string, targetId: string];
 }>();
 
 const editingName = ref("");
@@ -38,6 +43,17 @@ const colorPopoverPosition = ref({ left: 0, top: 0 });
 const isCategoryScrolling = ref(false);
 const committedEditingId = ref<string | null>(null);
 const categoryMenu = ref<{ category: Category; left: number; top: number } | null>(null);
+// 「发送到设备」目标列表：打开分类菜单时按需拉取（瞬态，不做持久事件订阅）。
+const sendTargets = ref<SendTarget[]>([]);
+
+async function refreshSendTargets() {
+  if (!isTauri) return;
+  try {
+    sendTargets.value = buildSendTargets(await ipasteApi.deviceList());
+  } catch {
+    // 拉取失败保留上次列表；空列表在菜单里回退「暂无在线设备」。
+  }
+}
 const categoryMenuAnchorRect = ref<DOMRect | null>(null);
 let focusTimer: number | null = null;
 let categoryScrollTimer: number | null = null;
@@ -371,8 +387,16 @@ function openCategoryMenu(category: Category, event: MouseEvent) {
   categoryMenu.value = {
     category,
     left: Math.min(Math.max(event.clientX, padding), window.innerWidth - menuWidth - padding),
-    top: Math.min(Math.max(event.clientY, padding), window.innerHeight - 180),
+    // 菜单含「发送到设备」分组后可高出约 5 行，边界预留同步放大，避免底部被裁。
+    top: Math.min(Math.max(event.clientY, padding), window.innerHeight - 300),
   };
+  void refreshSendTargets();
+}
+
+function onSendCategory(targetId: string) {
+  const categoryId = categoryMenu.value?.category.id;
+  closeCategoryMenu();
+  if (categoryId) emit("sendCategory", categoryId, targetId);
 }
 
 function closeCategoryMenu() {
@@ -477,9 +501,11 @@ function countLabel(count: number | undefined) {
     <CategoryContextMenu
       :menu="categoryMenu"
       :is-pending-delete="pendingDeleteCategoryId === categoryMenu?.category.id"
+      :send-targets="sendTargets"
       @rename="categoryMenu && editCategory(categoryMenu.category)"
       @change-color="categoryMenu && openColorPicker(categoryMenu.category, $event)"
       @delete="categoryMenu && requestDeleteCategory(categoryMenu.category.id, { keepMenuOpen: true })"
+      @send-category="onSendCategory"
     />
   </section>
 </template>

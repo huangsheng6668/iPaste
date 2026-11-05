@@ -119,6 +119,9 @@ export const en = {
   "category.create": "Create category",
   "category.changeColor": "Change color",
   "category.delete": "Delete category",
+  "category.sendTo": "Send to device",
+  "category.sent": "Sent {sent} item(s) from {name}",
+  "category.sendPartial": "Sent {sent} item(s), {failed} failed",
 
   "clip.expand": "Preview",
   "clip.recognizeText": "Recognize text",

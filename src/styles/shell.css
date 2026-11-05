@@ -642,6 +642,20 @@
   color: var(--accent-strong);
 }
 
+/* 「发送到设备」分组标题：只做分组提示，不可点击 */
+.category-context-label {
+  padding: 0.25rem 0.5625rem;
+  color: var(--text-3);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+}
+
+.category-context-empty {
+  padding: 0.3125rem 0.5625rem;
+  color: var(--text-3);
+  font-size: 0.8125rem;
+}
+
 .category-context-item-danger {
   color: var(--danger-strong);
 }

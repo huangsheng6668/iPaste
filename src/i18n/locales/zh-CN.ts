@@ -119,6 +119,9 @@ export const zhCN = {
   "category.create": "创建分类",
   "category.changeColor": "修改颜色",
   "category.delete": "删除分类",
+  "category.sendTo": "发送到设备",
+  "category.sent": "已发送「{name}」{sent} 条",
+  "category.sendPartial": "已发送 {sent} 条，{failed} 条失败",
 
   "clip.expand": "预览",
   "clip.recognizeText": "识别文字",

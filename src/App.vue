@@ -46,6 +46,8 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useCategoryStore } from "./stores/categoryStore";
 import { useAutomationStore } from "./stores/automationStore";
 import { useCloudSyncStore } from "./stores/cloudSyncStore";
+import { showError, useUiStore } from "./stores/uiStore";
+import { SEND_TARGET_ALL } from "./lib/deviceDisplay";
 import { IPASTE_EVENTS } from "./types/generated/events";
 import type { AutomationAction, Category, CategoryItem, ClipViewItem } from "./types";
 
@@ -383,6 +385,27 @@ async function reorderCategories(categoryIds: string[]) {
   await store.reorderCategories(categoryIds);
 }
 
+/**
+ * 整组发送分类：v4 的「发送整个分组」入口在 v5 把分类移到主面板后丢失，
+ * 这里补回。`__all__` 哨兵 → target=null 广播全部在线设备。
+ */
+async function sendCategoryTo(categoryId: string, targetId: string) {
+  try {
+    const result = await ipasteApi.deviceSendCategory(
+      targetId === SEND_TARGET_ALL ? null : targetId,
+      categoryId,
+    );
+    const ui = useUiStore();
+    if (result.failed > 0) {
+      ui.pushToast(t("category.sendPartial", { sent: result.sent, failed: result.failed }));
+      return;
+    }
+    ui.pushToast(t("category.sent", { name: result.categoryName, sent: result.sent }));
+  } catch (unknownError) {
+    showError(unknownError);
+  }
+}
+
 // 空分类标签数组共享同一冻结实例：itemCategoryTags 在每帧渲染中对每个
 // 列表项调用，避免为无分类条目（绝大多数）反复分配新数组让子组件误判
 // props 变化。单分类的 [category] 数组同样按分类对象缓存。
@@ -697,6 +720,7 @@ const nextCategoryLabel = computed(() => {
       @finish-editing="finishEditingCategory"
       @delete="deleteCategory"
       @reorder="reorderCategories"
+      @send-category="sendCategoryTo"
     />
 
     <!-- 类型筛选（全部/文本/图片）：仅历史页签——分类是用户手动整理的小集合，不再细分 -->
