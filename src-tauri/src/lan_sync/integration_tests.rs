@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::events::{
     EVENT_DEVICE_CATEGORY_RECEIVED, EVENT_DEVICE_CLIP_RECEIVED, EVENT_DEVICE_STATUS_CHANGED,
-    EVENT_PAIR_JOIN_FAILED, EVENT_PAIR_REQUEST,
+    EVENT_PAIR_INVITE_STATE, EVENT_PAIR_JOIN_FAILED, EVENT_PAIR_REQUEST,
 };
 use crate::lan_sync::registry::DeviceLinkRegistry;
 use crate::lan_sync::LanEventSink;
@@ -847,4 +847,118 @@ async fn autopush_full_chain() {
         !b.recent_contains(&hash_text(MANUAL_TEXT)),
         "手动路径不得登记 recent（否则会误伤后续同内容自动推送的回环判定）"
     );
+}
+
+// —— 短码配对（PIN + 附近设备表）：绕过真实 UDP，直接灌 discovery 缓存 ——
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn join_nearby_with_correct_pin_pairs() {
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(temp_store(), sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(temp_store(), sink_b.clone())
+        .await
+        .expect("B 端点");
+
+    a.create_invite().await.expect("生成邀请");
+    let pin = first_payload(&sink_a, EVENT_PAIR_INVITE_STATE).expect("邀请状态")["pin"]
+        .as_str()
+        .expect("pin 字段")
+        .to_string();
+    assert_eq!(pin.len(), 6);
+
+    let id = a.inner_endpoint_id_hex_for_test();
+    b.seed_nearby_for_test(&id, a.direct_addrs_for_test(), None);
+
+    let joiner = b.clone();
+    let pin_for_join = pin.clone();
+    let id_for_join = id.clone();
+    let task = tokio::spawn(async move { joiner.join_nearby(&id_for_join, &pin_for_join).await });
+    assert!(
+        wait_until(WAIT, || count_events(&sink_a, EVENT_PAIR_REQUEST) >= 1).await,
+        "PIN 应触发 host 确认弹窗；A 事件：{:?}",
+        event_names(&sink_a)
+    );
+    a.respond_pair(true).expect("同意配对");
+    assert!(
+        wait_until(WAIT, || {
+            let da = a.device_infos();
+            let db = b.device_infos();
+            da.len() == 1
+                && da[0].online == DeviceOnline::Connected
+                && db.len() == 1
+                && db[0].online == DeviceOnline::Connected
+        })
+        .await,
+        "双方应建立会话"
+    );
+    assert_eq!(count_events(&sink_b, EVENT_PAIR_JOIN_FAILED), 0);
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn join_nearby_with_wrong_pin_fails_fast_and_is_silent_on_host() {
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(temp_store(), sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(temp_store(), sink_b.clone())
+        .await
+        .expect("B 端点");
+    a.create_invite().await.expect("生成邀请");
+    let pin = first_payload(&sink_a, EVENT_PAIR_INVITE_STATE).expect("邀请状态")["pin"]
+        .as_str()
+        .expect("pin 字段")
+        .to_string();
+    let wrong = if pin == "000000" { "111111" } else { "000000" };
+    let id = a.inner_endpoint_id_hex_for_test();
+    b.seed_nearby_for_test(&id, a.direct_addrs_for_test(), None);
+
+    let joiner = b.clone();
+    let task = tokio::spawn(async move { joiner.join_nearby(&id, wrong).await });
+    assert!(
+        wait_until(WAIT, || count_events(&sink_b, EVENT_PAIR_JOIN_FAILED) >= 1).await,
+        "错 PIN 应快速失败；B 事件：{:?}",
+        event_names(&sink_b)
+    );
+    assert_eq!(
+        count_events(&sink_a, EVENT_PAIR_REQUEST),
+        0,
+        "错 PIN 不得打扰 host"
+    );
+    let reason = first_payload(&sink_b, EVENT_PAIR_JOIN_FAILED).expect("失败事件")["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        reason.contains("PIN"),
+        "应给出可行动的 PIN 提示，实际：{reason}"
+    );
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn join_nearby_with_expired_invite_fails() {
+    let sink_a = sink();
+    let a = DeviceLinkRegistry::start_for_test(temp_store(), sink_a.clone())
+        .await
+        .expect("A 端点");
+    let sink_b = sink();
+    let b = DeviceLinkRegistry::start_for_test(temp_store(), sink_b.clone())
+        .await
+        .expect("B 端点");
+    a.create_invite().await.expect("生成邀请");
+    let pin = first_payload(&sink_a, EVENT_PAIR_INVITE_STATE).expect("邀请状态")["pin"]
+        .as_str()
+        .expect("pin 字段")
+        .to_string();
+    a.expire_invite_for_test();
+    let id = a.inner_endpoint_id_hex_for_test();
+    b.seed_nearby_for_test(&id, a.direct_addrs_for_test(), None);
+
+    let error = b.join_nearby(&id, &pin).await.expect_err("过期邀请应失败");
+    assert!(error.contains("对方未响应"), "实际错误：{error}");
 }

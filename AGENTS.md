@@ -14,7 +14,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 图片查看器与截图 OCR：支持图片预览、缩放、旋转、复制回剪贴板，以及 OCR 文本提取；提供全局快捷键（默认 `Command/Ctrl + Shift + O`）全屏遮罩选区截图，冻结多屏帧裁剪后自动识别并复制文本到剪贴板，弹出独立 OCR 结果窗口；OCR 结果窗与图片查看器均支持在本地引擎与 OpenAI 兼容云端端点间实时切换重跑。
 - 多 OCR 引擎支持：本地引擎（macOS 走系统 Vision、Windows 走 PaddleOCR 模型快速/精确模式）；日语·漫画专用 Manga-OCR（通过 `mocr_engine` 独立 ONNX 推理 sidecar 进程本地运行，Windows x64 / macOS Apple Silicon 原生无 Python 依赖，设置中提供模型下载，异常时安全回退至系统 OCR 或 Python 服务）；通用 OpenAI 兼容接口（支持保存多个 Base URL/模型/Key 配置并指定主接口，429 限流时按列表顺序自动切换备用接口；可自定义共用 System/User Prompt 消息列表与 `{recognition_language}` 语言占位符，各接口 API Key 分别安全存于系统凭据管理器）。
 - 追加复制：临时合并多段文本复制。
-- 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。心跳死亡检测委托给 QUIC（conn.closed 监视任务），不做应用层漏 Pong 计数——对 spec §5 的既定偏差。剪贴板捕获即自动推送（文本/链接/颜色/HTML 自动，图片/文件手动，按设备三态偏好，含全局开关与回环抑制；追加复制合并期间不自动推送）。
+- 跨设备同步（lan_sync v5）：iroh 1.0（QUIC，n0 中继默认/可自托管）跨网直连；票据一次性邀请配对；同局域网短码配对（host 显示 6 位 PIN + 每 2s UDP 42691 广播邀请快照，guest 常驻监听维护 8s TTL 附近设备表，凭 PIN 走 PairRequest 复用既有拨号/确认/落库/会话流程；跨网络完整票据路径保持不变）；paired_devices 信任表（撤销=静默拒绝）；多设备并发 DeviceLink + 断线退避重连；应用层帧明文（传输加密由 QUIC TLS 承担）。心跳死亡检测委托给 QUIC（conn.closed 监视任务），不做应用层漏 Pong 计数——对 spec §5 的既定偏差。剪贴板捕获即自动推送（文本/链接/颜色/HTML 自动，图片/文件手动，按设备三态偏好，含全局开关与回环抑制；追加复制合并期间不自动推送）。
 - 云同步：自托管 API 地址 + 密钥，仅同步分类与保存的文本类条目。
 - 快捷动作：保存 shell 命令为面板动作（可确认、输出流式展示、JSON 导入导出）。
 - 多语言界面与签名自动更新（GitHub Releases / Cloudflare R2）。
@@ -75,7 +75,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - `paste.rs`：目标应用激活与触发粘贴（含粘贴编排与快捷键投递）。
 - `automation.rs`：自动化动作的进程执行与事件流。
 - `commands.rs`：向 UI 暴露模块函数的薄 Tauri 命令层（业务编排在域模块中）。
-- `lan_sync/`：跨设备同步（protocol/frame/ticket/session/registry/identity/commands/pair_guard 分层，v5 协议见各文件头注释）。
+- `lan_sync/`：跨设备同步（protocol/frame/ticket/discovery/session/registry/identity/commands/pair_guard 分层，v5 协议见各文件头注释）。
 
 新增后端功能时：数据模型进 `models.rs`，持久化进 `store/`，平台能力进对应域模块，命令层保持薄壳。跨平台代码用 `#[cfg(target_os = "...")]` 包裹，并保持逐平台 import 与代码块一致。
 

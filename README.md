@@ -220,7 +220,7 @@ The desktop app can connect to a self-hosted iPaste sync API using an API addres
 
 ### Cross-Device Sync
 
-Two iPaste instances pair by exchanging a one-time invite ticket: one device creates the invite, the other joins with the ticket, and both sides confirm before any transfer. Devices connect directly across the internet over QUIC (NAT hole punching; a relay forwards only ciphertext when punching fails), and clips and whole categories flow between paired devices — a category that does not exist on the receiving side is created automatically. Paired devices can be managed or revoked anytime, and connections reconnect automatically after drops. Capture-to-sync: text-like clips auto-push, images and files send manually, adjustable per device or globally.
+Two iPaste instances pair by exchanging a one-time invite ticket: one device creates the invite, the other joins with the ticket, and both sides confirm before any transfer. Devices connect directly across the internet over QUIC (NAT hole punching; a relay forwards only ciphertext when punching fails), and clips and whole categories flow between paired devices — a category that does not exist on the receiving side is created automatically. Paired devices can be managed or revoked anytime, and connections reconnect automatically after drops. Capture-to-sync: text-like clips auto-push, images and files send manually, adjustable per device or globally. On the same local network there is no need to copy a long ticket: the host shows a 6-digit PIN, the other device picks it from an auto-discovered nearby list and enters the PIN. The full invite ticket remains available for pairing across networks.
 
 ### Quick Actions
 

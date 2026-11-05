@@ -293,3 +293,55 @@
   pointer-events: none;
   z-index: 11;
 }
+
+/* —— 短码配对：大号 PIN + 附近设备列表 —— */
+.lan-pin-row { display: flex; align-items: baseline; gap: 8px; }
+.lan-pin {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+.lan-pin-expired { color: var(--text-2); text-decoration: line-through; }
+.lan-collapsible { display: flex; flex-direction: column; gap: 8px; }
+.lan-collapsible-header {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  border-radius: var(--r-md);
+  padding: 2px 4px;
+}
+.lan-collapsible-header:focus-visible,
+.lan-nearby-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.lan-nearby-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lan-nearby-item {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text-1);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.lan-nearby-item:hover { background: var(--surface-hover); }
+.lan-nearby-item-selected { border-color: var(--border-accent); background: var(--accent-soft); }
+.lan-pin-input { font-variant-numeric: tabular-nums; letter-spacing: 0.16em; }
+@media (prefers-reduced-motion: reduce) {
+  .lan-nearby-item { transition: none; }
+}

@@ -2,6 +2,7 @@ import type { AutoPushSettings } from "../../types/generated/AutoPushSettings";
 import type { AutoSyncMode } from "../../types/generated/AutoSyncMode";
 import type { ClipSource } from "../../types/generated/ClipSource";
 import type { DeviceInfo } from "../../types/generated/DeviceInfo";
+import type { NearbyDevice } from "../../types/generated/NearbyDevice";
 import type { PairRequested } from "../../types/generated/PairRequested";
 import { call } from "./call";
 
@@ -36,6 +37,12 @@ export const deviceSyncApi = {
   },
   pairingJoin(ticket: string) {
     return call<void>("pairing_join", { ticket });
+  },
+  nearbyDevices() {
+    return call<NearbyDevice[]>("nearby_devices", undefined, []);
+  },
+  pairingJoinNearby(endpointId: string, pin: string) {
+    return call<void>("pairing_join_nearby", { endpointId, pin });
   },
   pairingRespond(accept: boolean) {
     return call<void>("pairing_respond", { accept });

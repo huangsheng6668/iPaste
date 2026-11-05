@@ -5,7 +5,8 @@ import { X } from "lucide-vue-next";
 import { t } from "../i18n";
 import { ipasteApi } from "../lib/ipasteApi";
 import { errorMessage } from "../lib/appError";
-import { INVALID_TICKET, useDeviceSync } from "../composables/useDeviceSync";
+import { useDeviceSync } from "../composables/useDeviceSync";
+import { joinErrorKey } from "../lib/deviceDisplay";
 import { useTwoStepConfirm } from "../composables/useTwoStepConfirm";
 import { useInviteCountdown } from "../composables/useInviteCountdown";
 import { useSyncTransportSettings } from "../composables/useSyncTransportSettings";
@@ -18,7 +19,10 @@ import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
 const sync = useDeviceSync();
-const { devices, inviteTicket, inviteExpiresAt, joinError, pairRequest, pairError, loadError } = sync;
+const {
+  devices, inviteTicket, inviteExpiresAt, invitePin, joinError, pairRequest, pairError, loadError,
+  nearby, selectedEndpointId, pinInput,
+} = sync;
 
 // —— 窗口壳 ——
 
@@ -135,10 +139,9 @@ async function copyTicket() {
 const joinInput = ref("");
 
 const joinErrorText = computed(() => {
-  if (!joinError.value) return null;
-  if (joinError.value === INVALID_TICKET) return t("deviceSync.join.invalidTicket");
-  // 后端 reason 原样透传展示。
-  return joinError.value;
+  const key = joinErrorKey(joinError.value);
+  // 后端 reason 原样透传展示；前端哨兵映射为 i18n 文案。
+  return key ? t(key) : joinError.value;
 });
 
 async function onJoin() {
@@ -188,6 +191,7 @@ onUnmounted(() => {
     />
 
     <InviteSection
+      :pin="invitePin"
       :ticket="inviteTicket"
       :countdown="inviteCountdown"
       :expired="inviteExpired"
@@ -202,7 +206,13 @@ onUnmounted(() => {
     <JoinSection
       v-model="joinInput"
       :error-text="joinErrorText"
+      :nearby="nearby"
+      :selected-endpoint-id="selectedEndpointId"
+      :pin="pinInput"
+      @update:selected-endpoint-id="selectedEndpointId = $event"
+      @update:pin="pinInput = $event"
       @join="onJoin"
+      @join-nearby="sync.joinNearby()"
     />
 
     <RelaySettingsSection

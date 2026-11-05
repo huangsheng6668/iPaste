@@ -3,16 +3,22 @@ import { subscribe, type UnlistenFn } from "../platform/events";
 import { ipasteApi } from "../lib/ipasteApi";
 import { isTauri } from "../lib/env";
 import { errorMessage } from "../lib/appError";
-import { cleanTicketInput, sortDevices } from "../lib/deviceDisplay";
+import {
+  cleanTicketInput,
+  isPinInput,
+  PIN_ERROR_SENTINELS,
+  sortDevices,
+  TICKET_ERROR_SENTINELS,
+  validateTicketInput,
+} from "../lib/deviceDisplay";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { AutoSyncMode } from "../types/generated/AutoSyncMode";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
+import type { NearbyDevice } from "../types/generated/NearbyDevice";
+import type { NearbyDevicesChanged } from "../types/generated/NearbyDevicesChanged";
 import type { PairInviteState } from "../types/generated/PairInviteState";
 import type { PairJoinFailed } from "../types/generated/PairJoinFailed";
 import type { PairRequested } from "../types/generated/PairRequested";
-
-/** join() 拒绝格式非法票据时写入 joinError 的哨兵值（面板映射为 i18n 文案）。 */
-export const INVALID_TICKET = "notValidTicket";
 
 /**
  * 跨设备同步面板状态（v5 iroh）：设备列表 + 邀请/加入配对流 + 配对确认。
@@ -28,6 +34,11 @@ export function useDeviceSync() {
   const pairError = ref<string | null>(null);
   // 初始/事件刷新的设备列表加载失败横幅（B4）：降级提示，不阻断任何订阅。
   const loadError = ref<string | null>(null);
+  // 短码配对：附近设备列表 + host 侧 PIN + guest 侧选中目标与输入。
+  const nearby = ref<NearbyDevice[]>([]);
+  const invitePin = ref<string | null>(null);
+  const selectedEndpointId = ref<string | null>(null);
+  const pinInput = ref("");
 
   const refresh = async () => {
     if (!isTauri) return;
@@ -43,8 +54,9 @@ export function useDeviceSync() {
 
   const createInvite = async () => {
     joinError.value = null;
+    invitePin.value = null;
     inviteTicket.value = await ipasteApi.pairingCreateInvite();
-    // 后端随后经 pairInviteState 事件推送权威 expiresAt；这里先给 10 分钟兜底。
+    // 后端随后经 pairInviteState 事件推送权威 expiresAt / pin；这里先给 10 分钟兜底。
     inviteExpiresAt.value = Date.now() + 10 * 60 * 1000;
   };
 
@@ -52,19 +64,47 @@ export function useDeviceSync() {
     await ipasteApi.pairingCancelInvite();
     inviteTicket.value = null;
     inviteExpiresAt.value = null;
+    invitePin.value = null;
   };
 
   const join = async (raw: string) => {
     joinError.value = null;
-    const ticket = cleanTicketInput(raw);
-    if (!ticket.startsWith("ipaste-pair-v1:")) {
-      joinError.value = INVALID_TICKET;
+    const error = validateTicketInput(raw);
+    if (error) {
+      joinError.value = TICKET_ERROR_SENTINELS[error];
       return;
     }
     try {
-      await ipasteApi.pairingJoin(ticket);
+      await ipasteApi.pairingJoin(cleanTicketInput(raw));
     } catch (unknownError) {
       // 票据格式错误由命令直达报错；连接类失败走 pairJoinFailed 事件。
+      joinError.value = errorMessage(unknownError);
+    }
+  };
+
+  const refreshNearby = async () => {
+    if (!isTauri) return;
+    try {
+      nearby.value = await ipasteApi.nearbyDevices();
+    } catch (unknownError) {
+      // 窗口重开的初始拉取失败只降级为空列表，不阻断事件订阅。
+      console.warn("[ipaste] nearby_devices query failed:", unknownError);
+    }
+  };
+
+  const joinNearby = async () => {
+    joinError.value = null;
+    if (!selectedEndpointId.value) {
+      joinError.value = PIN_ERROR_SENTINELS.selectFirst;
+      return;
+    }
+    if (!isPinInput(pinInput.value)) {
+      joinError.value = PIN_ERROR_SENTINELS.invalid;
+      return;
+    }
+    try {
+      await ipasteApi.pairingJoinNearby(selectedEndpointId.value, pinInput.value);
+    } catch (unknownError) {
       joinError.value = errorMessage(unknownError);
     }
   };
@@ -91,6 +131,7 @@ export function useDeviceSync() {
     // 初始列表失败已降级为 loadError 横幅（refresh 内部捕获），此处不再让
     // 异常中断 onMounted——五种事件监听必须无条件注册（B4）。
     await refresh();
+    await refreshNearby();
     // 逐个类型化订阅；refresh 之外的回调直接消费生成的 payload 类型。
     unlistenFns.push(await subscribe(IPASTE_EVENTS.deviceListChanged, () => void refresh()));
     unlistenFns.push(await subscribe(IPASTE_EVENTS.deviceStatusChanged, () => void refresh()));
@@ -99,6 +140,19 @@ export function useDeviceSync() {
         // 票据被后端作废/过期时（ticket = null）同步清空本地邀请态。
         inviteTicket.value = invite.ticket;
         inviteExpiresAt.value = invite.expiresAt;
+        invitePin.value = invite.pin;
+      }),
+    );
+    unlistenFns.push(
+      await subscribe<NearbyDevicesChanged>(IPASTE_EVENTS.nearbyDevices, (payload) => {
+        nearby.value = payload.devices;
+        // 设备 TTL 过期消失时清掉已失效的选中目标，避免对幽灵设备发起配对。
+        if (
+          selectedEndpointId.value
+          && !payload.devices.some((d) => d.endpointId === selectedEndpointId.value)
+        ) {
+          selectedEndpointId.value = null;
+        }
       }),
     );
     unlistenFns.push(
@@ -137,10 +191,16 @@ export function useDeviceSync() {
     pairRequest,
     pairError,
     loadError,
+    nearby,
+    invitePin,
+    selectedEndpointId,
+    pinInput,
     refresh,
+    refreshNearby,
     createInvite,
     cancelInvite,
     join,
+    joinNearby,
     respondPair,
     disconnect,
     revoke,

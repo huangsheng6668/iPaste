@@ -760,3 +760,12 @@ pub(crate) struct DeviceInfo {
     pub(crate) device: PairedDevice,
     pub(crate) online: DeviceOnline,
 }
+
+/// 附近设备列表项（仅展示用）：地址与中继留在后端 discovery 缓存，不下发前端。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct NearbyDevice {
+    pub(crate) device_name: String,
+    pub(crate) endpoint_id: String,
+}

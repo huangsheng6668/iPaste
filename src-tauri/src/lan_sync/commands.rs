@@ -19,7 +19,7 @@ use crate::error::AppError;
 use crate::events::PairRequested;
 use crate::lan_sync::registry::{build_send_payload, DeviceLinkRegistry};
 use crate::lan_sync::ClipSource;
-use crate::models::{AppState, AutoPushSettings, AutoSyncMode, DeviceInfo};
+use crate::models::{AppState, AutoPushSettings, AutoSyncMode, DeviceInfo, NearbyDevice};
 use crate::store::Store;
 
 /// 从 Tauri State 取 `Arc<DeviceLinkRegistry>`。缺失（启动失败/尚未就绪）时
@@ -102,6 +102,40 @@ pub(crate) async fn pairing_join(app: AppHandle, ticket: String) -> Result<(), A
     tokio::spawn(async move {
         if let Err(reason) = registry.join(&ticket).await {
             eprintln!("[lan-sync] 加入配对失败：{reason}");
+        }
+    });
+    Ok(())
+}
+
+/// 附近设备列表。registry 未就绪（同步服务启动失败）时返回空列表而非报错，
+/// 与 pairing_pending 的降级口径一致。
+#[tauri::command]
+pub(crate) fn nearby_devices(app: AppHandle) -> Result<Vec<NearbyDevice>, AppError> {
+    match app.try_state::<Arc<DeviceLinkRegistry>>() {
+        Some(registry) => Ok(registry.inner().nearby_devices()),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// 附近设备 + PIN 配对。只接受 endpointId + pin，地址由后端 discovery 缓存提供。
+/// 与 pairing_join 同样把整个会话放后台任务，命令立即返回；连接类失败经
+/// EVENT_PAIR_JOIN_FAILED 事件反馈。格式错误在 spawn 前同步返回给调用方。
+#[tauri::command]
+pub(crate) async fn pairing_join_nearby(
+    app: AppHandle,
+    endpoint_id: String,
+    pin: String,
+) -> Result<(), AppError> {
+    let registry = app.device_registry()?;
+    if !crate::lan_sync::ticket::is_pin(&pin) {
+        return Err(AppError::internal("PIN 必须是 6 位数字"));
+    }
+    if !crate::lan_sync::ticket::is_endpoint_id_hex(&endpoint_id) {
+        return Err(AppError::internal("附近设备标识无效"));
+    }
+    tokio::spawn(async move {
+        if let Err(reason) = registry.join_nearby(&endpoint_id, &pin).await {
+            eprintln!("[lan-sync] 附近设备加入失败：{reason}");
         }
     });
     Ok(())

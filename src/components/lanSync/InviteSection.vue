@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { Check, Copy } from "lucide-vue-next";
 import { t } from "../../i18n";
 
-defineProps<{
+const props = defineProps<{
+  /** 6 位 PIN（同局域网短码配对）；无有效邀请时为 null。 */
+  pin: string | null;
   ticket: string | null;
   /** mm:ss 倒计时文案（useInviteCountdown.countdown）。 */
   countdown: string;
@@ -13,6 +16,11 @@ defineProps<{
   /** 复制结果反馈：ok / error / null（面板持有 2s 重置定时器）。 */
   copied: string | null;
 }>();
+
+/** 三位分组展示，便于口头/目视抄写。 */
+const formattedPin = computed(() =>
+  props.pin ? `${props.pin.slice(0, 3)} ${props.pin.slice(3)}` : "",
+);
 
 const emit = defineEmits<{
   create: [];
@@ -28,37 +36,53 @@ const emit = defineEmits<{
       {{ t("deviceSync.invite.title") }}
     </h2>
     <template v-if="ticket">
-      <div class="lan-ticket-row">
-        <input
-          class="lan-input"
-          :class="{ 'lan-ticket-expired': expired }"
-          readonly
-          :value="ticket"
-          aria-readonly="true"
-        >
-        <button
-          type="button"
-          class="lan-button"
-          :disabled="expired"
-          @click="emit('copyTicket')"
-        >
-          <Check
-            v-if="copied === 'ok'"
-            class="size-3.5"
-          />
-          <Copy
-            v-else
-            class="size-3.5"
-          />
-          {{ copied === "ok" ? t("deviceSync.invite.copied") : t("deviceSync.invite.copy") }}
-        </button>
+      <div class="lan-pin-row">
+        <span class="lan-label">{{ t("deviceSync.invite.pinLabel") }}</span>
+        <span
+          class="lan-pin"
+          :class="{ 'lan-pin-expired': expired }"
+          aria-live="polite"
+        >{{ formattedPin }}</span>
       </div>
-      <p
-        v-if="copied === 'error'"
-        class="lan-error"
-      >
-        {{ t("deviceSync.invite.copyFailed") }}
+      <p class="lan-hint">
+        {{ t("deviceSync.invite.pinHint") }}
       </p>
+      <details class="lan-collapsible">
+        <summary class="lan-collapsible-header">
+          {{ t("deviceSync.invite.ticketFallback") }}
+        </summary>
+        <div class="lan-ticket-row">
+          <input
+            class="lan-input"
+            :class="{ 'lan-ticket-expired': expired }"
+            readonly
+            :value="ticket"
+            aria-readonly="true"
+          >
+          <button
+            type="button"
+            class="lan-button"
+            :disabled="expired"
+            @click="emit('copyTicket')"
+          >
+            <Check
+              v-if="copied === 'ok'"
+              class="size-3.5"
+            />
+            <Copy
+              v-else
+              class="size-3.5"
+            />
+            {{ copied === "ok" ? t("deviceSync.invite.copied") : t("deviceSync.invite.copy") }}
+          </button>
+        </div>
+        <p
+          v-if="copied === 'error'"
+          class="lan-error"
+        >
+          {{ t("deviceSync.invite.copyFailed") }}
+        </p>
+      </details>
       <div class="lan-ticket-row">
         <span class="lan-hint">
           {{

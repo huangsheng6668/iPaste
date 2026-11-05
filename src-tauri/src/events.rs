@@ -8,7 +8,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::models::{AppSettings, DeviceInfo, DeviceOnline};
+use crate::models::{AppSettings, DeviceInfo, DeviceOnline, NearbyDevice};
 
 // —— 剪贴板 / 面板 / 设置（Rust 发起，主窗口监听）——
 pub(crate) const EVENT_CLIPBOARD_CAPTURED: &str = "ipaste://clipboard-captured";
@@ -40,6 +40,8 @@ pub(crate) const EVENT_DEVICE_STATUS_CHANGED: &str = "ipaste://device-status-cha
 pub(crate) const EVENT_PAIR_REQUEST: &str = "ipaste://pair-request";
 pub(crate) const EVENT_PAIR_INVITE_STATE: &str = "ipaste://pair-invite-state";
 pub(crate) const EVENT_PAIR_JOIN_FAILED: &str = "ipaste://pair-join-failed";
+/// 附近设备表变化（Rust lan_sync discovery 发起，设备管理窗口监听；payload 不含地址）。
+pub(crate) const EVENT_NEARBY_DEVICES: &str = "ipaste://nearby-devices";
 pub(crate) const EVENT_DEVICE_CLIP_RECEIVED: &str = "ipaste://device-clip-received";
 pub(crate) const EVENT_DEVICE_CLIP_RECEIVE_FAILED: &str = "ipaste://device-clip-receive-failed";
 pub(crate) const EVENT_DEVICE_CATEGORY_SENT: &str = "ipaste://device-category-sent";
@@ -73,6 +75,7 @@ const EVENT_TABLE: &[(&str, &str)] = &[
     ("pairRequest", EVENT_PAIR_REQUEST),
     ("pairInviteState", EVENT_PAIR_INVITE_STATE),
     ("pairJoinFailed", EVENT_PAIR_JOIN_FAILED),
+    ("nearbyDevices", EVENT_NEARBY_DEVICES),
     ("deviceClipReceived", EVENT_DEVICE_CLIP_RECEIVED),
     ("deviceClipReceiveFailed", EVENT_DEVICE_CLIP_RECEIVE_FAILED),
     ("deviceCategorySent", EVENT_DEVICE_CATEGORY_SENT),
@@ -175,6 +178,16 @@ pub(crate) struct PairInviteState {
     /// （type 会整体替换 Option 的 null 分支，需一并写回）。
     #[ts(type = "number | null")]
     pub(crate) expires_at: Option<u64>,
+    /// 6 位 PIN（同局域网短码配对用）；None = 无有效邀请。票据秘密永不透出。
+    pub(crate) pin: Option<String>,
+}
+
+/// 附近设备表快照；只含展示字段，地址与中继留在后端。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub(crate) struct NearbyDevicesChanged {
+    pub(crate) devices: Vec<NearbyDevice>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -240,7 +253,7 @@ mod export_tests {
         // （CI 新鲜度检查无法发现「从未生成」的缺失）。
         assert_eq!(
             EVENT_TABLE.len(),
-            24,
+            25,
             "IPASTE_EVENTS 常量数与生成表条目数不一致？"
         );
         let mut out = String::from(
@@ -267,7 +280,7 @@ mod export_tests {
     fn event_table_covers_all_consts() {
         assert_eq!(
             EVENT_TABLE.len(),
-            24,
+            25,
             "事件目录条目数偏离快照，需同步更新此断言"
         );
         let set: std::collections::HashSet<_> = EVENT_TABLE.iter().map(|(_, v)| *v).collect();

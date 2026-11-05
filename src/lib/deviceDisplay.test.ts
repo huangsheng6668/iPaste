@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { cleanTicketInput, fingerprintOf, SEND_TARGET_ALL, sendTargets, sortDevices } from "./deviceDisplay";
+import {
+  cleanTicketInput,
+  fingerprintOf,
+  isPinInput,
+  joinErrorKey,
+  PIN_ERROR_SENTINELS,
+  SEND_TARGET_ALL,
+  sendTargets,
+  sortDevices,
+  TICKET_ERROR_SENTINELS,
+  TICKET_PREFIX,
+  validateTicketInput,
+} from "./deviceDisplay";
 import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
 function device(
@@ -107,5 +119,53 @@ describe("cleanTicketInput", () => {
 
   it("returns empty string for whitespace-only input", () => {
     expect(cleanTicketInput(" \n\t ")).toBe("");
+  });
+
+  it("normalizes fullwidth punctuation and dashes", () => {
+    expect(cleanTicketInput("ipaste－pair－v1：" + "A".repeat(68)))
+      .toBe("ipaste-pair-v1:" + "A".repeat(68));
+    expect(cleanTicketInput("ipaste—pair–v1＿x")).toBe("ipaste-pair-v1_x");
+  });
+
+  it("strips zero-width characters", () => {
+    expect(cleanTicketInput("ipaste-pair-v1:\u200Babc\u200C\uFEFF"))
+      .toBe("ipaste-pair-v1:abc");
+  });
+});
+
+describe("validateTicketInput", () => {
+  it("accepts a normalized full ticket", () => {
+    expect(validateTicketInput(" ipaste-pair-v1:" + "A".repeat(68) + " ")).toBeNull();
+  });
+  it("accepts a ticket typed with fullwidth punctuation", () => {
+    expect(validateTicketInput("ipaste－pair－v1：" + "A".repeat(68))).toBeNull();
+  });
+  it("reports missingPrefix when prefix is absent", () => {
+    expect(validateTicketInput("A".repeat(68))).toBe("missingPrefix");
+  });
+  it("reports badEncoding for a truncated or illegal body", () => {
+    expect(validateTicketInput("ipaste-pair-v1:abc")).toBe("badEncoding");
+    expect(validateTicketInput("ipaste-pair-v1:" + "!".repeat(68))).toBe("badEncoding");
+    expect(validateTicketInput(TICKET_PREFIX)).toBe("badEncoding");
+  });
+});
+
+describe("joinErrorKey", () => {
+  it("maps sentinels to i18n keys and leaves backend reasons untouched", () => {
+    expect(joinErrorKey(TICKET_ERROR_SENTINELS.missingPrefix)).toBe("deviceSync.join.missingPrefix");
+    expect(joinErrorKey(TICKET_ERROR_SENTINELS.badEncoding)).toBe("deviceSync.join.badEncoding");
+    expect(joinErrorKey(PIN_ERROR_SENTINELS.selectFirst)).toBe("deviceSync.pin.selectFirst");
+    expect(joinErrorKey(PIN_ERROR_SENTINELS.invalid)).toBe("deviceSync.pin.invalid");
+    expect(joinErrorKey("等待对方响应超时")).toBeNull();
+    expect(joinErrorKey(null)).toBeNull();
+  });
+});
+
+describe("isPinInput", () => {
+  it("accepts exactly six ascii digits", () => {
+    expect(isPinInput("482913")).toBe(true);
+    expect(isPinInput("000000")).toBe(true);
+    expect(isPinInput("48291")).toBe(false);
+    expect(isPinInput("４８２９１３")).toBe(false);
   });
 });

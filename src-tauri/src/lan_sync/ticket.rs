@@ -130,62 +130,125 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// 6 位纯数字 PIN（保持前导零；PIN 以字符串形态过 PairRequest）。
+pub(crate) fn is_pin(input: &str) -> bool {
+    input.len() == 6 && input.bytes().all(|b| b.is_ascii_digit())
+}
+
+pub(crate) fn format_pin(pin: u32) -> String {
+    format!("{pin:06}")
+}
+
+pub(crate) fn is_endpoint_id_hex(input: &str) -> bool {
+    input.len() == 64 && input.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// 拒绝取模偏斜：4_294_000_000 是 <= 2^32 的最大 1_000_000 倍数。
+fn random_pin() -> u32 {
+    loop {
+        let mut bytes = [0u8; 4];
+        getrandom::getrandom(&mut bytes).expect("os rng unavailable");
+        let value = u32::from_le_bytes(bytes);
+        if value < 4_294_000_000 {
+            return value % 1_000_000;
+        }
+    }
+}
+
 /// 内存态邀请登记：一次性 + TTL + 可作废。app 重启即全部作废（不持久化）。
+/// 同一邀请同时持有 6 位 PIN（局域网手输）与 16B 秘密（票据），任一核销成功即焚。
 pub(crate) struct InviteRegistry {
     active: Option<Invite>,
+    next_generation: u64,
 }
 
 struct Invite {
+    pin: u32,
     secret: [u8; 16],
     expires_at: Instant,
+    /// 广播任务代次：create/cancel/核销/过期都会让旧任务停机。
+    generation: u64,
 }
 
 impl InviteRegistry {
     pub(crate) fn new() -> Self {
-        Self { active: None }
+        Self {
+            active: None,
+            next_generation: 1,
+        }
     }
 
     /// 生成新邀请（覆盖旧邀请——同一时刻只有一个有效邀请，简化心智模型）。
-    pub(crate) fn create(&mut self) -> [u8; 16] {
+    pub(crate) fn create(&mut self) -> (u32, [u8; 16]) {
         let mut secret = [0u8; 16];
         getrandom::getrandom(&mut secret).expect("os rng unavailable");
+        let pin = random_pin();
+        let generation = self.next_generation;
+        self.next_generation += 1;
         self.active = Some(Invite {
+            pin,
             secret,
             expires_at: Instant::now() + INVITE_TTL,
+            generation,
         });
-        secret
+        (pin, secret)
     }
 
     pub(crate) fn cancel(&mut self) {
         self.active = None;
     }
 
+    /// 当前存活邀请的代次；过期惰性作废。广播任务每 2s 比对一次决定是否停机。
+    pub(crate) fn active_generation(&mut self) -> Option<u64> {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|i| Instant::now() > i.expires_at)
+        {
+            self.active = None; // 与 verify_and_consume 的过期口径一致：不回填
+        }
+        self.active.as_ref().map(|i| i.generation)
+    }
+
     /// 校验并核销：**校验成功即焚；校验失败邀请保留**（spec §4.2：只有成功
     /// 才消耗一次性邀请）。失败即焚会让局域网攻击者轮换 NodeId 发垃圾密钥
     /// 即可烧掉全部邀请、阻断正常配对（DoS）。过期视为已死（不回填）。
-    /// 常数时间比较，防时序侧信道。
-    pub(crate) fn verify_and_consume(&mut self, secret_hex: &str) -> bool {
+    /// 输入为 6 位纯数字 → 常数时间比较 PIN；否则走原有 32 hex 秘密比较。
+    pub(crate) fn verify_and_consume(&mut self, secret_or_pin: &str) -> bool {
         let Some(invite) = self.active.take() else {
             return false;
         };
         if Instant::now() > invite.expires_at {
             return false; // 已过期：邀请作废，无需回填
         }
-        let Ok(bytes) = hex_decode_16(secret_hex) else {
-            self.active = Some(invite); // 输入非法定长 hex：误输入/探测，保留邀请
-            return false;
+        let matched = if is_pin(secret_or_pin) {
+            match secret_or_pin.parse::<u32>() {
+                Ok(pin) => constant_time_eq(&pin.to_be_bytes(), &invite.pin.to_be_bytes()),
+                Err(_) => {
+                    self.active = Some(invite);
+                    return false;
+                }
+            }
+        } else {
+            match hex_decode_16(secret_or_pin) {
+                Ok(bytes) => constant_time_eq(&bytes, &invite.secret),
+                Err(_) => {
+                    self.active = Some(invite); // 非法定长 hex：误输入/探测，保留邀请
+                    return false;
+                }
+            }
         };
-        if constant_time_eq(&bytes, &invite.secret) {
+        if matched {
             true // 匹配：保持取走状态（一次性核销）
         } else {
-            self.active = Some(invite); // 密钥不匹配：回填，等待真正的配对方
+            self.active = Some(invite); // 回填，等待真正的配对方
             false
         }
     }
 
     /// 测试辅助：把当前邀请的过期时间改到过去（不引入时钟抽象，YAGNI）。
     #[cfg(test)]
-    fn expire_now(&mut self) {
+    pub(crate) fn expire_now(&mut self) {
         if let Some(invite) = &mut self.active {
             invite.expires_at = Instant::now() - Duration::from_secs(1);
         }
@@ -205,9 +268,12 @@ fn hex_decode_16(input: &str) -> Result<[u8; 16], String> {
     Ok(out)
 }
 
-fn constant_time_eq(a: &[u8; 16], b: &[u8; 16]) -> bool {
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
     let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
+    for (x, y) in a.iter().zip(b) {
         diff |= x ^ y;
     }
     diff == 0
@@ -260,7 +326,7 @@ mod tests {
     #[test]
     fn invite_is_one_shot_and_expires() {
         let mut reg = InviteRegistry::new();
-        let secret = reg.create();
+        let (_, secret) = reg.create();
         let hex_str: String = secret.iter().map(|b| format!("{b:02x}")).collect();
         assert!(reg.verify_and_consume(&hex_str), "首次校验成功");
         assert!(!reg.verify_and_consume(&hex_str), "一次性：二次失败");
@@ -269,7 +335,7 @@ mod tests {
     #[test]
     fn invite_cancel_invalidates() {
         let mut reg = InviteRegistry::new();
-        let secret = reg.create();
+        let (_, secret) = reg.create();
         reg.cancel();
         let hex_str: String = secret.iter().map(|b| format!("{b:02x}")).collect();
         assert!(!reg.verify_and_consume(&hex_str));
@@ -278,7 +344,7 @@ mod tests {
     #[test]
     fn invite_wrong_secret_fails() {
         let mut reg = InviteRegistry::new();
-        let _secret = reg.create();
+        let (_, _secret) = reg.create();
         assert!(!reg.verify_and_consume(&"00".repeat(16)));
     }
 
@@ -287,13 +353,15 @@ mod tests {
     #[test]
     fn invite_survives_failed_verification() {
         let mut reg = InviteRegistry::new();
-        let secret = reg.create();
+        let (_, secret) = reg.create();
         let correct: String = secret.iter().map(|b| format!("{b:02x}")).collect();
         // 错误密钥（合法定长 hex）：不得烧掉邀请
         assert!(!reg.verify_and_consume(&"00".repeat(16)));
         // 非法 hex（探测垃圾）：同样不得烧掉邀请
         assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
         assert!(!reg.verify_and_consume("aabb"));
+        // 错误 PIN：同样不得烧掉邀请
+        assert!(!reg.verify_and_consume("000000"));
         // 正确密钥在一系列失败尝试后仍应核销成功
         assert!(
             reg.verify_and_consume(&correct),
@@ -306,9 +374,84 @@ mod tests {
     #[test]
     fn invite_expires() {
         let mut reg = InviteRegistry::new();
-        let secret = reg.create();
+        let (_, secret) = reg.create();
         reg.expire_now();
         let hex_str: String = secret.iter().map(|b| format!("{b:02x}")).collect();
         assert!(!reg.verify_and_consume(&hex_str));
+    }
+
+    fn hex(secret: &[u8; 16]) -> String {
+        secret.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn create_returns_six_digit_pin_and_secret() {
+        for _ in 0..64 {
+            let mut reg = InviteRegistry::new();
+            let (pin, _secret) = reg.create();
+            let text = format_pin(pin);
+            assert_eq!(text.len(), 6, "PIN 必须零填充到 6 位");
+            assert!(text.bytes().all(|b| b.is_ascii_digit()));
+        }
+    }
+
+    #[test]
+    fn correct_pin_consumes_invite_once() {
+        let mut reg = InviteRegistry::new();
+        let (pin, _) = reg.create();
+        assert!(reg.verify_and_consume(&format_pin(pin)));
+        assert!(!reg.verify_and_consume(&format_pin(pin)), "成功即焚");
+    }
+
+    #[test]
+    fn wrong_pin_does_not_burn_invite_and_hex_secret_still_works() {
+        let mut reg = InviteRegistry::new();
+        let (pin, secret) = reg.create();
+        let wrong = if pin == 0 { "999999" } else { "000000" };
+        assert!(!reg.verify_and_consume(wrong));
+        assert!(
+            reg.verify_and_consume(&hex(&secret)),
+            "票据 hex 路径仍可核销"
+        );
+    }
+
+    #[test]
+    fn wrong_hex_does_not_burn_invite_and_pin_still_works() {
+        let mut reg = InviteRegistry::new();
+        let (pin, _secret) = reg.create();
+        assert!(!reg.verify_and_consume(&"00".repeat(16)));
+        assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
+        assert!(reg.verify_and_consume(&format_pin(pin)), "PIN 路径仍可核销");
+    }
+
+    #[test]
+    fn pin_shaped_input_never_falls_through_to_hex_path() {
+        assert!(is_pin("000000"));
+        assert!(is_pin("482913"));
+        assert!(!is_pin("48291"));
+        assert!(!is_pin("4829130"));
+        assert!(!is_pin("４８２９１３"));
+        assert!(!is_pin("48291a"));
+    }
+
+    #[test]
+    fn expired_invite_rejects_pin_and_has_no_generation() {
+        let mut reg = InviteRegistry::new();
+        let (pin, _) = reg.create();
+        reg.expire_now();
+        assert_eq!(reg.active_generation(), None);
+        assert!(!reg.verify_and_consume(&format_pin(pin)));
+    }
+
+    #[test]
+    fn generation_changes_on_recreate_and_clears_on_cancel() {
+        let mut reg = InviteRegistry::new();
+        let _ = reg.create();
+        let first = reg.active_generation().expect("首次邀请有代次");
+        let _ = reg.create();
+        let second = reg.active_generation().expect("覆盖后仍有代次");
+        assert_ne!(first, second, "新邀请必须让旧广播任务停机");
+        reg.cancel();
+        assert_eq!(reg.active_generation(), None);
     }
 }

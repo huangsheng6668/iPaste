@@ -21,6 +21,7 @@ export const IPASTE_EVENTS = {
   pairRequest: "ipaste://pair-request",
   pairInviteState: "ipaste://pair-invite-state",
   pairJoinFailed: "ipaste://pair-join-failed",
+  nearbyDevices: "ipaste://nearby-devices",
   deviceClipReceived: "ipaste://device-clip-received",
   deviceClipReceiveFailed: "ipaste://device-clip-receive-failed",
   deviceCategorySent: "ipaste://device-category-sent",

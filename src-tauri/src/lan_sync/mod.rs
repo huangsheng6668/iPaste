@@ -6,6 +6,7 @@
 
 pub(crate) mod autopush; // 自动推送基座：类型过滤矩阵 + 回环抑制滑窗（Spec 2 Task 2/3 消费）
 pub(crate) mod commands; // Tauri 命令层：设备管理 + 票据配对 + 定向发送
+pub(crate) mod discovery; // 局域网 UDP 发现 + 附近设备表
 pub(crate) mod frame; // 泛型帧编解码（iroh 无耦合）
 pub(crate) mod identity; // 设备身份（iroh SecretKey）
 #[cfg(test)]

@@ -866,7 +866,7 @@ async fn join_reply_wait_times_out() {
     let (joiner, sink) = test_registry().await;
     // host 生成有效邀请：对端 PairRequest 校验通过 → 走到用户确认等待
     //（连接保持打开、不回帧），拨号方只能靠自己的 30s 超时收场
-    let secret = host.inner.invites.lock().unwrap().create();
+    let (_, secret) = host.inner.invites.lock().unwrap().create();
     let addr = host.inner.endpoint.addr();
     let direct_addrs: Vec<String> = addr.ip_addrs().map(|a| a.to_string()).collect();
     assert!(!direct_addrs.is_empty(), "回环端点应有直连地址");

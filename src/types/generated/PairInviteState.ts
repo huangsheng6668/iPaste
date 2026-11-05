@@ -6,4 +6,8 @@ export type PairInviteState = { ticket: string | null,
  * 故按 OcrOverlaySessionStart 先例覆盖 ts-rs 的 u64→bigint 默认
  * （type 会整体替换 Option 的 null 分支，需一并写回）。
  */
-expiresAt: number | null, };
+expiresAt: number | null, 
+/**
+ * 6 位 PIN（同局域网短码配对用）；None = 无有效邀请。票据秘密永不透出。
+ */
+pin: string | null, };

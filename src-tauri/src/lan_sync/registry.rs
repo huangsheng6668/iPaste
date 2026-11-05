@@ -15,8 +15,9 @@
 //! （重拨任务与会话登记）、`sender`（发送分发与 auto 扇出）、`device_admin`
 //! （设备管理）、`tests`（原内联测试整体外移）。
 //!
-//! 锁纪律：`links`/`invites`/`pending_pair`/`accept_task` 是 std `Mutex`，只在
-//! 无 `.await` 的短临界区内持有；跨 await 的共享一律 clone 出来再操作。
+//! 锁纪律：`links`/`invites`/`pending_pair`/`accept_task`/`discovery_task`/
+//! `discovery.table` 是 std `Mutex`，只在无 `.await` 的短临界区内持有；
+//! 跨 await 的共享一律 clone 出来再操作。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -34,6 +35,7 @@ use crate::events::{
     EVENT_DEVICE_STATUS_CHANGED, EVENT_PAIR_REQUEST,
 };
 use crate::lan_sync::autopush::RecentReceived;
+use crate::lan_sync::discovery::Discovery;
 use crate::lan_sync::frame::{read_message_with_raw, FrameWriter, PrefixedFrame};
 use crate::lan_sync::pair_guard::PairGuard;
 use crate::lan_sync::protocol::{
@@ -88,7 +90,11 @@ struct Inner {
     endpoint: Endpoint,
     store: Store,
     sink: Arc<dyn LanEventSink>,
-    invites: Mutex<InviteRegistry>,
+    invites: Arc<Mutex<InviteRegistry>>,
+    /// 附近设备表（host 广播 / guest 监听共享）；地址不下发前端。
+    discovery: Arc<Discovery>,
+    /// 发现监听任务句柄（shutdown 时 abort）；测试构建不创建。
+    discovery_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// node_id hex -> 该设备的运行态（会话控制通道 + 在线状态 + 重拨任务句柄）。
     links: Mutex<HashMap<String, LinkHandle>>,
     pending_pair: Mutex<Option<pairing::PendingPair>>,
@@ -190,12 +196,15 @@ impl DeviceLinkRegistry {
         relay_disabled: bool,
         append_state: Arc<Mutex<AppendCopyState>>,
     ) -> Result<Arc<Self>, String> {
+        let self_id = hex_encode_32(endpoint.id().as_bytes());
         let registry = Arc::new(Self {
             inner: Arc::new(Inner {
                 endpoint,
                 store,
                 sink,
-                invites: Mutex::new(InviteRegistry::new()),
+                invites: Arc::new(Mutex::new(InviteRegistry::new())),
+                discovery: Arc::new(Discovery::new(self_id)),
+                discovery_task: Mutex::new(None),
                 links: Mutex::new(HashMap::new()),
                 pending_pair: Mutex::new(None),
                 guard: PairGuard::new(),
@@ -212,6 +221,14 @@ impl DeviceLinkRegistry {
         let accept_registry = registry.clone();
         let accept_task = tokio::spawn(async move { accept_registry.accept_loop().await });
         *registry.inner.accept_task.lock_recover("accept_task") = Some(accept_task);
+        // 附近设备常驻监听；测试构建不起 UDP，保持 start_for_test 的 hermetic 语义。
+        #[cfg(not(test))]
+        {
+            let discovery = registry.inner.discovery.clone();
+            let sink = registry.inner.sink.clone();
+            let listener = crate::lan_sync::discovery::spawn_listener(discovery, sink);
+            *registry.inner.discovery_task.lock_recover("discovery_task") = Some(listener);
+        }
         // 已配对且未撤销的设备各起一条重拨任务
         let devices = match registry.inner.store.list_paired_devices() {
             Ok(devices) => devices,
@@ -557,5 +574,43 @@ pub(crate) fn build_send_payload(clip_type: &str, text: &str) -> Result<Vec<u8>,
         Ok(format!("data:image/png;base64,{b64}").into_bytes())
     } else {
         Ok(text.as_bytes().to_vec())
+    }
+}
+
+#[cfg(test)]
+impl DeviceLinkRegistry {
+    pub(crate) fn direct_addrs_for_test(&self) -> Vec<String> {
+        self.inner
+            .endpoint
+            .addr()
+            .ip_addrs()
+            .map(|a| a.to_string())
+            .collect()
+    }
+
+    pub(crate) fn seed_nearby_for_test(
+        &self,
+        endpoint_id_hex: &str,
+        addrs: Vec<String>,
+        relay: Option<String>,
+    ) {
+        self.inner
+            .discovery
+            .table
+            .lock_recover("nearby")
+            .insert_for_test(
+                crate::lan_sync::discovery::DiscoveryPacket {
+                    magic: crate::lan_sync::discovery::DISCOVERY_MAGIC.to_string(),
+                    device_name: "test-host".to_string(),
+                    endpoint_id: endpoint_id_hex.to_string(),
+                    addrs,
+                    relay,
+                },
+                std::time::Instant::now(),
+            );
+    }
+
+    pub(crate) fn expire_invite_for_test(&self) {
+        self.inner.invites.lock_recover("invites").expire_now();
     }
 }

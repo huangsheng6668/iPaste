@@ -10,6 +10,13 @@ use super::{DeviceLinkRegistry, LinkHandle};
 impl DeviceLinkRegistry {
     // —— 设备管理 ——
 
+    /// 当前附近设备列表（窗口打开/重开时拉取）；先清 TTL 再快照。
+    pub(crate) fn nearby_devices(&self) -> Vec<crate::models::NearbyDevice> {
+        let mut table = self.inner.discovery.table.lock_recover("nearby");
+        table.prune(std::time::Instant::now());
+        table.list()
+    }
+
     /// store 行 + links 状态合成；撤销的恒 Offline（即使有残留登记）。
     pub(crate) fn device_infos(&self) -> Vec<DeviceInfo> {
         let devices = self
@@ -102,6 +109,14 @@ impl DeviceLinkRegistry {
     ///（其 close() 是异步的，留给 Task 8 的 lib 接线决定是否显式等待）。
     pub(crate) fn shutdown(&self) {
         if let Some(task) = self.inner.accept_task.lock_recover("accept_task").take() {
+            task.abort();
+        }
+        if let Some(task) = self
+            .inner
+            .discovery_task
+            .lock_recover("discovery_task")
+            .take()
+        {
             task.abort();
         }
         let handles: Vec<LinkHandle> = {
