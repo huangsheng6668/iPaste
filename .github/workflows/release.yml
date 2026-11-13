@@ -23,7 +23,10 @@ jobs:
             rustTargets: x86_64-pc-windows-msvc
             args: ""
           - name: macOS Apple Silicon
-            platform: macos-15
+            # macos-15 的 ARM runner 池在高峰期对本仓库长期不分配机器
+            # （runner_name=None，连 Set up job 都不开始）；macos-26 是更新的
+            # ARM 池，负载更轻。rust 已钉 1.95.0，不受镜像工具链漂移影响。
+            platform: macos-26
             rustTargets: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
           - name: macOS Intel
