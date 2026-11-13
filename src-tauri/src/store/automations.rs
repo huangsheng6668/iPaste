@@ -86,9 +86,12 @@ impl Store {
         let updated_at = crate::util::now();
         let changed = conn
             .execute(
+                // 哈希材料绑定命令+cwd：任一变化都清空确认记忆（cwd 决定相对
+                // 路径命令实际执行哪个文件）。SET 表达式中的列引用旧值；
+                // `IS` 做 NULL 安全比较（绑定的 ?3 为 Option<String> 可为 NULL）。
                 "UPDATE automations
                  SET name = ?1, command = ?2, cwd = ?3, confirm_before_run = ?4, close_panel_on_success = ?5, updated_at = ?6,
-                     confirmed_command_hash = CASE WHEN command = ?2 THEN confirmed_command_hash ELSE NULL END
+                     confirmed_command_hash = CASE WHEN command = ?2 AND cwd IS ?3 THEN confirmed_command_hash ELSE NULL END
                  WHERE id = ?7",
                 params![
                     input.name.trim(),
@@ -346,10 +349,14 @@ mod tests {
     use std::time::Instant;
 
     fn input(name: &str, command: &str) -> AutomationInput {
+        input_with_cwd(name, command, None)
+    }
+
+    fn input_with_cwd(name: &str, command: &str, cwd: Option<&str>) -> AutomationInput {
         AutomationInput {
             name: name.to_string(),
             command: command.to_string(),
-            cwd: None,
+            cwd: cwd.map(|c| c.to_string()),
             confirm_before_run: false,
             close_panel_on_success: false,
         }
@@ -490,8 +497,8 @@ mod tests {
             None
         );
 
-        // 写入后可读回
-        let hash = crate::util::hash_text("echo 1");
+        // 写入后可读回（哈希材料 = 命令 + cwd，与执行器同一helper绑定）
+        let hash = crate::automation::automation_command_hash("echo 1", None);
         store
             .set_confirmed_command_hash_with_conn(&conn, &created.id, &hash)
             .unwrap();
@@ -502,7 +509,7 @@ mod tests {
             Some(hash.clone())
         );
 
-        // 命令未变：update 保留哈希
+        // 命令与 cwd 都未变：update 保留哈希
         store
             .update_automation(&created.id, input("a", "echo 1"))
             .unwrap();
@@ -513,9 +520,36 @@ mod tests {
             Some(hash)
         );
 
+        // 命令未变但 cwd 变化：update 必须清空哈希
+        // （相对路径命令换了 cwd 就是换了执行对象，不能沿用旧确认）
+        store
+            .update_automation(&created.id, input_with_cwd("a", "echo 1", Some("C:\\tmp")))
+            .unwrap();
+        assert_eq!(
+            store
+                .confirmed_command_hash_with_conn(&conn, &created.id)
+                .unwrap(),
+            None
+        );
+
+        // 带 cwd 的组合确认后，命令与 cwd 均未变：update 保留哈希
+        let hash_cwd = crate::automation::automation_command_hash("echo 1", Some("C:\\tmp"));
+        store
+            .set_confirmed_command_hash_with_conn(&conn, &created.id, &hash_cwd)
+            .unwrap();
+        store
+            .update_automation(&created.id, input_with_cwd("a", "echo 1", Some("C:\\tmp")))
+            .unwrap();
+        assert_eq!(
+            store
+                .confirmed_command_hash_with_conn(&conn, &created.id)
+                .unwrap(),
+            Some(hash_cwd)
+        );
+
         // 命令变化：update 清空哈希
         store
-            .update_automation(&created.id, input("a", "echo 2"))
+            .update_automation(&created.id, input_with_cwd("a", "echo 2", Some("C:\\tmp")))
             .unwrap();
         assert_eq!(
             store

@@ -34,7 +34,13 @@ const emit = defineEmits<{ (e: "confirm"): void; (e: "cancel"): void }>();
               <p class="text-xs font-semibold text-[var(--text-1)]">
                 {{ item.name }}
               </p>
-              <pre class="mt-1 overflow-auto font-mono text-xs text-[var(--text-1)]">{{ item.command }}</pre>
+              <pre class="mt-1 overflow-auto font-mono text-xs whitespace-pre-wrap break-all text-[var(--text-1)]">{{ item.command }}</pre>
+              <p
+                v-if="item.cwd"
+                class="mt-1 text-xs text-[var(--text-3)]"
+              >
+                {{ t("automation.cwd") }}: {{ item.cwd }}
+              </p>
             </li>
           </ul>
         </div>

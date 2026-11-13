@@ -41,13 +41,22 @@ pub(crate) fn command_program() -> (&'static str, Vec<String>) {
     }
 }
 
-/// 确认门判定：`confirm_before_run=true` 每次确认；否则与已确认命令哈希比对，
-/// 未确认过或命令已变都需要重新确认。纯函数，便于单测。
+/// 确认记忆哈希的材料：命令与工作目录一并入哈希。cwd 决定相对路径命令
+/// 实际执行哪个文件，必须与命令一起绑定，否则只改 cwd（命令不变、哈希
+/// 保留）就能让已确认的命令静默指向攻击者选定的目录。`\0` 分隔避免
+/// "cmd"+"cwd" 拼接歧义；模块级唯一定义，执行器与存储测试共用。
+pub(crate) fn automation_command_hash(command: &str, cwd: Option<&str>) -> String {
+    crate::util::hash_text(&format!("{}\0{}", command.trim(), cwd.unwrap_or("")))
+}
+
+/// 确认门判定：`confirm_before_run=true` 每次确认；否则与已确认的
+/// 命令+cwd 哈希比对，未确认过或命令/cwd 已变都需要重新确认。纯函数，
+/// 便于单测。
 pub(crate) fn needs_confirm(action: &AutomationAction, stored_hash: Option<&str>) -> bool {
     if action.confirm_before_run {
         return true;
     }
-    stored_hash != Some(crate::util::hash_text(action.command.trim()).as_str())
+    stored_hash != Some(automation_command_hash(&action.command, action.cwd.as_deref()).as_str())
 }
 
 /// execute_automation 的错误：Declined 区分"用户在原生对话框拒绝"（不产生运行记录）。
@@ -81,17 +90,45 @@ fn release_confirm_slot_in(slot: &Mutex<Option<String>>, action_id: &str) {
     }
 }
 
-fn acquire_confirm_slot(action_id: &str, language: &str) -> Result<(), AutomationRunError> {
-    acquire_confirm_slot_in(
+/// RAII 占用确认对话框槽位：无论 dialog 调用是否 panic，Drop 都会释放。
+/// 否则 blocking_show 内部 recv().unwrap() 一旦 panic，槽位永久占用，
+/// 后续所有确认只会拿到 "busy"，功能瘫痪到重启。
+#[derive(Debug)]
+struct ConfirmSlotGuard<'a> {
+    slot: &'a Mutex<Option<String>>,
+    action_id: String,
+}
+
+impl Drop for ConfirmSlotGuard<'_> {
+    fn drop(&mut self) {
+        release_confirm_slot_in(self.slot, &self.action_id);
+    }
+}
+
+/// 占用槽位并返回 RAII 守卫：守卫存活期间槽位被持有，离开作用域
+/// （正常返回、提前 return 或 panic 展开）自动释放。
+fn acquire_confirm_slot_guard_in<'a>(
+    slot: &'a Mutex<Option<String>>,
+    action_id: &str,
+    busy_message: &str,
+) -> Result<ConfirmSlotGuard<'a>, String> {
+    acquire_confirm_slot_in(slot, action_id, busy_message)?;
+    Ok(ConfirmSlotGuard {
+        slot,
+        action_id: action_id.to_string(),
+    })
+}
+
+fn acquire_confirm_slot(
+    action_id: &str,
+    language: &str,
+) -> Result<ConfirmSlotGuard<'static>, AutomationRunError> {
+    acquire_confirm_slot_guard_in(
         &CONFIRM_DIALOG_GUARD,
         action_id,
         crate::util::localized_text(language, "automation_confirm_busy"),
     )
     .map_err(AutomationRunError::Other)
-}
-
-fn release_confirm_slot(action_id: &str) {
-    release_confirm_slot_in(&CONFIRM_DIALOG_GUARD, action_id);
 }
 
 /// 原生确认对话框（webview 外，XSS 无法合成或点击）。
@@ -107,9 +144,20 @@ fn show_confirm_dialog(app: &tauri::AppHandle, action: &AutomationAction, langua
     } else {
         command_display
     };
-    let body = crate::util::localized_text(language, "automation_confirm_body")
+    let mut body = crate::util::localized_text(language, "automation_confirm_body")
         .replace("{name}", &action.name)
         .replace("{command}", &command_display);
+    // cwd 决定相对路径命令实际执行哪个文件，属于用户要确认的敏感信息，
+    // 有值时必须展示。路径是数据，用固定 `cwd: ` 前缀，不加本地化键。
+    let cwd_line = action
+        .cwd
+        .as_deref()
+        .map(|c| format!("cwd: {c}"))
+        .unwrap_or_default();
+    if !cwd_line.is_empty() {
+        body.push_str("\n\n");
+        body.push_str(&cwd_line);
+    }
     app.dialog()
         .message(body)
         .title(title)
@@ -156,15 +204,16 @@ pub(crate) async fn execute_automation(
             .settings()
             .map(|settings| settings.language.as_str())
             .unwrap_or(crate::DEFAULT_LANGUAGE);
-        acquire_confirm_slot(&action.id, language)?;
+        // 槽位由 RAII 守卫持有：对话框 panic、用户拒绝提前 return、
+        // 正常走完确认，都会在守卫 Drop 时释放，杜绝槽位泄漏。
+        let _slot_guard = acquire_confirm_slot(&action.id, language)?;
         let approved = show_confirm_dialog(&app, &action, language);
         let remember_hash = approved && !action.confirm_before_run;
-        release_confirm_slot(&action.id);
         if !approved {
             return Err(AutomationRunError::Declined);
         }
         if remember_hash {
-            let hash = crate::util::hash_text(action.command.trim());
+            let hash = automation_command_hash(&action.command, action.cwd.as_deref());
             let conn = store.connect().map_err(AutomationRunError::Other)?;
             store
                 .set_confirmed_command_hash_with_conn(&conn, &action.id, &hash)
@@ -470,7 +519,7 @@ mod tests {
             updated_at: String::new(),
             last_run: None,
         };
-        let hash = crate::util::hash_text("echo 1");
+        let hash = automation_command_hash("echo 1", None);
 
         // confirm_before_run=true：无论哈希如何都确认
         action.confirm_before_run = true;
@@ -481,8 +530,17 @@ mod tests {
         assert!(needs_confirm(&action, None));
         assert!(needs_confirm(&action, Some("deadbeef")));
 
-        // 哈希匹配当前命令：放行
+        // 哈希匹配当前命令+cwd：放行
         assert!(!needs_confirm(&action, Some(&hash)));
+
+        // 命令相同但 cwd 不同（存储哈希按别的 cwd 计算）：cwd 绑定进哈希后必须确认
+        let other_cwd_hash = automation_command_hash("echo 1", Some("C:\\tmp"));
+        assert!(needs_confirm(&action, Some(&other_cwd_hash)));
+
+        // 动作自身 cwd 变化：同命令下旧（无 cwd）哈希也不再放行
+        action.cwd = Some("C:\\tmp".into());
+        assert!(needs_confirm(&action, Some(&hash)));
+        assert!(!needs_confirm(&action, Some(&other_cwd_hash)));
     }
 
     #[test]
@@ -501,6 +559,30 @@ mod tests {
         // 释放自己的 id 后可重新占用
         release_confirm_slot_in(&slot, "a");
         assert!(acquire_confirm_slot_in(&slot, "b", "busy").is_ok());
+    }
+
+    #[test]
+    fn confirm_slot_guard_raii_frees_on_drop_and_panic() {
+        let slot = std::sync::Mutex::new(None::<String>);
+
+        let guard = acquire_confirm_slot_guard_in(&slot, "a", "busy").unwrap();
+        // 守卫存活期间第二个确认请求被拒
+        assert_eq!(
+            acquire_confirm_slot_guard_in(&slot, "b", "busy").unwrap_err(),
+            "busy"
+        );
+        // 显式 drop 后槽位释放，可重新占用（临时守卫随语句结束自动释放）
+        drop(guard);
+        assert!(acquire_confirm_slot_guard_in(&slot, "b", "busy").is_ok());
+
+        // panic 安全：闭包内占用后 panic（对应 blocking_show 回调未触发的
+        // unwrap panic 路径），守卫 Drop 仍释放槽位，后续确认不会被 busy 卡死。
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = acquire_confirm_slot_guard_in(&slot, "c", "busy").unwrap();
+            panic!("模拟对话框回调未触发");
+        }));
+        assert!(panicked.is_err());
+        assert!(acquire_confirm_slot_guard_in(&slot, "d", "busy").is_ok());
     }
 
     #[test]
