@@ -20,8 +20,6 @@ export const en = {
   "automation.cwdInvalid": "Working directory does not exist",
   "automation.confirmBeforeRun": "Confirm before running",
   "automation.closePanelOnSuccess": "Close panel on success",
-  "automation.confirmTitle": "Run \"{name}\"?",
-  "automation.confirmDescription": "This command will run",
   "automation.detailStatus": "Status",
   "automation.detailExitCode": "Exit Code",
   "automation.detailDuration": "Duration",

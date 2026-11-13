@@ -20,8 +20,6 @@ export const de = {
   "automation.cwdInvalid": "Arbeitsverzeichnis existiert nicht",
   "automation.confirmBeforeRun": "Vor Ausführung bestätigen",
   "automation.closePanelOnSuccess": "Panel bei Erfolg schließen",
-  "automation.confirmTitle": "„{name}\u201C ausführen?",
-  "automation.confirmDescription": "Folgender Befehl wird ausgeführt",
   "automation.detailStatus": "Status",
   "automation.detailExitCode": "Exit-Code",
   "automation.detailDuration": "Dauer",

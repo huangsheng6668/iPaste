@@ -17,8 +17,6 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
   const automation = useAutomationStore();
   const automationEditorOpen = ref(false);
   const automationEditorAction = ref<AutomationAction | null>(null);
-  const automationConfirmOpen = ref(false);
-  const automationConfirmAction = ref<AutomationAction | null>(null);
   const importPreviewOpen = ref(false);
   const importPreviewItems = ref<AutomationInput[]>([]);
   const importPreviewSkipped = ref(0);
@@ -53,11 +51,7 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
   }
 
   function runSelectedAction(action: AutomationAction) {
-    if (action.confirmBeforeRun) {
-      automationConfirmAction.value = action;
-      automationConfirmOpen.value = true;
-      return;
-    }
+    // 确认语义由后端原生对话框强制（sudo 模型），前端不再拦截。
     void executeAutomation(action);
   }
 
@@ -212,8 +206,6 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
   return {
     automationEditorOpen,
     automationEditorAction,
-    automationConfirmOpen,
-    automationConfirmAction,
     automationContextMenu,
     automationDetailOpen,
     automationDetailAction,

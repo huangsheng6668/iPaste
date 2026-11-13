@@ -20,8 +20,6 @@ export const fr = {
   "automation.cwdInvalid": "Le répertoire de travail n'existe pas",
   "automation.confirmBeforeRun": "Confirmer avant l'exécution",
   "automation.closePanelOnSuccess": "Fermer le panneau en cas de succès",
-  "automation.confirmTitle": "Exécuter « {name} » ?",
-  "automation.confirmDescription": "La commande suivante sera exécutée",
   "automation.detailStatus": "Statut",
   "automation.detailExitCode": "Code de sortie",
   "automation.detailDuration": "Durée",

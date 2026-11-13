@@ -20,8 +20,6 @@ export const ko = {
   "automation.cwdInvalid": "작업 디렉토리가 존재하지 않습니다",
   "automation.confirmBeforeRun": "실행 전 확인",
   "automation.closePanelOnSuccess": "성공 시 패널 닫기",
-  "automation.confirmTitle": "\"{name}\"을(를) 실행하시겠습니까?",
-  "automation.confirmDescription": "다음 명령을 실행합니다",
   "automation.detailStatus": "상태",
   "automation.detailExitCode": "종료 코드",
   "automation.detailDuration": "소요 시간",

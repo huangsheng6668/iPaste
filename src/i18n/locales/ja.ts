@@ -20,8 +20,6 @@ export const ja = {
   "automation.cwdInvalid": "作業ディレクトリが存在しません",
   "automation.confirmBeforeRun": "実行前に確認",
   "automation.closePanelOnSuccess": "成功時にパネルを閉じる",
-  "automation.confirmTitle": "「{name}」を実行しますか？",
-  "automation.confirmDescription": "次のコマンドを実行します",
   "automation.detailStatus": "ステータス",
   "automation.detailExitCode": "終了コード",
   "automation.detailDuration": "所要時間",

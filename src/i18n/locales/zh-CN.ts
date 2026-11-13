@@ -20,8 +20,6 @@ export const zhCN = {
   "automation.cwdInvalid": "工作目录不存在",
   "automation.confirmBeforeRun": "运行前确认",
   "automation.closePanelOnSuccess": "成功后关闭面板",
-  "automation.confirmTitle": "运行「{name}」？",
-  "automation.confirmDescription": "将执行以下命令",
   "automation.detailStatus": "状态",
   "automation.detailExitCode": "退出码",
   "automation.detailDuration": "耗时",

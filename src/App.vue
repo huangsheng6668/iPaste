@@ -6,7 +6,6 @@ import ClipContextMenu from "./components/ClipContextMenu.vue";
 import AutomationContextMenu from "./components/AutomationContextMenu.vue";
 import AutomationDetailDialog from "./components/AutomationDetailDialog.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
-import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
 import AutomationImportPreviewDialog from "./components/AutomationImportPreviewDialog.vue";
 // 辅助窗口按 kind 懒加载：5 类窗口共用同一份 App.vue 入口，静态导入会让每个
 // 窗口（含全局快捷键即时拉起的 OCR 遮罩/结果窗）都先下载全量组件代码再渲染
@@ -138,8 +137,6 @@ const automationFlow = useAutomationFlow(store, hidePanelFromUi);
 const {
   automationEditorOpen,
   automationEditorAction,
-  automationConfirmOpen,
-  automationConfirmAction,
   automationContextMenu,
   automationDetailOpen,
   automationDetailAction,
@@ -150,7 +147,6 @@ const {
   importFileInput,
   selectActionCard,
   runSelectedAction,
-  executeAutomation,
   openAutomationEditor,
   saveAutomation,
   deleteAutomationAction,
@@ -177,7 +173,6 @@ const panelKeyboard = usePanelKeyboard({
   isModalOpen: () =>
     automationEditorOpen.value ||
     importPreviewOpen.value ||
-    automationConfirmOpen.value ||
     automationDetailOpen.value ||
     updater.updateDialogOpen.value,
   isEditingName: () => editingClipKey.value !== null || editingCategoryId.value !== null,
@@ -864,13 +859,6 @@ const nextCategoryLabel = computed(() => {
       :items="importPreviewItems"
       @confirm="void confirmImportAutomations()"
       @cancel="cancelImportAutomations"
-    />
-
-    <AutomationConfirmDialog
-      :open="automationConfirmOpen"
-      :action="automationConfirmAction"
-      @confirm="void executeAutomation(automationConfirmAction as AutomationAction); automationConfirmOpen = false"
-      @cancel="automationConfirmOpen = false"
     />
 
     <AutomationDetailDialog
