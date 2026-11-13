@@ -16,12 +16,18 @@ pub(crate) enum AppError {
     /// 兜底：包装既有 String 错误文案。
     #[error("{0}")]
     Internal(String),
+    /// 用户在原生确认对话框中拒绝了快捷动作运行。
+    // clippy 门禁豁免：Task 3 接线前的中间态，接线后移除。
+    #[allow(dead_code)]
+    #[error("已取消运行")]
+    AutomationDeclined,
 }
 
 impl AppError {
     pub(crate) fn code(&self) -> &'static str {
         match self {
             AppError::Internal(_) => "internal",
+            AppError::AutomationDeclined => "automation_declined",
         }
     }
 
@@ -65,5 +71,13 @@ mod tests {
     #[test]
     fn internal_helper_accepts_str() {
         assert_eq!(AppError::internal("x").code(), "internal");
+    }
+
+    #[test]
+    fn declined_serializes_with_stable_code() {
+        let error = AppError::AutomationDeclined;
+        let json = serde_json::to_value(&error).unwrap();
+        assert_eq!(json["code"], "automation_declined");
+        assert_eq!(json["message"], "已取消运行");
     }
 }

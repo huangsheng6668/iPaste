@@ -31,18 +31,24 @@ pub(crate) fn command_program() -> (&'static str, Vec<String>) {
     {
         (
             "powershell.exe",
-            vec![
-                "-NoProfile".into(),
-                "-ExecutionPolicy".into(),
-                "Bypass".into(),
-                "-Command".into(),
-            ],
+            vec!["-NoProfile".into(), "-Command".into()],
         )
     }
     #[cfg(not(target_os = "windows"))]
     {
         ("/bin/zsh", vec!["-lc".into()])
     }
+}
+
+/// 确认门判定：`confirm_before_run=true` 每次确认；否则与已确认命令哈希比对，
+/// 未确认过或命令已变都需要重新确认。纯函数，便于单测。
+// clippy 门禁豁免：Task 3 接线前的中间态，接线后移除。
+#[allow(dead_code)]
+pub(crate) fn needs_confirm(action: &AutomationAction, stored_hash: Option<&str>) -> bool {
+    if action.confirm_before_run {
+        return true;
+    }
+    stored_hash != Some(crate::util::hash_text(action.command.trim()).as_str())
 }
 
 // clippy 门禁豁免：保留实现（诊断/平台能力预留），当前无调用方。
@@ -348,5 +354,43 @@ mod tests {
         let (text2, truncated2) = truncate_log("short", 200);
         assert!(!truncated2);
         assert_eq!(text2, "short");
+    }
+
+    #[test]
+    fn needs_confirm_covers_all_paths() {
+        let mut action = AutomationAction {
+            id: "id".into(),
+            name: "n".into(),
+            command: "echo 1".into(),
+            cwd: None,
+            run_mode: "background".into(),
+            confirm_before_run: false,
+            close_panel_on_success: false,
+            sort_order: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
+            last_run: None,
+        };
+        let hash = crate::util::hash_text("echo 1");
+
+        // confirm_before_run=true：无论哈希如何都确认
+        action.confirm_before_run = true;
+        assert!(needs_confirm(&action, Some(&hash)));
+
+        // 从未确认 / 哈希不匹配：确认
+        action.confirm_before_run = false;
+        assert!(needs_confirm(&action, None));
+        assert!(needs_confirm(&action, Some("deadbeef")));
+
+        // 哈希匹配当前命令：放行
+        assert!(!needs_confirm(&action, Some(&hash)));
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn command_program_has_no_execution_policy_bypass() {
+        let (_, args) = command_program();
+        assert!(!args.iter().any(|a| a == "-ExecutionPolicy"));
+        assert!(!args.iter().any(|a| a == "Bypass"));
     }
 }
