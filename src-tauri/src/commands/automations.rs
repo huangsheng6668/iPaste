@@ -52,8 +52,11 @@ pub(crate) async fn run_automation(
         crate::automation::execute_automation(app, &store, action).await
     })
     .await
-    .map_err(|e| format!("任务失败: {e}"))?
-    .map_err(AppError::from)
+    .map_err(|e| AppError::internal(format!("任务失败: {e}")))?
+    .map_err(|e| match e {
+        crate::automation::AutomationRunError::Declined => AppError::AutomationDeclined,
+        crate::automation::AutomationRunError::Other(message) => AppError::internal(message),
+    })
 }
 
 #[tauri::command]

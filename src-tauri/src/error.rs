@@ -17,8 +17,6 @@ pub(crate) enum AppError {
     #[error("{0}")]
     Internal(String),
     /// 用户在原生确认对话框中拒绝了快捷动作运行。
-    // clippy 门禁豁免：Task 3 接线前的中间态，接线后移除。
-    #[allow(dead_code)]
     #[error("已取消运行")]
     AutomationDeclined,
 }

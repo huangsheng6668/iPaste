@@ -284,6 +284,35 @@ pub(crate) fn localized_text(language: &str, key: &str) -> &'static str {
         ("fr", "disable_append_copy") => "Désactiver la copie ajoutée",
         ("de", "disable_append_copy") => "Anhängekopie deaktivieren",
         (_, "disable_append_copy") => "Disable append copy",
+        ("zh-CN", "automation_confirm_title") => "确认运行快捷动作",
+        ("ja", "automation_confirm_title") => "ショートカットアクションを実行しますか？",
+        ("ko", "automation_confirm_title") => "자동화를 실행할까요?",
+        ("es", "automation_confirm_title") => "¿Ejecutar acción rápida?",
+        ("fr", "automation_confirm_title") => "Exécuter l'action rapide ?",
+        ("de", "automation_confirm_title") => "Schnellaktion ausführen?",
+        (_, "automation_confirm_title") => "Run automation?",
+        ("zh-CN", "automation_confirm_body") => "「{name}」将执行以下命令：\n\n{command}",
+        ("ja", "automation_confirm_body") => {
+            "「{name}」は以下のコマンドを実行します：\n\n{command}"
+        }
+        ("ko", "automation_confirm_body") => "'{name}'이(가) 다음 명령을 실행합니다:\n\n{command}",
+        ("es", "automation_confirm_body") => {
+            "\"{name}\" ejecutará el siguiente comando:\n\n{command}"
+        }
+        ("fr", "automation_confirm_body") => {
+            "« {name} » exécutera la commande suivante :\n\n{command}"
+        }
+        ("de", "automation_confirm_body") => {
+            "„{name}“ führt den folgenden Befehl aus:\n\n{command}"
+        }
+        (_, "automation_confirm_body") => "\"{name}\" will run:\n\n{command}",
+        ("zh-CN", "automation_confirm_busy") => "已有确认对话框打开，请先处理",
+        ("ja", "automation_confirm_busy") => "確認ダイアログが既に開いています",
+        ("ko", "automation_confirm_busy") => "확인 대화상자가 이미 열려 있습니다",
+        ("es", "automation_confirm_busy") => "Ya hay un diálogo de confirmación abierto",
+        ("fr", "automation_confirm_busy") => "Une boîte de confirmation est déjà ouverte",
+        ("de", "automation_confirm_busy") => "Ein Bestätigungsdialog ist bereits geöffnet",
+        (_, "automation_confirm_busy") => "A confirmation dialog is already open",
         _ => "iPaste",
     }
 }

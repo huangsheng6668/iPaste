@@ -1,6 +1,7 @@
 // automation.rs — 快捷动作后台执行器
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use rusqlite::Connection;
@@ -42,8 +43,6 @@ pub(crate) fn command_program() -> (&'static str, Vec<String>) {
 
 /// 确认门判定：`confirm_before_run=true` 每次确认；否则与已确认命令哈希比对，
 /// 未确认过或命令已变都需要重新确认。纯函数，便于单测。
-// clippy 门禁豁免：Task 3 接线前的中间态，接线后移除。
-#[allow(dead_code)]
 pub(crate) fn needs_confirm(action: &AutomationAction, stored_hash: Option<&str>) -> bool {
     if action.confirm_before_run {
         return true;
@@ -51,8 +50,73 @@ pub(crate) fn needs_confirm(action: &AutomationAction, stored_hash: Option<&str>
     stored_hash != Some(crate::util::hash_text(action.command.trim()).as_str())
 }
 
-// clippy 门禁豁免：保留实现（诊断/平台能力预留），当前无调用方。
-#[allow(dead_code)]
+/// execute_automation 的错误：Declined 区分"用户在原生对话框拒绝"（不产生运行记录）。
+#[derive(Debug)]
+pub(crate) enum AutomationRunError {
+    Declined,
+    Other(String),
+}
+
+/// 全局单对话框守卫：同一时刻只允许一个原生确认对话框，防对话框洪泛。
+/// 核心逻辑参数化在 *_in 上便于单测；static 委托。
+static CONFIRM_DIALOG_GUARD: Mutex<Option<String>> = Mutex::new(None);
+
+fn acquire_confirm_slot_in(
+    slot: &Mutex<Option<String>>,
+    action_id: &str,
+    busy_message: &str,
+) -> Result<(), String> {
+    let mut guard = slot.lock().expect("确认对话框守卫锁中毒");
+    if guard.is_some() {
+        return Err(busy_message.to_string());
+    }
+    *guard = Some(action_id.to_string());
+    Ok(())
+}
+
+fn release_confirm_slot_in(slot: &Mutex<Option<String>>, action_id: &str) {
+    let mut guard = slot.lock().expect("确认对话框守卫锁中毒");
+    if guard.as_deref() == Some(action_id) {
+        *guard = None;
+    }
+}
+
+fn acquire_confirm_slot(action_id: &str, language: &str) -> Result<(), AutomationRunError> {
+    acquire_confirm_slot_in(
+        &CONFIRM_DIALOG_GUARD,
+        action_id,
+        crate::util::localized_text(language, "automation_confirm_busy"),
+    )
+    .map_err(AutomationRunError::Other)
+}
+
+fn release_confirm_slot(action_id: &str) {
+    release_confirm_slot_in(&CONFIRM_DIALOG_GUARD, action_id);
+}
+
+/// 原生确认对话框（webview 外，XSS 无法合成或点击）。
+/// 显示命令超 1200 字符截断加标记；哈希始终按全文计算（见调用方）。
+fn show_confirm_dialog(app: &tauri::AppHandle, action: &AutomationAction, language: &str) -> bool {
+    // tauri-plugin-dialog 2.7.3 无 blocking_ask 快捷方法，走 builder 等价形式：
+    // Yes/No 双钮、阻塞等待、Yes 返回 true；须在非主线程调用（此处为 async worker）。
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    let title = crate::util::localized_text(language, "automation_confirm_title");
+    let (command_display, truncated) = truncate_log(&action.command, 1200);
+    let command_display = if truncated {
+        format!("{command_display}…")
+    } else {
+        command_display
+    };
+    let body = crate::util::localized_text(language, "automation_confirm_body")
+        .replace("{name}", &action.name)
+        .replace("{command}", &command_display);
+    app.dialog()
+        .message(body)
+        .title(title)
+        .buttons(MessageDialogButtons::YesNo)
+        .blocking_show()
+}
+
 pub(crate) fn truncate_log(text: &str, limit: usize) -> (String, bool) {
     if text.chars().count() <= limit {
         return (text.to_string(), false);
@@ -64,23 +128,58 @@ pub(crate) async fn execute_automation(
     app: tauri::AppHandle,
     store: &Store,
     action: AutomationAction,
-) -> Result<AutomationRunSummary, String> {
+) -> Result<AutomationRunSummary, AutomationRunError> {
     if let Some(cwd) = action.cwd.as_deref() {
         if !PathBuf::from(cwd).is_dir() {
-            return Err(format!("工作目录不存在: {cwd}"));
+            return Err(AutomationRunError::Other(format!("工作目录不存在: {cwd}")));
         }
     }
 
-    let conn = store.connect()?;
-    if store.has_running_automation_run(&conn, &action.id)? {
-        return Err("该动作已在运行".to_string());
+    // has_running 先于确认对话框：对着已运行动作不弹框。
+    let stored_hash = {
+        let conn = store.connect().map_err(AutomationRunError::Other)?;
+        if store
+            .has_running_automation_run(&conn, &action.id)
+            .map_err(AutomationRunError::Other)?
+        {
+            return Err(AutomationRunError::Other("该动作已在运行".to_string()));
+        }
+        store
+            .confirmed_command_hash_with_conn(&conn, &action.id)
+            .map_err(AutomationRunError::Other)?
+    };
+
+    // sudo 模型确认门：confirm_before_run 每次确认；否则命令哈希不匹配（含从未确认）时确认。
+    if needs_confirm(&action, stored_hash.as_deref()) {
+        // 语言读取与 tray.rs 同一模式；settings() 失败回落默认语言。
+        let language = store
+            .settings()
+            .map(|settings| settings.language.as_str())
+            .unwrap_or(crate::DEFAULT_LANGUAGE);
+        acquire_confirm_slot(&action.id, language)?;
+        let approved = show_confirm_dialog(&app, &action, language);
+        let remember_hash = approved && !action.confirm_before_run;
+        release_confirm_slot(&action.id);
+        if !approved {
+            return Err(AutomationRunError::Declined);
+        }
+        if remember_hash {
+            let hash = crate::util::hash_text(action.command.trim());
+            let conn = store.connect().map_err(AutomationRunError::Other)?;
+            store
+                .set_confirmed_command_hash_with_conn(&conn, &action.id, &hash)
+                .map_err(AutomationRunError::Other)?;
+        }
     }
 
-    let run_id = store.insert_automation_run(&conn, &action.id)?;
+    let run_id = {
+        let conn = store.connect().map_err(AutomationRunError::Other)?;
+        store
+            .insert_automation_run(&conn, &action.id)
+            .map_err(AutomationRunError::Other)?
+    };
     let started_at = crate::util::now();
     let automation_id = action.id.clone();
-    // running 记录已落库，后面要跨多个 await 等子进程，连接不能一直握着。
-    drop(conn);
 
     let _ = app.emit(
         EVENT_AUTOMATION_RUN_STARTED,
@@ -139,8 +238,8 @@ pub(crate) async fn execute_automation(
     );
 
     match run_error {
-        Some(error) => Err(error),
-        None => finished,
+        Some(error) => Err(AutomationRunError::Other(error)),
+        None => finished.map_err(AutomationRunError::Other),
     }
 }
 
@@ -384,6 +483,24 @@ mod tests {
 
         // 哈希匹配当前命令：放行
         assert!(!needs_confirm(&action, Some(&hash)));
+    }
+
+    #[test]
+    fn confirm_slot_guard_rejects_concurrent_and_releases_by_id() {
+        let slot = std::sync::Mutex::new(None::<String>);
+
+        assert!(acquire_confirm_slot_in(&slot, "a", "busy").is_ok());
+        // 第二个确认请求被拒
+        assert_eq!(
+            acquire_confirm_slot_in(&slot, "b", "busy").unwrap_err(),
+            "busy"
+        );
+        // 释放别人的 id 不生效
+        release_confirm_slot_in(&slot, "wrong");
+        assert!(acquire_confirm_slot_in(&slot, "b", "busy").is_err());
+        // 释放自己的 id 后可重新占用
+        release_confirm_slot_in(&slot, "a");
+        assert!(acquire_confirm_slot_in(&slot, "b", "busy").is_ok());
     }
 
     #[test]

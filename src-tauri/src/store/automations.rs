@@ -293,8 +293,6 @@ impl Store {
 
     /// 读取动作当前已确认的命令哈希（NULL = 从未确认；动作不存在也返回 None，
     /// 让确认门走"需要确认"的安全方向）。
-    // clippy 门禁豁免：原生确认链任务（后续）接线前的预留实现，当前无调用方。
-    #[allow(dead_code)]
     pub(crate) fn confirmed_command_hash_with_conn(
         &self,
         conn: &Connection,
@@ -313,8 +311,6 @@ impl Store {
     }
 
     /// 记录用户在原生对话框中确认过的命令哈希。
-    // clippy 门禁豁免：原生确认链任务（后续）接线前的预留实现，当前无调用方。
-    #[allow(dead_code)]
     pub(crate) fn set_confirmed_command_hash_with_conn(
         &self,
         conn: &Connection,
