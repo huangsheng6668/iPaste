@@ -13,6 +13,10 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: write
+    env:
+      # Intel runner 交叉编译 Apple Silicon sidecar：构建/拷贝脚本按该变量
+      # 追加 cargo --target 并把产物落位到 externalBin 的目标三元组名下。
+      MOCR_BUILD_TARGET: ${{ matrix.crossFromIntel && 'aarch64-apple-darwin' || '' }}
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -23,11 +27,14 @@ jobs:
             rustTargets: x86_64-pc-windows-msvc
             args: ""
           - name: macOS Apple Silicon
-            # macos-15 的 ARM runner 池在高峰期对本仓库长期不分配机器
-            # （runner_name=None，连 Set up job 都不开始）；macos-26 是更新的
-            # ARM 池，负载更轻。rust 已钉 1.95.0，不受镜像工具链漂移影响。
-            platform: macos-26
+            # GitHub 的 ARM runner 池（macos-15 与 macos-26 实测）在高峰期对本
+            # 仓库长期不分配机器（runner_name=None，连 Set up job 都不开始）。
+            # 改为在 macos-15-intel runner 上交叉编译 aarch64-apple-darwin
+            # （macOS 同 SDK 跨编为官方支持路径；coreml 分发是静态库，不经
+            # Windows 才有的 copy_dylibs 路径）。rust 已钉 1.95.0。
+            platform: macos-15-intel
             rustTargets: aarch64-apple-darwin
+            crossFromIntel: true
             args: "--target aarch64-apple-darwin"
           - name: macOS Intel
             platform: macos-15-intel
@@ -79,7 +86,7 @@ jobs:
       # curl 走系统网络栈 + 重试更稳；sha256 与 ort-sys build/download/dist.tsv
       # 第 2 行的官方哈希一致，ort-sys 看到 bin_extract_dir 已存在即跳过下载。
       - name: Pre-seed ort coreml dist for macOS runners
-        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        if: runner.os == 'macOS' && matrix.rustTargets == 'aarch64-apple-darwin'
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +121,7 @@ jobs:
       # 网络重试（ort 的 onnxruntime 预编译包冷下载偶发抖动）。
       # Windows 与 macOS Apple Silicon (ARM64) 构建真实 sidecar；Intel Mac 跳过（打包占位）。
       - name: Build mocr_engine sidecar (explicit, with retries)
-        if: runner.os == 'Windows' || (runner.os == 'macOS' && runner.arch == 'ARM64')
+        if: runner.os == 'Windows' || (runner.os == 'macOS' && matrix.rustTargets == 'aarch64-apple-darwin')
         shell: bash
         run: |
           set -o pipefail
