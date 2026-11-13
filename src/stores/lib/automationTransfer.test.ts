@@ -69,10 +69,16 @@ describe("parseImportFile", () => {
     expect(() => parseImportFile("{}", new Set())).toThrow("no-automations-array");
   });
 
-  it("defaults confirmBeforeRun and closePanelOnSuccess to false", () => {
-    const json = JSON.stringify({ automations: [{ name: "a", command: "echo 1" }] });
+  it("forces confirmBeforeRun to true regardless of JSON value", () => {
+    const json = JSON.stringify({
+      automations: [
+        { name: "a", command: "echo 1", confirmBeforeRun: false },
+        { name: "b", command: "echo 2" },
+      ],
+    });
     const result = parseImportFile(json, new Set());
-    expect(result.valid[0].confirmBeforeRun).toBe(false);
-    expect(result.valid[0].closePanelOnSuccess).toBe(false);
+    expect(result.valid[0].confirmBeforeRun).toBe(true);
+    expect(result.valid[1].confirmBeforeRun).toBe(true);
+    expect(result.valid[1].closePanelOnSuccess).toBe(false);
   });
 });

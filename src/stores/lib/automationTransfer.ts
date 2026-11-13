@@ -77,7 +77,7 @@ export function parseImportFile(text: string, existingNames: Set<string>): Impor
       name,
       command,
       cwd: typeof e.cwd === "string" && e.cwd.trim() ? e.cwd : null,
-      confirmBeforeRun: typeof e.confirmBeforeRun === "boolean" ? e.confirmBeforeRun : false,
+      confirmBeforeRun: true,
       closePanelOnSuccess: typeof e.closePanelOnSuccess === "boolean" ? e.closePanelOnSuccess : false,
     });
   }
