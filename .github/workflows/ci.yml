@@ -56,7 +56,9 @@ jobs:
           # 2.0.0-rc.13 copy_dylibs 的 nth(3) 硬编码深度（Windows DLL 复制
           # 到不存在的 build/examples、build/deps 而 panic）。升级 ort-sys
           # 后可解除钉住。与 release.yml 保持同步。
+          # 显式钉版本时 action 不自动携带 rustfmt/clippy 组件，需列明。
           toolchain: 1.95.0
+          components: rustfmt, clippy
 
       - name: Install LLVM (libclang for bindgen)
         if: runner.os == 'Windows'
@@ -80,8 +82,18 @@ jobs:
           tmp="$(mktemp -d)"
           curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL "$url" -o "$tmp/pkg.tar.lzma"
           echo "6934874e2e953576d9c1db47ff1af39c62c4f4220dbe6f988e131f72879674c7  $tmp/pkg.tar.lzma" | shasum -a 256 -c -
+          # 归档是裸 LZMA2 流（无 xz/gzip 容器，ort-sys 内部用 lzma-rust2 解），
+          # bsdtar 认不出格式；python3 标准库 FORMAT_RAW + FILTER_LZMA2 可解。
+          python3 - "$tmp/pkg.tar.lzma" "$tmp/pkg.tar" <<'PY'
+          import lzma, sys
+          filters = [{"id": lzma.FILTER_LZMA2, "dict_size": 1 << 26}]
+          with open(sys.argv[1], "rb") as src, open(sys.argv[2], "wb") as dst:
+              dec = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=filters)
+              while chunk := src.read(1 << 20):
+                  dst.write(dec.decompress(chunk))
+          PY
           mkdir -p "$dest"
-          tar -xf "$tmp/pkg.tar.lzma" -C "$dest"
+          tar -xf "$tmp/pkg.tar" -C "$dest"
           # 归档若带顶层目录则上提一层（ort-sys 期望库文件直接位于哈希目录内）
           if [ "$(ls -A "$dest" | wc -l)" -eq 1 ] && [ -d "$dest/$(ls -A "$dest")" ]; then
             inner="$(ls -A "$dest")"
