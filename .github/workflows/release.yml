@@ -45,6 +45,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          # 钉住 1.95.0：更新版 cargo 的 build 目录嵌套布局（build/<pkg>/<hash>/out）
+          # 会踩爆 ort-sys 2.0.0-rc.13 copy_dylibs 里 nth(3) 的硬编码深度，
+          # Windows 上 DLL 被复制到不存在的 build/examples、build/deps 而 panic。
+          # 升级 ort-sys 后可解除钉住。
+          toolchain: 1.95.0
           targets: ${{ matrix.rustTargets }}
 
       - name: Install LLVM (libclang for bindgen)
@@ -64,6 +69,32 @@ jobs:
           IPASTE_UPDATER_R2_ENDPOINT: ${{ secrets.IPASTE_UPDATER_R2_ENDPOINT }}
           IPASTE_OCR_R2_BASE_URL: ${{ secrets.IPASTE_OCR_R2_BASE_URL }}
         run: node scripts/configure-updater-endpoints.mjs
+
+      # 预取 ort 的 aarch64 coreml 分发到 ort-sys 的 dfbin 缓存目录：
+      # ort-sys 自带下载器在 macOS runner 上对 cdn.pyke.io 的拉取持续失败，
+      # 且失败时只记日志、仍发射指向缺失目录的链接参数（链接期才爆）。
+      # curl 走系统网络栈 + 重试更稳；sha256 与 ort-sys build/download/dist.tsv
+      # 第 2 行的官方哈希一致，ort-sys 看到 bin_extract_dir 已存在即跳过下载。
+      - name: Pre-seed ort coreml dist for macOS runners
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="$HOME/Library/Caches/ort.pyke.io/dfbin/aarch64-apple-darwin/6934874e2e953576d9c1db47ff1af39c62c4f4220dbe6f988e131f72879674c7"
+          if [ -d "$dest" ]; then echo "ort coreml dist already seeded"; exit 0; fi
+          url="https://cdn.pyke.io/0/pyke:ort-rs/ms@1.28.0/aarch64-apple-darwin+coreml.tar.lzma2"
+          tmp="$(mktemp -d)"
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL "$url" -o "$tmp/pkg.tar.lzma"
+          echo "6934874e2e953576d9c1db47ff1af39c62c4f4220dbe6f988e131f72879674c7  $tmp/pkg.tar.lzma" | shasum -a 256 -c -
+          mkdir -p "$dest"
+          tar -xf "$tmp/pkg.tar.lzma" -C "$dest"
+          # 归档若带顶层目录则上提一层（ort-sys 期望库文件直接位于哈希目录内）
+          if [ "$(ls -A "$dest" | wc -l)" -eq 1 ] && [ -d "$dest/$(ls -A "$dest")" ]; then
+            inner="$(ls -A "$dest")"
+            mv "$dest/$inner"/* "$dest/"
+            rmdir "$dest/$inner"
+          fi
+          ls -la "$dest"
 
       # 独立构建 sidecar：失败在此步骤直接暴露 cargo 原始输出（嵌在
       # beforeBuildCommand 里会被 tauri-action 聚合为单一退出码），并带

@@ -51,6 +51,12 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # 钉住 1.95.0：更新版 cargo 的 build 目录嵌套布局会踩爆 ort-sys
+          # 2.0.0-rc.13 copy_dylibs 的 nth(3) 硬编码深度（Windows DLL 复制
+          # 到不存在的 build/examples、build/deps 而 panic）。升级 ort-sys
+          # 后可解除钉住。与 release.yml 保持同步。
+          toolchain: 1.95.0
 
       - name: Install LLVM (libclang for bindgen)
         if: runner.os == 'Windows'
@@ -60,6 +66,29 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
+
+      # 预取 ort 的 aarch64 coreml 分发（原因见 release.yml 同名步骤注释）：
+      # export_bindings 会链接 mocr_engine 测试二进制，需要 ort 运行时库。
+      - name: Pre-seed ort coreml dist for macOS runners
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dest="$HOME/Library/Caches/ort.pyke.io/dfbin/aarch64-apple-darwin/6934874e2e953576d9c1db47ff1af39c62c4f4220dbe6f988e131f72879674c7"
+          if [ -d "$dest" ]; then echo "ort coreml dist already seeded"; exit 0; fi
+          url="https://cdn.pyke.io/0/pyke:ort-rs/ms@1.28.0/aarch64-apple-darwin+coreml.tar.lzma2"
+          tmp="$(mktemp -d)"
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL "$url" -o "$tmp/pkg.tar.lzma"
+          echo "6934874e2e953576d9c1db47ff1af39c62c4f4220dbe6f988e131f72879674c7  $tmp/pkg.tar.lzma" | shasum -a 256 -c -
+          mkdir -p "$dest"
+          tar -xf "$tmp/pkg.tar.lzma" -C "$dest"
+          # 归档若带顶层目录则上提一层（ort-sys 期望库文件直接位于哈希目录内）
+          if [ "$(ls -A "$dest" | wc -l)" -eq 1 ] && [ -d "$dest/$(ls -A "$dest")" ]; then
+            inner="$(ls -A "$dest")"
+            mv "$dest/$inner"/* "$dest/"
+            rmdir "$dest/$inner"
+          fi
+          ls -la "$dest"
 
       - name: Generate TS bindings
         run: cargo test --manifest-path src-tauri/Cargo.toml export_bindings
