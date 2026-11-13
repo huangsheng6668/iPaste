@@ -19,6 +19,9 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
   const automationEditorAction = ref<AutomationAction | null>(null);
   const automationConfirmOpen = ref(false);
   const automationConfirmAction = ref<AutomationAction | null>(null);
+  const importPreviewOpen = ref(false);
+  const importPreviewItems = ref<AutomationInput[]>([]);
+  const importPreviewSkipped = ref(0);
   const automationContextMenu = ref<{ action: AutomationAction; x: number; y: number } | null>(null);
   const automationDetailOpen = ref(false);
   const automationDetailAction = ref<AutomationAction | null>(null);
@@ -168,15 +171,42 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
         alert(t("automation.importNoValid"));
         return;
       }
-
-      for (const input_ of result.valid) {
-        await automation.createAutomation(input_);
+      if (result.valid.length === 0) {
+        alert(t("automation.importSuccess", { imported: 0, skipped: result.skippedDuplicates }));
+        return;
       }
 
-      alert(t("automation.importSuccess", { imported: result.valid.length, skipped: result.skippedDuplicates }));
+      // 先预览后创建：用户在预览框逐条过目命令前不落库。
+      importPreviewItems.value = result.valid;
+      importPreviewSkipped.value = result.skippedDuplicates;
+      importPreviewOpen.value = true;
     } catch {
       alert(t("automation.importFailed"));
     }
+  }
+
+  async function confirmImportAutomations() {
+    importPreviewOpen.value = false;
+    try {
+      for (const input of importPreviewItems.value) {
+        await automation.createAutomation(input);
+      }
+      alert(
+        t("automation.importSuccess", {
+          imported: importPreviewItems.value.length,
+          skipped: importPreviewSkipped.value,
+        }),
+      );
+    } catch {
+      alert(t("automation.importFailed"));
+    } finally {
+      importPreviewItems.value = [];
+    }
+  }
+
+  function cancelImportAutomations() {
+    importPreviewOpen.value = false;
+    importPreviewItems.value = [];
   }
 
   return {
@@ -187,6 +217,10 @@ export function useAutomationFlow(store: IpasteStore, hidePanelFromUi: () => Pro
     automationContextMenu,
     automationDetailOpen,
     automationDetailAction,
+    importPreviewOpen,
+    importPreviewItems,
+    confirmImportAutomations,
+    cancelImportAutomations,
     importFileInput,
     selectActionCard,
     runSelectedAction,

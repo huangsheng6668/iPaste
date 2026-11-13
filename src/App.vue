@@ -7,6 +7,7 @@ import AutomationContextMenu from "./components/AutomationContextMenu.vue";
 import AutomationDetailDialog from "./components/AutomationDetailDialog.vue";
 import AutomationEditorDialog from "./components/AutomationEditorDialog.vue";
 import AutomationConfirmDialog from "./components/AutomationConfirmDialog.vue";
+import AutomationImportPreviewDialog from "./components/AutomationImportPreviewDialog.vue";
 // 辅助窗口按 kind 懒加载：5 类窗口共用同一份 App.vue 入口，静态导入会让每个
 // 窗口（含全局快捷键即时拉起的 OCR 遮罩/结果窗）都先下载全量组件代码再渲染
 // 一个分支。拆成异步 chunk 后各窗口只拉取自己需要的部分，遮罩窗可见更快。
@@ -142,6 +143,10 @@ const {
   automationContextMenu,
   automationDetailOpen,
   automationDetailAction,
+  importPreviewOpen,
+  importPreviewItems,
+  confirmImportAutomations,
+  cancelImportAutomations,
   importFileInput,
   selectActionCard,
   runSelectedAction,
@@ -171,6 +176,7 @@ const panelKeyboard = usePanelKeyboard({
   closeFloatingLayers,
   isModalOpen: () =>
     automationEditorOpen.value ||
+    importPreviewOpen.value ||
     automationConfirmOpen.value ||
     automationDetailOpen.value ||
     updater.updateDialogOpen.value,
@@ -851,6 +857,13 @@ const nextCategoryLabel = computed(() => {
       :action="automationEditorAction"
       @save="saveAutomation"
       @cancel="automationEditorOpen = false"
+    />
+
+    <AutomationImportPreviewDialog
+      :open="importPreviewOpen"
+      :items="importPreviewItems"
+      @confirm="void confirmImportAutomations()"
+      @cancel="cancelImportAutomations"
     />
 
     <AutomationConfirmDialog
