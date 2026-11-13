@@ -165,6 +165,7 @@ impl Store {
             "is_pinned",
             "INTEGER NOT NULL DEFAULT 0",
         )?;
+        add_column_if_missing(conn, "automations", "confirmed_command_hash", "TEXT")?;
 
         self.migrate_image_data_urls(conn)?;
         self.normalize_timestamp_columns(conn)?;

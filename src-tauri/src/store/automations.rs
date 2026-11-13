@@ -86,7 +86,10 @@ impl Store {
         let updated_at = crate::util::now();
         let changed = conn
             .execute(
-                "UPDATE automations SET name = ?1, command = ?2, cwd = ?3, confirm_before_run = ?4, close_panel_on_success = ?5, updated_at = ?6 WHERE id = ?7",
+                "UPDATE automations
+                 SET name = ?1, command = ?2, cwd = ?3, confirm_before_run = ?4, close_panel_on_success = ?5, updated_at = ?6,
+                     confirmed_command_hash = CASE WHEN command = ?2 THEN confirmed_command_hash ELSE NULL END
+                 WHERE id = ?7",
                 params![
                     input.name.trim(),
                     input.command.trim(),
@@ -287,6 +290,44 @@ impl Store {
             .map_err(|e| e.to_string())?;
         Ok(count > 0)
     }
+
+    /// 读取动作当前已确认的命令哈希（NULL = 从未确认；动作不存在也返回 None，
+    /// 让确认门走"需要确认"的安全方向）。
+    // clippy 门禁豁免：原生确认链任务（后续）接线前的预留实现，当前无调用方。
+    #[allow(dead_code)]
+    pub(crate) fn confirmed_command_hash_with_conn(
+        &self,
+        conn: &Connection,
+        id: &str,
+    ) -> Result<Option<String>, String> {
+        let hash = conn
+            .query_row(
+                "SELECT confirmed_command_hash FROM automations WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
+        Ok(hash)
+    }
+
+    /// 记录用户在原生对话框中确认过的命令哈希。
+    // clippy 门禁豁免：原生确认链任务（后续）接线前的预留实现，当前无调用方。
+    #[allow(dead_code)]
+    pub(crate) fn set_confirmed_command_hash_with_conn(
+        &self,
+        conn: &Connection,
+        id: &str,
+        hash: &str,
+    ) -> Result<(), String> {
+        conn.execute(
+            "UPDATE automations SET confirmed_command_hash = ?2 WHERE id = ?1",
+            params![id, hash],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 fn validate_automation_input(input: &AutomationInput) -> Result<(), String> {
@@ -437,6 +478,55 @@ mod tests {
             )
             .unwrap();
         assert_eq!(kept, 1, "最新运行记录必须保留");
+    }
+
+    #[test]
+    fn confirmed_command_hash_round_trip_and_update_reset() {
+        let store = temp_store();
+        let created = store.create_automation(input("a", "echo 1")).unwrap();
+        let conn = store.connect().unwrap();
+
+        // 新建动作从未确认
+        assert_eq!(
+            store
+                .confirmed_command_hash_with_conn(&conn, &created.id)
+                .unwrap(),
+            None
+        );
+
+        // 写入后可读回
+        let hash = crate::util::hash_text("echo 1");
+        store
+            .set_confirmed_command_hash_with_conn(&conn, &created.id, &hash)
+            .unwrap();
+        assert_eq!(
+            store
+                .confirmed_command_hash_with_conn(&conn, &created.id)
+                .unwrap(),
+            Some(hash.clone())
+        );
+
+        // 命令未变：update 保留哈希
+        store
+            .update_automation(&created.id, input("a", "echo 1"))
+            .unwrap();
+        assert_eq!(
+            store
+                .confirmed_command_hash_with_conn(&conn, &created.id)
+                .unwrap(),
+            Some(hash)
+        );
+
+        // 命令变化：update 清空哈希
+        store
+            .update_automation(&created.id, input("a", "echo 2"))
+            .unwrap();
+        assert_eq!(
+            store
+                .confirmed_command_hash_with_conn(&conn, &created.id)
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
