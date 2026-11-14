@@ -46,12 +46,31 @@ fn table_column_names(conn: &Connection, table: &str) -> Result<Vec<String>, Str
 /// 键缺失且已有配对设备 = 升级前真实用过同步的存量库 → 物化 'true'，
 /// 行为不变；新库/从未配对的库不物化，走读取层缺省 false（新配对需显式开启）。
 /// 幂等：键已存在（含本函数写入）时无操作。
+/// 一次性：首次启动后写 `_recv_gate_materialized` 标记，此后新装机配对
+/// 再重启也不会误物化（本步骤挂在每次启动的 migrate()，无标记守卫时
+/// 「键缺失 && 有设备」会在新装机首次配对后的重启成立，静默把新用户
+/// 翻成开，违背「新配对需显式开启」）。
 fn materialize_auto_push_master_for_upgrades(conn: &Connection) -> Result<(), String> {
+    let marker_present: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM settings WHERE key = '_recv_gate_materialized')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if marker_present {
+        return Ok(());
+    }
     conn.execute(
         "INSERT INTO settings (key, value)
          SELECT 'sync_auto_push_master', 'true'
          WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'sync_auto_push_master')
            AND EXISTS (SELECT 1 FROM paired_devices LIMIT 1)",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('_recv_gate_materialized', '1')",
         [],
     )
     .map_err(|error| error.to_string())?;
@@ -563,8 +582,11 @@ mod recv_default_tests {
             [],
         )
         .unwrap();
-        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
-            .unwrap();
+        conn.execute(
+            "DELETE FROM settings WHERE key IN ('sync_auto_push_master', '_recv_gate_materialized')",
+            [],
+        )
+        .unwrap();
 
         materialize_auto_push_master_for_upgrades(&conn).unwrap();
 
@@ -583,8 +605,11 @@ mod recv_default_tests {
     fn skips_materialization_when_no_paired_devices() {
         let store = temp_store();
         let conn = store.connect().unwrap();
-        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
-            .unwrap();
+        conn.execute(
+            "DELETE FROM settings WHERE key IN ('sync_auto_push_master', '_recv_gate_materialized')",
+            [],
+        )
+        .unwrap();
 
         materialize_auto_push_master_for_upgrades(&conn).unwrap();
 
@@ -606,6 +631,11 @@ mod recv_default_tests {
         conn.execute(
             "INSERT INTO paired_devices (node_id, device_name, direct_addrs, added_at)
              VALUES ('a', 'peer', '[]', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "DELETE FROM settings WHERE key = '_recv_gate_materialized'",
             [],
         )
         .unwrap();
@@ -639,8 +669,11 @@ mod recv_default_tests {
             [],
         )
         .unwrap();
-        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
-            .unwrap();
+        conn.execute(
+            "DELETE FROM settings WHERE key IN ('sync_auto_push_master', '_recv_gate_materialized')",
+            [],
+        )
+        .unwrap();
 
         materialize_auto_push_master_for_upgrades(&conn).unwrap();
         materialize_auto_push_master_for_upgrades(&conn).unwrap();
@@ -660,9 +693,59 @@ mod recv_default_tests {
     fn master_defaults_to_false_when_unset() {
         let store = temp_store();
         let conn = store.connect().unwrap();
-        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
-            .unwrap();
+        conn.execute(
+            "DELETE FROM settings WHERE key = 'sync_auto_push_master'",
+            [],
+        )
+        .unwrap();
         drop(conn);
         assert!(!store.auto_push_settings().unwrap().master);
+    }
+
+    /// 一次性标记守卫：新装机首启（无设备 → 不物化，但写标记）→ 配对
+    /// （pairing 流程不写 master 键）→ 重启再跑 migrate 也不得物化——
+    /// 否则「键缺失 && 有设备」在配对后的重启成立，静默把新用户翻成开，
+    /// 违背「新配对需显式开启」。
+    /// 注：temp_store 建库后的清理会清空 settings/paired_devices，故先重跑
+    /// migrate 模拟干净首启，全程走真实 migrate 接线路径。
+    #[test]
+    fn marker_prevents_materialization_after_first_run() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        store.migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO paired_devices (node_id, device_name, direct_addrs, added_at)
+             VALUES ('a', 'peer', '[]', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        store.migrate(&conn).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'sync_auto_push_master'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "标记存在时重启不得物化 master 键");
+    }
+
+    /// 首启即写一次性标记（无论是否发生物化）：migrate 跑过后标记必在。
+    /// 同上，temp_store 清掉了建库时写的标记，重跑 migrate 模拟首启。
+    #[test]
+    fn marker_written_on_first_run() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        store.migrate(&conn).unwrap();
+
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = '_recv_gate_materialized'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "1");
     }
 }
