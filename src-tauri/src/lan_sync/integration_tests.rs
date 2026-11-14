@@ -755,7 +755,7 @@ async fn autopush_full_chain() {
         .expect("B 端点");
 
     // 1) 配对（复用 harness）
-    let (_ticket, node_b, _node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
+    let (_ticket, node_b, node_a) = pair_over_loopback(&a, &sink_a, &b, &sink_b).await;
 
     // 2) 显式设一遍 TextOnly（缺省即 TextOnly，显式化测试意图）
     a.set_auto_sync(&node_b, AutoSyncMode::TextOnly);
@@ -811,7 +811,12 @@ async fn autopush_full_chain() {
 
     // 8b) 偏好过滤 - All：image 扇出（A 先落盘 1x1 png，clip.text=路径），B 收到
     //     并落自己的 image 行（B 侧重解码、存自己的文件路径——只认 clip_type）
+    //     前置（接收门 M1）：B 对 A 的 recv 模式缺省 text_only，图片 auto 帧需
+    //     显式放开到 all 才过 B 侧接收门——对应新语义下接收方的显式 opt-in。
     a.set_auto_sync(&node_b, AutoSyncMode::All);
+    store_b
+        .set_recv_sync_mode(&node_a, AutoSyncMode::All)
+        .unwrap();
     let png = tiny_png_bytes();
     let png_hash = hash_bytes(&png);
     let png_path = store_a

@@ -9,7 +9,7 @@ use crate::clipboard::{
     write_clipboard_image_data, write_clipboard_text,
 };
 use crate::events::{DeviceClipReceived, EVENT_DEVICE_CLIP_RECEIVED};
-use crate::models::AppendCopyState;
+use crate::models::{AppendCopyState, AutoSyncMode};
 use crate::store::Store;
 use crate::util::clean_display_name;
 
@@ -20,11 +20,36 @@ pub(super) fn append_session_active(state: &AppendCopyState) -> bool {
     state.is_enabled && state.session_id.is_some()
 }
 
+/// auto 帧接收门（安全加固周期① M1）：全局 master + 本端对该对端的
+/// recv_auto_sync_mode 两级校验。行缺失/读取失败/已撤销均 fail-closed 拒收。
+/// 非法 recv 库值已在行映射层回退 text_only。
+fn auto_receive_allowed(store: &Store, peer_node_id: &str, clip_type: &str) -> bool {
+    let Ok(settings) = store.auto_push_settings() else {
+        return false;
+    };
+    if !settings.master {
+        return false;
+    }
+    let Ok(Some(device)) = store.get_paired_device(peer_node_id) else {
+        return false;
+    };
+    if device.revoked_at.is_some() {
+        return false;
+    }
+    match device.recv_auto_sync_mode {
+        AutoSyncMode::Off => false,
+        AutoSyncMode::TextOnly => matches!(clip_type, "text" | "link" | "color" | "html"),
+        AutoSyncMode::All => true,
+    }
+}
+
 /// 处理收到的剪贴板内容：落库 + emit（auto 分流见历史条目）
 ///
 /// - `category_name` 为 `None`：历史/无分组条目，入 `clips`（历史）表。
 ///   按 `auto` 分流（spec §2/§3）：
-///   - `auto=true`（对端捕获即自动同步）：**先落库**再登记 `recent`（仅 auto 路径，
+///   - `auto=true`（对端捕获即自动同步）：先过**接收门**（全局 master + 本端对该
+///     对端的 recv 模式，见 `auto_receive_allowed`；拒收=完全丢弃），放行后
+///     **先落库**再登记 `recent`（仅 auto 路径，
 ///     供发送侧防回推），随后**尽力**写系统剪贴板（失败只发诊断事件、不推翻同步
 ///     结果——无头 CI/剪贴板被占用时同步本身不受影响）；追加复制会话活跃期间
 ///     跳过剪贴板写（防对端内容被 merge 进本地追加缓冲）。剪贴板写成败均按
@@ -169,6 +194,16 @@ pub(super) fn apply_received(
         }
         // 历史/无分组：按 auto 分流（spec §2/§3）
         None => {
+            // 接收门（M1）：auto 帧需本端授权（全局+设备级），拒收=完全丢弃
+            //（不落库/不写剪贴板/不发事件，仅诊断日志；不回执发送方防探测）。
+            // 手动帧与分组帧不经此门。
+            if auto && !auto_receive_allowed(store, &ctx.peer_node_id, clip_type) {
+                eprintln!(
+                    "[lan-sync] auto 帧被接收门拒收：peer={} type={clip_type}",
+                    ctx.peer_node_id
+                );
+                return false;
+            }
             // origin 自环防御（spec §3 第三道）：自己发出的内容绕回，静默丢弃。
             if auto && origin_node_id == Some(ctx.local_node_id.as_str()) {
                 return false;

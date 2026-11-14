@@ -82,6 +82,15 @@ fn clips_with_hash(store: &Store, hash: &str) -> i64 {
     .expect("查询 clips")
 }
 
+/// 既有 auto 路径用例的接收门 opt-in（安全加固周期① M1 起 auto 帧默认拒收）：
+/// 配对 apply_ctx 的固定对端 + 开 master；recv 缺省 text_only，文本类用例即可通过。
+fn open_recv_gate(store: &Store) {
+    store
+        .upsert_paired_device(&"ab".repeat(32), "peer", None, &[])
+        .unwrap();
+    store.update_auto_push_settings(true, false).unwrap();
+}
+
 /// 1) auto 历史条目：落库 + recent 登记。剪贴板写是尽力而为（无头 CI 上会
 /// 失败并发诊断事件），故不对事件做任何断言（有无皆合法），只断言
 /// 返回值、库行与 recent。
@@ -91,6 +100,7 @@ fn apply_received_auto_history_inserts_and_registers_recent() {
         events: Mutex::new(Vec::new()),
     });
     let store = temp_store();
+    open_recv_gate(&store);
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
 
@@ -143,6 +153,7 @@ fn apply_received_origin_loop_guard_drops_own_push() {
         events: Mutex::new(Vec::new()),
     });
     let store = temp_store();
+    open_recv_gate(&store);
     let recent = Arc::new(RecentReceived::new());
     let local = "aa".repeat(32);
     let ctx = apply_ctx(&sink, &store, &local, &recent);
@@ -228,6 +239,7 @@ async fn auto_frame_mid_batch_never_joins_category_batch() {
         events: Mutex::new(Vec::new()),
     });
     let store = temp_store();
+    open_recv_gate(&store);
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
     let (_client, server) = duplex(4096);
@@ -376,6 +388,7 @@ fn apply_received_auto_skips_clipboard_write_during_append_session() {
         events: Mutex::new(Vec::new()),
     });
     let store = temp_store();
+    open_recv_gate(&store);
     let recent = Arc::new(RecentReceived::new());
     let ctx = apply_ctx(&sink, &store, &"aa".repeat(32), &recent);
     // 构造活跃追加会话（is_enabled + session_id）
@@ -515,5 +528,209 @@ mod category_meta_tests {
         // 多字节字符按字符数计
         let wide: String = "中".repeat(81);
         assert!(validate_category_meta(Some(&wide), None).is_err());
+    }
+}
+
+/// 接收门矩阵（安全加固周期① M1）：auto 帧按 全局master × 设备recv模式 × 类型
+/// 两级门控；手动帧与分组帧不受门控影响。
+mod recv_gate_tests {
+    use super::*;
+    use crate::models::AutoSyncMode;
+
+    const PEER: &str = "ab"; // apply_ctx 固定 peer = "ab".repeat(32)
+
+    fn paired_peer(store: &Store) {
+        store
+            .upsert_paired_device(&PEER.repeat(32), "peer", None, &[])
+            .unwrap();
+    }
+
+    fn set_master(store: &Store, value: bool) {
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('sync_auto_push_master', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [if value { "true" } else { "false" }],
+        )
+        .unwrap();
+    }
+
+    /// 编码一张真实可解码的 1x1 png 的 data url：接收路径会对图片真实解码
+    /// （brief 的 `base64,AAAA` 裸占位过不了解码，到不了门控），与
+    /// integration_tests::tiny_png_bytes 同源做法。
+    fn tiny_png_data_url(rgba: [u8; 4]) -> String {
+        use base64::Engine as _;
+        use image::ImageEncoder as _;
+
+        let img =
+            image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_pixel(1, 1, image::Rgba(rgba));
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(img.as_raw(), 1, 1, image::ColorType::Rgba8.into())
+            .expect("编码 1x1 png");
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        )
+    }
+
+    /// clips 表中该类型条件下「本帧落库」的观测行数：图片行的 content_hash
+    /// 由接收路径按重编码 PNG 重算（≠ hash_text(data url)），与
+    /// integration_tests 同口径按 clip_type 观察；文本类按内容哈希精确观察。
+    fn gate_rows(store: &Store, clip_type: &str, payload: &str) -> i64 {
+        if clip_type == "image" {
+            let conn = store.connect().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM clips WHERE clip_type = 'image'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        } else {
+            clips_with_hash(store, &hash_text(payload))
+        }
+    }
+
+    fn recv_auto_lands(
+        store: &Store,
+        ctx: &SessionCtx,
+        sink: &Arc<CapturingSink>,
+        clip_type: &str,
+        payload: &str,
+    ) -> bool {
+        let before = gate_rows(store, clip_type, payload);
+        let landed = apply_received(
+            ctx,
+            store,
+            clip_type,
+            payload.as_bytes(),
+            None,
+            None,
+            None,
+            None,
+            false,
+            true, // auto
+            None,
+        );
+        let after = gate_rows(store, clip_type, payload);
+        landed && after == before + 1 && count_events(sink, EVENT_DEVICE_CLIP_RECEIVED) == 0
+    }
+
+    fn gate_case(master: bool, recv: AutoSyncMode, clip_type: &str, payload: &str) -> bool {
+        let store = temp_store();
+        paired_peer(&store);
+        set_master(&store, master);
+        store.set_recv_sync_mode(&PEER.repeat(32), recv).unwrap();
+        let sink = Arc::new(CapturingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let ctx = apply_ctx(
+            &sink,
+            &store,
+            &"aa".repeat(32),
+            &Arc::new(RecentReceived::new()),
+        );
+        recv_auto_lands(&store, &ctx, &sink, clip_type, payload)
+    }
+
+    #[test]
+    fn gate_matrix() {
+        // master off：任意类型拒
+        assert!(!gate_case(false, AutoSyncMode::All, "text", "m-off-text"));
+        // recv off：拒
+        assert!(!gate_case(true, AutoSyncMode::Off, "text", "recv-off-text"));
+        // text_only：四类文本收
+        assert!(gate_case(true, AutoSyncMode::TextOnly, "text", "t-text"));
+        assert!(gate_case(
+            true,
+            AutoSyncMode::TextOnly,
+            "link",
+            "https://t.example/"
+        ));
+        assert!(gate_case(true, AutoSyncMode::TextOnly, "color", "#aabbcc"));
+        assert!(gate_case(true, AutoSyncMode::TextOnly, "html", "<b>t</b>"));
+        // text_only：图片拒
+        assert!(!gate_case(
+            true,
+            AutoSyncMode::TextOnly,
+            "image",
+            &tiny_png_data_url([0x10, 0x80, 0xF0, 0xFF])
+        ));
+        // all：图片收
+        assert!(gate_case(
+            true,
+            AutoSyncMode::All,
+            "image",
+            &tiny_png_data_url([0xF0, 0x10, 0x80, 0xFF])
+        ));
+    }
+
+    #[test]
+    fn gate_fails_closed_on_missing_row_or_read_error() {
+        // 未配对（行缺失）→ 拒，即便 master 开、recv 逻辑上默认
+        let store = temp_store();
+        set_master(&store, true);
+        let sink = Arc::new(CapturingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let ctx = apply_ctx(
+            &sink,
+            &store,
+            &"aa".repeat(32),
+            &Arc::new(RecentReceived::new()),
+        );
+        assert!(!recv_auto_lands(&store, &ctx, &sink, "text", "no-row-text"));
+    }
+
+    #[test]
+    fn gate_ignores_manual_and_category_frames() {
+        let store = temp_store();
+        paired_peer(&store);
+        set_master(&store, false); // 门全关
+        store
+            .set_recv_sync_mode(&PEER.repeat(32), AutoSyncMode::Off)
+            .unwrap();
+        let sink = Arc::new(CapturingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let ctx = apply_ctx(
+            &sink,
+            &store,
+            &"aa".repeat(32),
+            &Arc::new(RecentReceived::new()),
+        );
+
+        // 手动帧：照常落库（不接管剪贴板是既有语义，不在本断言范围）
+        let landed = apply_received(
+            &ctx,
+            &store,
+            "text",
+            b"manual-ok".as_slice(),
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+        );
+        assert!(landed);
+        assert_eq!(clips_with_hash(&store, &hash_text("manual-ok")), 1);
+
+        // 分组帧：门只作用于历史 auto 路径，分组照常
+        let landed = apply_received(
+            &ctx,
+            &store,
+            "text",
+            b"cat-ok".as_slice(),
+            Some("分组".to_string()),
+            None,
+            None,
+            None,
+            false,
+            true,
+            None,
+        );
+        assert!(landed);
     }
 }
