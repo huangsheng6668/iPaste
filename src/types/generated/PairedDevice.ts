@@ -8,4 +8,9 @@ export type PairedDevice = { nodeId: string, deviceName: string, relayUrl: strin
 /**
  * 直连地址线索（ip:port），JSON 数组存库。
  */
-directAddrs: Array<string>, autoSyncMode: AutoSyncMode, addedAt: string, lastSeenAt: string | null, revokedAt: string | null, };
+directAddrs: Array<string>, autoSyncMode: AutoSyncMode, 
+/**
+ * 本端对该对端的自动**接收**模式（安全加固周期①）：auto 帧到达时的设备级
+ * 接收门，与发送侧 auto_sync_mode 对称。
+ */
+recvAutoSyncMode: AutoSyncMode, addedAt: string, lastSeenAt: string | null, revokedAt: string | null, };

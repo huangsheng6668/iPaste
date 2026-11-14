@@ -201,6 +201,12 @@ impl Store {
             "INTEGER NOT NULL DEFAULT 0",
         )?;
         add_column_if_missing(conn, "automations", "confirmed_command_hash", "TEXT")?;
+        add_column_if_missing(
+            conn,
+            "paired_devices",
+            "recv_auto_sync_mode",
+            "TEXT NOT NULL DEFAULT 'text_only'",
+        )?;
         materialize_auto_push_master_for_upgrades(conn)?;
 
         self.migrate_image_data_urls(conn)?;

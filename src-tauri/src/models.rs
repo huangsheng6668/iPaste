@@ -718,7 +718,8 @@ pub(crate) enum AutoSyncMode {
     Off,
 }
 
-/// 自动推送全局设置（settings KV `sync_auto_push_master/notify`；缺省 true/false）。
+/// 自动推送全局设置（settings KV `sync_auto_push_master/notify`；缺省 false/false，
+/// 新装默认关，存量由迁移物化，见 migrations.rs）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -738,6 +739,9 @@ pub(crate) struct PairedDevice {
     /// 直连地址线索（ip:port），JSON 数组存库。
     pub(crate) direct_addrs: Vec<String>,
     pub(crate) auto_sync_mode: AutoSyncMode,
+    /// 本端对该对端的自动**接收**模式（安全加固周期①）：auto 帧到达时的设备级
+    /// 接收门，与发送侧 auto_sync_mode 对称。
+    pub(crate) recv_auto_sync_mode: AutoSyncMode,
     pub(crate) added_at: String,
     pub(crate) last_seen_at: Option<String>,
     pub(crate) revoked_at: Option<String>,

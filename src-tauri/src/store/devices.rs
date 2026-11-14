@@ -10,12 +10,18 @@ fn row_to_paired_device(row: &rusqlite::Row<'_>) -> rusqlite::Result<PairedDevic
     let relay_url: Option<String> = row.get("relay_url")?;
     let addrs_json: String = row.get("direct_addrs")?;
     let mode: String = row.get("auto_sync_mode")?;
+    let recv_mode: String = row.get("recv_auto_sync_mode")?;
     Ok(PairedDevice {
         node_id: row.get("node_id")?,
         device_name: row.get("device_name")?,
         relay_url,
         direct_addrs: serde_json::from_str(&addrs_json).unwrap_or_default(),
         auto_sync_mode: match mode.as_str() {
+            "all" => AutoSyncMode::All,
+            "off" => AutoSyncMode::Off,
+            _ => AutoSyncMode::TextOnly,
+        },
+        recv_auto_sync_mode: match recv_mode.as_str() {
             "all" => AutoSyncMode::All,
             "off" => AutoSyncMode::Off,
             _ => AutoSyncMode::TextOnly,
@@ -85,8 +91,8 @@ impl Store {
             None => {
                 conn.execute(
                     "INSERT INTO paired_devices
-                        (node_id, device_name, relay_url, direct_addrs, auto_sync_mode, added_at, last_seen_at)
-                     VALUES (?1, ?2, ?3, ?4, 'text_only', ?5, ?5)",
+                        (node_id, device_name, relay_url, direct_addrs, auto_sync_mode, recv_auto_sync_mode, added_at, last_seen_at)
+                     VALUES (?1, ?2, ?3, ?4, 'text_only', 'text_only', ?5, ?5)",
                     params![node_id, device_name, relay_url, addrs_json, Utc::now().to_rfc3339()],
                 )
                 .map_err(|e| e.to_string())?;
@@ -177,6 +183,28 @@ impl Store {
         };
         conn.execute(
             "UPDATE paired_devices SET auto_sync_mode = ?2 WHERE node_id = ?1",
+            params![node_id, mode_str],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 更新本端对该对端的自动接收模式（auto 帧设备级接收门）。
+    // clippy 门禁豁免：命令层接线在安全加固周期①后续任务（M4），当前无调用方。
+    #[allow(dead_code)]
+    pub(crate) fn set_recv_sync_mode(
+        &self,
+        node_id: &str,
+        mode: AutoSyncMode,
+    ) -> Result<(), String> {
+        let conn = self.connect()?;
+        let mode_str = match mode {
+            AutoSyncMode::TextOnly => "text_only",
+            AutoSyncMode::All => "all",
+            AutoSyncMode::Off => "off",
+        };
+        conn.execute(
+            "UPDATE paired_devices SET recv_auto_sync_mode = ?2 WHERE node_id = ?1",
             params![node_id, mode_str],
         )
         .map_err(|e| e.to_string())?;
@@ -332,5 +360,57 @@ mod tests {
             AutoSyncMode::TextOnly,
             "元数据更新不动同步偏好"
         );
+    }
+}
+
+#[cfg(test)]
+mod recv_mode_tests {
+    use super::*;
+    use crate::store::test_support::temp_store;
+
+    /// 新配对设备默认 recv=text_only；可读写往返；非法库值回退 text_only。
+    #[test]
+    fn recv_mode_round_trip_and_fallback() {
+        let store = temp_store();
+        store
+            .upsert_paired_device(&"ab".repeat(32), "peer", None, &[])
+            .unwrap();
+
+        // 默认值
+        let device = store.get_paired_device(&"ab".repeat(32)).unwrap().unwrap();
+        assert!(matches!(device.recv_auto_sync_mode, AutoSyncMode::TextOnly));
+
+        // 往返：all → off → 读回
+        store
+            .set_recv_sync_mode(&"ab".repeat(32), AutoSyncMode::All)
+            .unwrap();
+        let device = store.get_paired_device(&"ab".repeat(32)).unwrap().unwrap();
+        assert!(matches!(device.recv_auto_sync_mode, AutoSyncMode::All));
+        store
+            .set_recv_sync_mode(&"ab".repeat(32), AutoSyncMode::Off)
+            .unwrap();
+        let device = store.get_paired_device(&"ab".repeat(32)).unwrap().unwrap();
+        assert!(matches!(device.recv_auto_sync_mode, AutoSyncMode::Off));
+
+        // 非法库值回退 text_only
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "UPDATE paired_devices SET recv_auto_sync_mode = 'garbage' WHERE node_id = ?1",
+            params![&"ab".repeat(32)],
+        )
+        .unwrap();
+        drop(conn);
+        let device = store.get_paired_device(&"ab".repeat(32)).unwrap().unwrap();
+        assert!(matches!(device.recv_auto_sync_mode, AutoSyncMode::TextOnly));
+    }
+
+    /// set 对不存在行静默无操作（与 set_auto_sync_mode 一致），不报错。
+    #[test]
+    fn set_recv_mode_on_missing_row_is_noop() {
+        let store = temp_store();
+        store
+            .set_recv_sync_mode(&"cd".repeat(32), AutoSyncMode::All)
+            .unwrap();
+        assert!(store.get_paired_device(&"cd".repeat(32)).unwrap().is_none());
     }
 }
