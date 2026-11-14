@@ -218,8 +218,6 @@ impl Store {
 
     /// OCR 测试连接的哨兵解析用：当前激活配置的存储 Key。
     /// 无激活配置时回退旧单配置凭据；都没有返回空串（本地无鉴权端点允许空 Key）。
-    // clippy 门禁豁免：Task 4 接线前的中间态，接线后移除。
-    #[allow(dead_code)]
     pub(crate) fn active_openai_ocr_profile_secret(&self) -> Result<String, String> {
         let conn = self.connect()?;
         let active_id = self
