@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { CheckCircle2, Cloud, HardDrive, Unplug } from "lucide-vue-next";
 import { t } from "../../i18n";
 import { pluralText } from "../../lib/format";
+import { clearIfMasked } from "../../lib/secretMask";
 import { useIpasteStore } from "../../stores/ipasteStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useCategoryStore } from "../../stores/categoryStore";
@@ -147,6 +148,7 @@ const categoryPercent = computed(() => (100 - textPercent.value - imagePercent.v
             v-model="cloudApiKey"
             type="password"
             autocomplete="current-password"
+            @focus="cloudApiKey = clearIfMasked(cloudApiKey)"
           >
         </label>
 
