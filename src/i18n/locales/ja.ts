@@ -445,6 +445,7 @@ export const ja = {
   "deviceSync.invite.pinLabel": "ペアリング PIN",
   "deviceSync.invite.pinHint": "相手のデバイスでこのコンピューターを選択し、PIN を入力してください",
   "deviceSync.invite.ticketFallback": "完全な招待チケット（別ネットワーク用）",
+  "deviceSync.invite.fingerprintLabel": "このデバイスのコード",
   "deviceSync.nearby.title": "近くのデバイス",
   "deviceSync.nearby.empty": "近くのデバイスがありません。相手が招待を生成し、同じネットワークにいることを確認してください",
   "deviceSync.pin.label": "6 桁の PIN",

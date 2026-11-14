@@ -456,6 +456,7 @@ export const en = {
   "deviceSync.invite.pinLabel": "Pairing PIN",
   "deviceSync.invite.pinHint": "On the other device, select this computer and enter the PIN",
   "deviceSync.invite.ticketFallback": "Full invite ticket (cross-network pairing)",
+  "deviceSync.invite.fingerprintLabel": "This device's code",
   "deviceSync.nearby.title": "Nearby devices",
   "deviceSync.nearby.empty": "No nearby devices. Make sure the other device has generated an invite and is on the same network",
   "deviceSync.pin.label": "6-digit PIN",

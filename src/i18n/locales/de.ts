@@ -445,6 +445,7 @@ export const de = {
   "deviceSync.invite.pinLabel": "Kopplungs-PIN",
   "deviceSync.invite.pinHint": "Wähle auf dem anderen Gerät diesen Computer und gib die PIN ein",
   "deviceSync.invite.ticketFallback": "Vollständiges Einladungs-Ticket (Paarung über Netzwerkgrenzen)",
+  "deviceSync.invite.fingerprintLabel": "Code dieses Geräts",
   "deviceSync.nearby.title": "Geräte in der Nähe",
   "deviceSync.nearby.empty": "Keine Geräte in der Nähe. Stelle sicher, dass das andere Gerät eine Einladung erstellt hat und im selben Netz ist",
   "deviceSync.pin.label": "6-stellige PIN",

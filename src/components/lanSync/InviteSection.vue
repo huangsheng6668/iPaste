@@ -7,6 +7,8 @@ const props = defineProps<{
   /** 6 位 PIN（同局域网短码配对）；无有效邀请时为 null。 */
   pin: string | null;
   ticket: string | null;
+  /** 本机指纹（endpoint_id 前 8 hex）：guest 确认步核对用（H2 防钓鱼）。 */
+  fingerprint: string | null;
   /** mm:ss 倒计时文案（useInviteCountdown.countdown）。 */
   countdown: string;
   /** 票据存在且倒计时已归零（面板组合语义）。 */
@@ -43,6 +45,13 @@ const emit = defineEmits<{
           :class="{ 'lan-pin-expired': expired }"
           aria-live="polite"
         >{{ formattedPin }}</span>
+      </div>
+      <div
+        v-if="fingerprint"
+        class="lan-pin-row"
+      >
+        <span class="lan-label">{{ t("deviceSync.invite.fingerprintLabel") }}</span>
+        <span class="font-mono text-sm text-[var(--text-1)]">{{ fingerprint }}</span>
       </div>
       <p class="lan-hint">
         {{ t("deviceSync.invite.pinHint") }}

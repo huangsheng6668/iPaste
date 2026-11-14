@@ -222,12 +222,32 @@ async fn create_and_cancel_invite_emit_state() {
         expires_at > now_ms && expires_at <= now_ms + INVITE_TTL.as_millis() as u64 + 5_000,
         "expires_at 应在未来 10 分钟内"
     );
+    // 主机指纹（H2）：本端 endpoint_id 前 4 字节 hex（8 字符、全十六进制），
+    // 供 PIN 卡片双端人工核对。
+    let fingerprint = events[0]["fingerprint"]
+        .as_str()
+        .expect("create 事件应带指纹");
+    assert_eq!(fingerprint.len(), 8, "指纹应为 8 字符，实际：{fingerprint}");
+    assert!(
+        fingerprint.chars().all(|c| c.is_ascii_hexdigit()),
+        "指纹应全为十六进制字符，实际：{fingerprint}"
+    );
+    assert_eq!(
+        fingerprint,
+        crate::lan_sync::session::fingerprint_hex(registry.inner.endpoint.id().as_bytes()),
+        "指纹应等于本端 endpoint_id 前 4 字节 hex"
+    );
 
     registry.cancel_invite().expect("cancel");
     let events = find_events(&sink, EVENT_PAIR_INVITE_STATE);
     assert_eq!(events.len(), 2);
     assert_eq!(events[1]["ticket"].as_str(), None);
     assert_eq!(events[1]["expiresAt"].as_u64(), None);
+    assert_eq!(
+        events[1]["fingerprint"].as_str(),
+        None,
+        "cancel 事件指纹应为 null"
+    );
 }
 
 /// 无 pending 配对请求时 respond_pair 报错。

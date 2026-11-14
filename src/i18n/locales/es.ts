@@ -445,6 +445,7 @@ export const es = {
   "deviceSync.invite.pinLabel": "PIN de emparejamiento",
   "deviceSync.invite.pinHint": "En el otro dispositivo, selecciona este equipo e introduce el PIN",
   "deviceSync.invite.ticketFallback": "Ticket de invitación completo (emparejamiento entre redes)",
+  "deviceSync.invite.fingerprintLabel": "Código de este dispositivo",
   "deviceSync.nearby.title": "Dispositivos cercanos",
   "deviceSync.nearby.empty": "No hay dispositivos cercanos. Comprueba que el otro dispositivo haya generado una invitación y esté en la misma red",
   "deviceSync.pin.label": "PIN de 6 dígitos",

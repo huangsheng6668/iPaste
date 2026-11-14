@@ -445,6 +445,7 @@ export const fr = {
   "deviceSync.invite.pinLabel": "Code PIN d'appariement",
   "deviceSync.invite.pinHint": "Sur l'autre appareil, sélectionnez cet ordinateur et saisissez le code PIN",
   "deviceSync.invite.ticketFallback": "Ticket d'invitation complet (appariement hors réseau local)",
+  "deviceSync.invite.fingerprintLabel": "Code de cet appareil",
   "deviceSync.nearby.title": "Appareils à proximité",
   "deviceSync.nearby.empty": "Aucun appareil à proximité. Vérifiez que l'autre appareil a généré une invitation et est sur le même réseau",
   "deviceSync.pin.label": "Code PIN à 6 chiffres",

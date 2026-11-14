@@ -22,7 +22,7 @@ import type { DeviceInfo } from "../types/generated/DeviceInfo";
 
 const sync = useDeviceSync();
 const {
-  devices, inviteTicket, inviteExpiresAt, invitePin, joinError, pairRequest, pairError, loadError,
+  devices, inviteTicket, inviteExpiresAt, invitePin, inviteFingerprint, joinError, pairRequest, pairError, loadError,
   nearby, selectedEndpointId, pinInput,
 } = sync;
 
@@ -226,6 +226,7 @@ onUnmounted(() => {
     <InviteSection
       :pin="invitePin"
       :ticket="inviteTicket"
+      :fingerprint="inviteFingerprint"
       :countdown="inviteCountdown"
       :expired="inviteExpired"
       :creating="creatingInvite"

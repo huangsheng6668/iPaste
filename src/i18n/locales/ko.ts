@@ -445,6 +445,7 @@ export const ko = {
   "deviceSync.invite.pinLabel": "페어링 PIN",
   "deviceSync.invite.pinHint": "다른 기기에서 이 컴퓨터를 선택하고 PIN을 입력하세요",
   "deviceSync.invite.ticketFallback": "전체 초대 티켓 (다른 네트워크용)",
+  "deviceSync.invite.fingerprintLabel": "이 기기 코드",
   "deviceSync.nearby.title": "주변 기기",
   "deviceSync.nearby.empty": "주변 기기가 없습니다. 상대 기기에서 초대를 생성했고 같은 네트워크에 있는지 확인하세요",
   "deviceSync.pin.label": "6자리 PIN",

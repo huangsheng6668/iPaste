@@ -37,6 +37,8 @@ export function useDeviceSync() {
   // 短码配对：附近设备列表 + host 侧 PIN + guest 侧选中目标与输入。
   const nearby = ref<NearbyDevice[]>([]);
   const invitePin = ref<string | null>(null);
+  // 主机自身指纹（endpoint_id 前 8 hex）：邀请卡片双端人工核对（H2 防钓鱼）。
+  const inviteFingerprint = ref<string | null>(null);
   const selectedEndpointId = ref<string | null>(null);
   const pinInput = ref("");
 
@@ -55,6 +57,7 @@ export function useDeviceSync() {
   const createInvite = async () => {
     joinError.value = null;
     invitePin.value = null;
+    inviteFingerprint.value = null;
     inviteTicket.value = await ipasteApi.pairingCreateInvite();
     // 后端随后经 pairInviteState 事件推送权威 expiresAt / pin；这里先给 10 分钟兜底。
     inviteExpiresAt.value = Date.now() + 10 * 60 * 1000;
@@ -65,6 +68,7 @@ export function useDeviceSync() {
     inviteTicket.value = null;
     inviteExpiresAt.value = null;
     invitePin.value = null;
+    inviteFingerprint.value = null;
   };
 
   const join = async (raw: string) => {
@@ -141,6 +145,7 @@ export function useDeviceSync() {
         inviteTicket.value = invite.ticket;
         inviteExpiresAt.value = invite.expiresAt;
         invitePin.value = invite.pin;
+        inviteFingerprint.value = invite.fingerprint ?? null;
       }),
     );
     unlistenFns.push(
@@ -193,6 +198,7 @@ export function useDeviceSync() {
     loadError,
     nearby,
     invitePin,
+    inviteFingerprint,
     selectedEndpointId,
     pinInput,
     refresh,

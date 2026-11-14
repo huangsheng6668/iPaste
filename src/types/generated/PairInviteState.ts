@@ -10,4 +10,9 @@ expiresAt: number | null,
 /**
  * 6 位 PIN（同局域网短码配对用）；None = 无有效邀请。票据秘密永不透出。
  */
-pin: string | null, };
+pin: string | null, 
+/**
+ * 主机自身指纹（endpoint_id 前 4 字节 hex，8 字符）：供 PIN 卡片双端
+ * 人工核对（H2 防钓鱼）；无有效邀请时 None。
+ */
+fingerprint: string | null, };

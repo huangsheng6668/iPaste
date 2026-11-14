@@ -131,6 +131,8 @@ impl DeviceLinkRegistry {
                 ticket: Some(encoded.clone()),
                 expires_at: Some(expires_at),
                 pin: Some(format_pin(pin)),
+                // 主机自身指纹：guest 侧确认步与本地卡片双端人工核对（H2）。
+                fingerprint: Some(fingerprint_hex(self.inner.endpoint.id().as_bytes())),
             },
         );
         Ok(encoded)
@@ -145,6 +147,7 @@ impl DeviceLinkRegistry {
                 ticket: None,
                 expires_at: None,
                 pin: None,
+                fingerprint: None,
             },
         );
         Ok(())

@@ -456,6 +456,7 @@ export const zhCN = {
   "deviceSync.invite.pinLabel": "配对 PIN",
   "deviceSync.invite.pinHint": "在另一台设备选择本机并输入此 PIN",
   "deviceSync.invite.ticketFallback": "完整邀请票据（跨网络配对）",
+  "deviceSync.invite.fingerprintLabel": "本机指纹",
   "deviceSync.nearby.title": "附近的设备",
   "deviceSync.nearby.empty": "未发现附近设备，请确认对方已生成邀请且在同一网络",
   "deviceSync.pin.label": "6 位 PIN",
