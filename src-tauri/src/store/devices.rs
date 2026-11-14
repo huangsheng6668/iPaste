@@ -190,8 +190,6 @@ impl Store {
     }
 
     /// 更新本端对该对端的自动接收模式（auto 帧设备级接收门）。
-    // clippy 门禁豁免：命令层接线在安全加固周期①后续任务（M4），当前无调用方。
-    #[allow(dead_code)]
     pub(crate) fn set_recv_sync_mode(
         &self,
         node_id: &str,

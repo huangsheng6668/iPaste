@@ -29,6 +29,9 @@ export const deviceSyncApi = {
   deviceSetAutoSync(nodeId: string, mode: AutoSyncMode) {
     return call<void>("device_set_auto_sync", { nodeId, mode });
   },
+  deviceSetRecvSync(nodeId: string, mode: AutoSyncMode) {
+    return call<void>("device_set_recv_sync", { nodeId, mode });
+  },
   pairingCreateInvite() {
     return call<string>("pairing_create_invite", undefined, "ipaste-pair-v1:pending");
   },

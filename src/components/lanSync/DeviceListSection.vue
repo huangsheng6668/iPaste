@@ -9,6 +9,7 @@ import {
   type DeviceStatusKey,
 } from "../../lib/deviceDisplay";
 import { categoryDisplayName } from "../../lib/format";
+import { ipasteApi } from "../../lib/ipasteApi";
 import type { AutoSyncMode } from "../../types/generated/AutoSyncMode";
 import type { Category } from "../../types/generated/Category";
 import type { DeviceInfo } from "../../types/generated/DeviceInfo";
@@ -79,6 +80,13 @@ function onAutoSyncChange(entry: DeviceInfo, event: Event) {
   const select = event.target as HTMLSelectElement;
   emit("autoSyncChange", entry, select.value as AutoSyncMode, select);
 }
+
+// 接收偏好为 fire-and-forget 直调：后端落库后会 emit 设备列表事件，
+// 面板订阅刷新时 select 随 :value 绑定自然回到后端权威值。
+function onRecvSyncChange(entry: DeviceInfo, event: Event) {
+  const mode = (event.target as HTMLSelectElement).value as AutoSyncMode;
+  void ipasteApi.deviceSetRecvSync(entry.device.nodeId, mode);
+}
 </script>
 
 <template>
@@ -135,6 +143,23 @@ function onAutoSyncChange(entry: DeviceInfo, event: Event) {
           </option>
           <option value="off">
             {{ t("deviceSync.autoSync.off") }}
+          </option>
+        </select>
+        <select
+          class="lan-select"
+          :disabled="isRevoked(entry)"
+          :value="entry.device.recvAutoSyncMode"
+          :aria-label="t('deviceSync.recvSync.label')"
+          @change="onRecvSyncChange(entry, $event)"
+        >
+          <option value="text_only">
+            {{ t("deviceSync.recvSync.textOnly") }}
+          </option>
+          <option value="all">
+            {{ t("deviceSync.recvSync.all") }}
+          </option>
+          <option value="off">
+            {{ t("deviceSync.recvSync.off") }}
           </option>
         </select>
         <div class="lan-device-actions">

@@ -24,6 +24,7 @@ function device(
       relayUrl: null,
       directAddrs: [],
       autoSyncMode: "text_only",
+      recvAutoSyncMode: "text_only",
       lastSeenAt: null,
       revokedAt: null,
       ...overrides,

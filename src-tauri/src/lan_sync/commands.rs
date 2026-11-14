@@ -71,6 +71,16 @@ pub(crate) fn device_set_auto_sync(
     Ok(())
 }
 
+#[tauri::command]
+pub(crate) fn device_set_recv_sync(
+    app: AppHandle,
+    node_id: String,
+    mode: AutoSyncMode,
+) -> Result<(), AppError> {
+    app.device_registry()?.set_recv_sync(&node_id, mode);
+    Ok(())
+}
+
 // —— 配对（票据邀请 / 加入 / 确认）——
 
 /// 生成配对票据（覆盖旧邀请）。registry 内会尽力等待中继上线（上限 5s），

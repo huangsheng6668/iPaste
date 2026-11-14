@@ -92,6 +92,14 @@ impl DeviceLinkRegistry {
         self.emit_device_list();
     }
 
+    /// 仅改接收偏好（不断链）+ emit 列表。
+    pub(crate) fn set_recv_sync(&self, node_id: &str, mode: AutoSyncMode) {
+        if let Err(reason) = self.inner.store.set_recv_sync_mode(node_id, mode) {
+            eprintln!("[lan-sync] 设置接收偏好失败：{reason}");
+        }
+        self.emit_device_list();
+    }
+
     /// 用户主动断开某设备：先记入内存态断开标记，再杀会话/停重拨（状态写先行，
     /// 与 revoke 同形——关闭 run_session 准入与登记间的 TOCTOU 窗口）——此后对端
     /// 重拨一律静默拒绝，直到重新配对成功或重启应用（重启清空标记）。
