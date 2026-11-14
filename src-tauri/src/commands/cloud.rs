@@ -37,7 +37,15 @@ pub(crate) async fn test_cloud_settings(
     api_key: String,
 ) -> Result<bool, AppError> {
     let api_address = clean_api_address(api_address)?;
-    let api_key = clean_api_key(api_key)?;
+    // 掩码哨兵 = 输入框未改动：用存储的真实 Key 测试。
+    let api_key = if crate::util::is_masked_secret(&api_key) {
+        match crate::store::secrets::get_api_key() {
+            Ok(Some(stored)) if !stored.trim().is_empty() => stored,
+            _ => return Err(AppError::internal("云同步 API Key 未配置")),
+        }
+    } else {
+        clean_api_key(api_key)?
+    };
     tokio::task::spawn_blocking(move || {
         test_cloud_connection(&api_address, &api_key)?;
         Ok(true)

@@ -128,6 +128,7 @@ pub(crate) fn clear_openai_ocr_config(
 /// 模型 / Key 的组合可用（不校验转写内容）。
 #[tauri::command]
 pub(crate) async fn test_openai_ocr(
+    state: tauri::State<'_, AppState>,
     base_url: String,
     model: String,
     api_key: String,
@@ -135,7 +136,16 @@ pub(crate) async fn test_openai_ocr(
 ) -> Result<bool, AppError> {
     let base_url = clean_openai_base_url(base_url)?;
     let model = clean_openai_model(model)?;
-    let api_key = api_key.trim().to_string();
+    // 掩码哨兵 = 输入框未改动：用当前激活配置存储的真实 Key 测试。
+    // 解析结果为空时按空 Key 透传（本地无鉴权端点允许）。
+    let api_key = if crate::util::is_masked_secret(&api_key) {
+        state
+            .store
+            .active_openai_ocr_profile_secret()
+            .map_err(AppError::from)?
+    } else {
+        api_key.trim().to_string()
+    };
     tokio::task::spawn_blocking(move || {
         crate::ocr::openai::test_connection(&base_url, &model, &api_key, prompts.as_deref())
     })
