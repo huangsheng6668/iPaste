@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { t } from "../../i18n";
 import type { NearbyDevice } from "../../types/generated/NearbyDevice";
 
@@ -22,6 +22,35 @@ const emit = defineEmits<{
 }>();
 
 const pinValid = computed(() => /^\d{6}$/.test(props.pin));
+
+/** 确认层是否打开：配对动作先经指纹核对，确认后才 emit joinNearby。 */
+const confirming = ref(false);
+
+/** 所选条目指纹：endpointId 前 8 个 hex 字符，与主机侧 fingerprint_hex 同源。 */
+const selectedFingerprint = computed(() => {
+  const device = props.nearby.find((d) => d.endpointId === props.selectedEndpointId);
+  return device ? device.endpointId.slice(0, 8) : "";
+});
+
+/** 所选条目名称：确认层中与指纹一起供用户核对目标设备。 */
+const selectedDeviceName = computed(() => {
+  const device = props.nearby.find((d) => d.endpointId === props.selectedEndpointId);
+  return device ? device.deviceName : "";
+});
+
+function requestJoin() {
+  if (!pinValid.value || !props.selectedEndpointId) return;
+  confirming.value = true;
+}
+
+function confirmJoin() {
+  confirming.value = false;
+  emit("joinNearby");
+}
+
+function cancelJoin() {
+  confirming.value = false;
+}
 </script>
 
 <template>
@@ -76,14 +105,14 @@ const pinValid = computed(() => /^\d{6}$/.test(props.pin));
         maxlength="6"
         :placeholder="t('deviceSync.pin.placeholder')"
         @input="emit('update:pin', ($event.target as HTMLInputElement).value)"
-        @keydown.enter="emit('joinNearby')"
+        @keydown.enter="requestJoin"
       >
       <button
         id="lan-pin-join"
         type="button"
         class="lan-button lan-button-primary"
         :disabled="!selectedEndpointId || !pinValid"
-        @click="emit('joinNearby')"
+        @click="requestJoin"
       >
         {{ t("deviceSync.pin.button") }}
       </button>
@@ -125,5 +154,49 @@ const pinValid = computed(() => /^\d{6}$/.test(props.pin));
     >
       {{ errorText }}
     </p>
+
+    <!-- 配对确认层：核对所选设备指纹与主机侧「本机指纹」一致后再 emit（H2 防钓鱼） -->
+    <div
+      v-if="confirming"
+      class="dialog-backdrop"
+      @click.self="cancelJoin"
+    >
+      <div
+        class="dialog-panel"
+        role="dialog"
+        @keydown.esc="cancelJoin"
+      >
+        <div class="dialog-body">
+          <h2 class="dialog-title">
+            {{ t("deviceSync.joinConfirm.title") }}
+          </h2>
+          <p class="mt-1 text-sm text-[var(--text-2)]">
+            {{ t("deviceSync.joinConfirm.hint") }}
+          </p>
+          <p class="mt-3 text-sm font-semibold text-[var(--text-1)]">
+            {{ selectedDeviceName }}
+          </p>
+          <p class="mt-1 font-mono text-lg text-[var(--text-1)]">
+            {{ selectedFingerprint }}
+          </p>
+        </div>
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn-ghost"
+            @click="cancelJoin"
+          >
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            @click="confirmJoin"
+          >
+            {{ t("deviceSync.joinConfirm.confirm") }}
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
