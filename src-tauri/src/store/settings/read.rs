@@ -174,7 +174,8 @@ impl Store {
     }
 
     /// 自动推送全局设置（settings 表 KV `sync_auto_push_master/notify`；缺省
-    /// true/false）。坏值（非 "true"/"false"）回退缺省并记 stderr，不阻断读取。
+    /// false/false（v1.9.1 起新装默认关；存量已配对库由迁移物化 true 保真，见
+    /// migrations.rs））。坏值（非 "true"/"false"）回退缺省并记 stderr，不阻断读取。
     pub(crate) fn auto_push_settings(&self) -> Result<AutoPushSettings, String> {
         let conn = self.connect()?;
         let read_bool = |key: &str, default: bool| -> Result<bool, String> {
@@ -192,7 +193,7 @@ impl Store {
                 .unwrap_or(default))
         };
         Ok(AutoPushSettings {
-            master: read_bool("sync_auto_push_master", true)?,
+            master: read_bool("sync_auto_push_master", false)?,
             notify: read_bool("sync_auto_push_notify", false)?,
         })
     }

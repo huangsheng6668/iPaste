@@ -741,6 +741,10 @@ fn image_clip_rows(store: &Store) -> i64 {
 async fn autopush_full_chain() {
     let store_a = temp_store();
     let store_b = temp_store();
+    // master 缺省已翻转为关（v1.9.1 安全默认）：本链路测试显式开启两端自动推送，
+    // 对应新语义下用户的显式 opt-in；链路行为本身不变。
+    store_a.update_auto_push_settings(true, false).unwrap();
+    store_b.update_auto_push_settings(true, false).unwrap();
     let sink_a = sink();
     let a = DeviceLinkRegistry::start_for_test(store_a.clone(), sink_a.clone())
         .await

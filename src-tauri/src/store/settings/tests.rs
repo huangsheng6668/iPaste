@@ -227,11 +227,11 @@ fn sync_relay_url_blank_stored_value_reads_as_none() {
 fn auto_push_settings_defaults_and_round_trip() {
     let store = temp_store();
 
-    // 缺省 master=true / notify=false
+    // 缺省 master=false（v1.9.1 起新装默认关；存量已配对库由迁移物化 true 保真）/ notify=false
     assert_eq!(
         store.auto_push_settings().unwrap(),
         crate::models::AutoPushSettings {
-            master: true,
+            master: false,
             notify: false
         }
     );
@@ -271,7 +271,7 @@ fn auto_push_settings_bad_values_fall_back_to_defaults() {
     assert_eq!(
         store.auto_push_settings().unwrap(),
         crate::models::AutoPushSettings {
-            master: true,
+            master: false,
             notify: false
         },
         "坏值回退缺省"

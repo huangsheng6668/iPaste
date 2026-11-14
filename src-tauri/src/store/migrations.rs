@@ -42,6 +42,22 @@ fn table_column_names(conn: &Connection, table: &str) -> Result<Vec<String>, Str
         .map_err(|error| error.to_string())
 }
 
+/// 自动推送 master 缺省翻转的存量保真（安全加固周期①，M2）：
+/// 键缺失且已有配对设备 = 升级前真实用过同步的存量库 → 物化 'true'，
+/// 行为不变；新库/从未配对的库不物化，走读取层缺省 false（新配对需显式开启）。
+/// 幂等：键已存在（含本函数写入）时无操作。
+fn materialize_auto_push_master_for_upgrades(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO settings (key, value)
+         SELECT 'sync_auto_push_master', 'true'
+         WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'sync_auto_push_master')
+           AND EXISTS (SELECT 1 FROM paired_devices LIMIT 1)",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 impl Store {
     pub(super) fn migrate(&self, conn: &Connection) -> Result<(), String> {
         conn.execute_batch(
@@ -166,6 +182,7 @@ impl Store {
             "INTEGER NOT NULL DEFAULT 0",
         )?;
         add_column_if_missing(conn, "automations", "confirmed_command_hash", "TEXT")?;
+        materialize_auto_push_master_for_upgrades(conn)?;
 
         self.migrate_image_data_urls(conn)?;
         self.normalize_timestamp_columns(conn)?;
@@ -527,5 +544,125 @@ mod tests {
                 .unwrap();
             assert_eq!(got, want, "id = {id}");
         }
+    }
+}
+
+#[cfg(test)]
+mod recv_default_tests {
+    use super::*;
+    use crate::store::test_support::temp_store;
+
+    /// 老升级库：已有配对设备且从未设置 master → 物化 true（存量保真）。
+    #[test]
+    fn materializes_true_for_upgraded_db_with_paired_devices() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "INSERT INTO paired_devices (node_id, device_name, direct_addrs, added_at)
+             VALUES ('a', 'peer', '[]', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
+            .unwrap();
+
+        materialize_auto_push_master_for_upgrades(&conn).unwrap();
+
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'sync_auto_push_master'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "true");
+    }
+
+    /// 新库/未配对老库：不物化（读取层缺省 false 生效）。
+    #[test]
+    fn skips_materialization_when_no_paired_devices() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
+            .unwrap();
+
+        materialize_auto_push_master_for_upgrades(&conn).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'sync_auto_push_master'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    /// 已显式设置过的用户：不覆盖。
+    #[test]
+    fn never_overrides_explicit_setting() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "INSERT INTO paired_devices (node_id, device_name, direct_addrs, added_at)
+             VALUES ('a', 'peer', '[]', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('sync_auto_push_master', 'false')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+
+        materialize_auto_push_master_for_upgrades(&conn).unwrap();
+
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'sync_auto_push_master'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "false");
+    }
+
+    /// 幂等：重复执行不重复插入。
+    #[test]
+    fn materialization_is_idempotent() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        conn.execute(
+            "INSERT INTO paired_devices (node_id, device_name, direct_addrs, added_at)
+             VALUES ('a', 'peer', '[]', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
+            .unwrap();
+
+        materialize_auto_push_master_for_upgrades(&conn).unwrap();
+        materialize_auto_push_master_for_upgrades(&conn).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'sync_auto_push_master'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    /// 读取缺省翻转：未设置键时 auto_push_settings().master == false。
+    #[test]
+    fn master_defaults_to_false_when_unset() {
+        let store = temp_store();
+        let conn = store.connect().unwrap();
+        conn.execute("DELETE FROM settings WHERE key = 'sync_auto_push_master'", [])
+            .unwrap();
+        drop(conn);
+        assert!(!store.auto_push_settings().unwrap().master);
     }
 }
