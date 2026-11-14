@@ -30,13 +30,28 @@ impl Store {
         api_key: String,
     ) -> Result<AppSettings, String> {
         let api_address = clean_api_address(api_address)?;
-        let api_key = clean_api_key(api_key)?;
+        // 掩码哨兵 = 输入框未改动：用存储的真实 Key 完成连接测试并跳过重写。
+        // 空串维持既有报错语义（清除凭据走 disable_cloud_sync）。
+        let key_unchanged = matches!(
+            crate::util::resolve_secret_input(&api_key),
+            crate::util::ResolvedSecret::KeepExisting
+        );
+        let api_key = if key_unchanged {
+            match super::secrets::get_api_key() {
+                Ok(Some(stored)) if !stored.trim().is_empty() => stored,
+                _ => return Err("云同步 API Key 未配置，请重新输入".to_string()),
+            }
+        } else {
+            clean_api_key(api_key)?
+        };
         test_cloud_connection(&api_address, &api_key)?;
 
         let conn = self.connect()?;
         // v0.3.29+：API Key 不再明文入库——写系统凭据库，settings 列存空串占位。
         // 凭据库写入失败直接报错，不做明文静默回退（安全优先于可用性）。
-        super::secrets::put_api_key(&api_key)?;
+        if !key_unchanged {
+            super::secrets::put_api_key(&api_key)?;
+        }
         conn.execute(
             "INSERT INTO settings (key, value) VALUES ('cloud_api_address', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",

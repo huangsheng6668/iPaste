@@ -3,6 +3,11 @@
 
 use crate::store::Store;
 
+/// mock 凭据库（secrets 内存后端）是进程级共享状态，凭据相关测试必须跨模块
+/// 串行：各测试模块私有的 LOCK 互不感知，共享账户（legacy/cloud）上的
+/// delete/put 会打断并发测试的读取断言，表现为偶发失败。
+pub(crate) static KEYRING_MOCK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub(crate) fn temp_store() -> Store {
     super::secrets::use_mock_backend_for_tests(); // 凭据库统一切内存 mock，不触真实系统库
     let dir = std::env::temp_dir().join(format!(

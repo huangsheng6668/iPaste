@@ -374,8 +374,9 @@ impl Store {
     ) -> Result<AppSettings, String> {
         let base_url = crate::util::clean_openai_base_url(profile.base_url)?;
         let model = crate::util::clean_openai_model(profile.model)?;
+        // 哨兵延迟解析：profile_id 在下方才确定（新建配置的哨兵视为未填写）。
         // 本地无鉴权端点允许空 Key；留空即清除该配置的凭据。
-        let api_key = profile.api_key.trim().to_string();
+        let raw_api_key = profile.api_key.trim().to_string();
         let requested_id = profile.id.trim().to_string();
         let conn = self.connect()?;
         let mut profiles = self.stored_openai_ocr_profiles_with_conn(&conn)?;
@@ -406,6 +407,21 @@ impl Store {
                 return Err("接口配置不存在，请刷新后重试".to_string());
             };
             existing.id.clone()
+        };
+
+        let api_key = match crate::util::resolve_secret_input(&raw_api_key) {
+            crate::util::ResolvedSecret::KeepExisting => {
+                if requested_id.is_empty() {
+                    // 新建配置收到哨兵视为未填写
+                    String::new()
+                } else {
+                    super::super::secrets::get_openai_ocr_profile_api_key(&profile_id)
+                        .unwrap_or_default()
+                        .unwrap_or_default()
+                }
+            }
+            crate::util::ResolvedSecret::Clear => String::new(),
+            crate::util::ResolvedSecret::Set(value) => value,
         };
 
         let name = profile.name.trim();
@@ -500,6 +516,15 @@ impl Store {
             .and_then(|raw| serde_json::from_str::<Vec<OpenaiOcrProfile>>(raw).ok())
             .is_none()
         {
+            let api_key = match crate::util::resolve_secret_input(&api_key) {
+                crate::util::ResolvedSecret::KeepExisting => {
+                    super::super::secrets::get_openai_ocr_api_key()
+                        .unwrap_or_default()
+                        .unwrap_or_default()
+                }
+                crate::util::ResolvedSecret::Clear => String::new(),
+                crate::util::ResolvedSecret::Set(value) => value,
+            };
             if api_key.is_empty() {
                 super::super::secrets::delete_openai_ocr_api_key()?;
             } else {
@@ -536,12 +561,22 @@ impl Store {
         else {
             return Err("接口配置不存在，请刷新后重试".to_string());
         };
+        let api_key = match crate::util::resolve_secret_input(&api_key) {
+            crate::util::ResolvedSecret::KeepExisting => {
+                super::super::secrets::get_openai_ocr_profile_api_key(&active_profile_id)
+                    .unwrap_or_default()
+                    .unwrap_or_default()
+            }
+            crate::util::ResolvedSecret::Clear => String::new(),
+            crate::util::ResolvedSecret::Set(value) => value,
+        };
         profile.base_url = base_url;
         profile.model = model.clone();
         profile.api_key = api_key.clone();
         if profile.name.trim().is_empty() {
             profile.name = model;
         }
+
         if api_key.is_empty() {
             super::super::secrets::delete_openai_ocr_profile_api_key(&active_profile_id)?;
         } else {
@@ -641,7 +676,7 @@ pub(crate) fn mask_app_settings_secrets(settings: &mut AppSettings) {
 #[cfg(test)]
 mod secret_mask_tests {
     use super::*;
-    use crate::store::test_support::temp_store;
+    use crate::store::test_support::{temp_store, KEYRING_MOCK_LOCK};
 
     #[test]
     fn settings_with_conn_masks_secret_and_unmasked_keeps_plaintext() {
@@ -702,5 +737,109 @@ mod secret_mask_tests {
         super::mask_app_settings_secrets(&mut settings);
         assert_eq!(settings.cloud.api_key, "");
         assert_eq!(settings.cloud_ocr.openai_api_key, "");
+    }
+
+    #[test]
+    fn update_openai_ocr_config_sentinel_keeps_stored_key() {
+        // 本测试写读 legacy 共享凭据账户：与 tests.rs 的 keyring 测试共用
+        // test_support 的锁串行，mock 凭据库是进程级共享内存。
+        let _guard = KEYRING_MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let store = temp_store();
+        store
+            .update_openai_ocr_config(
+                "http://127.0.0.1:1234/v1".into(),
+                "test-model".into(),
+                "sk-orig".into(),
+                None,
+            )
+            .unwrap();
+
+        // 哨兵回传：凭据保留
+        store
+            .update_openai_ocr_config(
+                "http://127.0.0.1:1234/v1".into(),
+                "test-model".into(),
+                crate::util::MASKED_SECRET.into(),
+                None,
+            )
+            .unwrap();
+        let conn = store.connect().unwrap();
+        let unmasked = store.settings_unmasked_with_conn(&conn).unwrap();
+        assert_eq!(unmasked.cloud_ocr.openai_api_key, "sk-orig");
+
+        // 空串回传：凭据清除（本地端点允许空 Key）
+        store
+            .update_openai_ocr_config(
+                "http://127.0.0.1:1234/v1".into(),
+                "test-model".into(),
+                String::new(),
+                None,
+            )
+            .unwrap();
+        let unmasked = store.settings_unmasked_with_conn(&conn).unwrap();
+        assert_eq!(unmasked.cloud_ocr.openai_api_key, "");
+    }
+
+    #[test]
+    fn save_openai_ocr_profile_sentinel_keeps_stored_key_and_new_profile_treats_as_empty() {
+        // 写读独立凭据账户，统一按 keyring 相关测试约定上锁串行。
+        let _guard = KEYRING_MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let store = temp_store();
+        let created = store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: String::new(),
+                    name: String::new(),
+                    base_url: "http://127.0.0.1:1234/v1".to_string(),
+                    model: "test-model".to_string(),
+                    api_key: "sk-profile-1".to_string(),
+                },
+                None,
+            )
+            .unwrap();
+        let profile_id = created.cloud_ocr.openai_active_profile_id.clone();
+
+        // 编辑现有配置回传哨兵：Key 保留
+        store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: profile_id.clone(),
+                    name: "renamed".to_string(),
+                    base_url: "http://127.0.0.1:1234/v1".to_string(),
+                    model: "test-model".to_string(),
+                    api_key: crate::util::MASKED_SECRET.to_string(),
+                },
+                None,
+            )
+            .unwrap();
+        let conn = store.connect().unwrap();
+        let unmasked = store.settings_unmasked_with_conn(&conn).unwrap();
+        assert_eq!(
+            unmasked.cloud_ocr.openai_profiles[0].api_key,
+            "sk-profile-1"
+        );
+        assert_eq!(unmasked.cloud_ocr.openai_profiles[0].name, "renamed");
+
+        // 新建配置回传哨兵：视为未填写（空 Key）
+        store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: String::new(),
+                    name: "second".to_string(),
+                    base_url: "http://127.0.0.1:2345/v1".to_string(),
+                    model: "test-model-2".to_string(),
+                    api_key: crate::util::MASKED_SECRET.to_string(),
+                },
+                None,
+            )
+            .unwrap();
+        let unmasked = store.settings_unmasked_with_conn(&conn).unwrap();
+        let second = unmasked
+            .cloud_ocr
+            .openai_profiles
+            .iter()
+            .find(|p| p.model == "test-model-2")
+            .unwrap();
+        assert_eq!(second.api_key, "");
     }
 }
