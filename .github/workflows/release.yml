@@ -10,7 +10,9 @@ jobs:
   release:
     name: Release ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 60
+    # 90 分钟：Apple Silicon 腿在 Intel runner 上交叉编译 aarch64 全量冷缓存
+    # 实测可达 60+ 分钟（v1.9.0 首跑正是撞 60 分钟超时被取消）。
+    timeout-minutes: 90
     permissions:
       contents: write
     env:
