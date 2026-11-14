@@ -216,6 +216,27 @@ impl Store {
         })
     }
 
+    /// OCR 测试连接的哨兵解析用：当前激活配置的存储 Key。
+    /// 无激活配置时回退旧单配置凭据；都没有返回空串（本地无鉴权端点允许空 Key）。
+    // clippy 门禁豁免：Task 4 接线前的中间态，接线后移除。
+    #[allow(dead_code)]
+    pub(crate) fn active_openai_ocr_profile_secret(&self) -> Result<String, String> {
+        let conn = self.connect()?;
+        let active_id = self
+            .setting_value_with_conn(&conn, "openai_ocr_active_profile")?
+            .unwrap_or_default();
+        if active_id.is_empty() {
+            return Ok(super::super::secrets::get_openai_ocr_api_key()
+                .unwrap_or_default()
+                .unwrap_or_default());
+        }
+        Ok(
+            super::super::secrets::get_openai_ocr_profile_api_key(&active_id)
+                .unwrap_or_default()
+                .unwrap_or_default(),
+        )
+    }
+
     fn openai_ocr_prompts_with_conn(
         &self,
         conn: &Connection,
@@ -598,5 +619,88 @@ impl Store {
             .map_err(|error| error.to_string())?;
         }
         Ok(AutoPushSettings { master, notify })
+    }
+}
+
+/// 面向前端的设置出口统一掩码：非空 API Key → `MASKED_SECRET`，空 → 空串。
+/// 内部消费方（sync_cloud、OCR 引擎）走 `settings_unmasked_with_conn` 拿明文。
+pub(crate) fn mask_app_settings_secrets(settings: &mut AppSettings) {
+    if !settings.cloud.api_key.is_empty() {
+        settings.cloud.api_key = crate::util::MASKED_SECRET.to_string();
+    }
+    if !settings.cloud_ocr.openai_api_key.is_empty() {
+        settings.cloud_ocr.openai_api_key = crate::util::MASKED_SECRET.to_string();
+    }
+    for profile in &mut settings.cloud_ocr.openai_profiles {
+        if !profile.api_key.is_empty() {
+            profile.api_key = crate::util::MASKED_SECRET.to_string();
+        }
+    }
+}
+
+#[cfg(test)]
+mod secret_mask_tests {
+    use super::*;
+    use crate::store::test_support::temp_store;
+
+    #[test]
+    fn settings_with_conn_masks_secret_and_unmasked_keeps_plaintext() {
+        let store = temp_store();
+        store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: String::new(),
+                    name: "main".to_string(),
+                    base_url: "http://127.0.0.1:1234/v1".to_string(),
+                    model: "test-model".to_string(),
+                    api_key: "sk-plain-1".to_string(),
+                },
+                None,
+            )
+            .unwrap();
+
+        let masked = store.settings().unwrap();
+        assert_eq!(masked.cloud_ocr.openai_api_key, crate::util::MASKED_SECRET);
+        assert_eq!(
+            masked.cloud_ocr.openai_profiles[0].api_key,
+            crate::util::MASKED_SECRET
+        );
+
+        let conn = store.connect().unwrap();
+        let unmasked = store.settings_unmasked_with_conn(&conn).unwrap();
+        assert_eq!(unmasked.cloud_ocr.openai_api_key, "sk-plain-1");
+        assert_eq!(unmasked.cloud_ocr.openai_profiles[0].api_key, "sk-plain-1");
+    }
+
+    #[test]
+    fn mask_app_settings_secrets_keeps_empty_as_empty() {
+        let mut settings = AppSettings {
+            shortcut: String::new(),
+            ocr_shortcut: String::new(),
+            retention_days: crate::DEFAULT_RETENTION_DAYS,
+            append_copy_timeout_minutes: crate::DEFAULT_APPEND_COPY_TIMEOUT_MINUTES,
+            panel_open_behavior: crate::models::PanelOpenBehavior::default_value(),
+            panel_layout: crate::models::PanelLayout::default_value(),
+            ocr_mode: crate::models::OcrMode::default_value(),
+            ocr_engine: crate::models::OcrEngine::default_value(),
+            language: crate::models::Language::default_value(),
+            cloud: CloudSettings {
+                api_address: String::new(),
+                api_key: String::new(),
+                enabled: false,
+                last_connected_at: None,
+            },
+            cloud_ocr: CloudOcrSettings {
+                openai_profiles: Vec::new(),
+                openai_active_profile_id: String::new(),
+                openai_base_url: String::new(),
+                openai_model: String::new(),
+                openai_api_key: String::new(),
+                openai_prompts: Vec::new(),
+            },
+        };
+        super::mask_app_settings_secrets(&mut settings);
+        assert_eq!(settings.cloud.api_key, "");
+        assert_eq!(settings.cloud_ocr.openai_api_key, "");
     }
 }

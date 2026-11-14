@@ -341,18 +341,16 @@ pub(crate) fn clean_api_key(api_key: String) -> Result<String, String> {
 // docs/superpowers/specs/2026-11-14-secret-masking-csp-design.md）——
 
 /// 设置读取层对非空 API Key 的统一掩码（展示即哨兵）。前端永不持有明文 Key。
-// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
-#[allow(dead_code)]
 pub(crate) const MASKED_SECRET: &str = "••••••••";
 
-// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+// clippy 门禁豁免：Task 3/4 接线前的中间态，接线后移除。
 #[allow(dead_code)]
 pub(crate) fn is_masked_secret(value: &str) -> bool {
     value.trim() == MASKED_SECRET
 }
 
 /// 前端回传 Key 的三态解析：哨兵=保留现有凭据，空串=清除，其他=设为新值。
-// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+// clippy 门禁豁免：Task 3 接线前的中间态，接线后移除。
 #[allow(dead_code)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ResolvedSecret {
@@ -361,7 +359,7 @@ pub(crate) enum ResolvedSecret {
     Set(String),
 }
 
-// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+// clippy 门禁豁免：Task 3 接线前的中间态，接线后移除。
 #[allow(dead_code)]
 pub(crate) fn resolve_secret_input(incoming: &str) -> ResolvedSecret {
     let value = incoming.trim();

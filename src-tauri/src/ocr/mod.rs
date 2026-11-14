@@ -382,9 +382,16 @@ pub(crate) async fn recognize_image(
 
     // 云引擎分支：显式选择的引擎优先（manga 档位映射为日语提示，不走本地 mocr）。
     // 设置读取失败时不落入该分支——沿用本地管线保证识别仍可用。
+    // 引擎请求需要明文 Key，走无掩码读取（settings() 出口已统一掩码给前端）。
     if let Some(settings) = app
         .try_state::<crate::models::AppState>()
-        .and_then(|state| state.store.settings().ok())
+        .and_then(|state| {
+            state
+                .store
+                .connect()
+                .ok()
+                .and_then(|conn| state.store.settings_unmasked_with_conn(&conn).ok())
+        })
         .filter(|settings| settings.ocr_engine == crate::models::OcrEngine::Openai)
     {
         let cloud = settings.cloud_ocr;

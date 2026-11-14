@@ -33,7 +33,21 @@ impl Store {
         self.settings_with_conn(&conn)
     }
 
+    /// 面向前端的设置读取：内部明文组装后统一掩码 API Key。
+    /// 快照/事件/命令返回值全部经此，前端永不接触明文。
+    /// 内部消费方（OCR 引擎路径）需要明文时用 `settings_unmasked_with_conn`。
     pub(crate) fn settings_with_conn(&self, conn: &Connection) -> Result<AppSettings, String> {
+        let mut settings = self.settings_unmasked_with_conn(conn)?;
+        super::write::mask_app_settings_secrets(&mut settings);
+        Ok(settings)
+    }
+
+    /// 设置明文组装（与 Task 32 拆分前的 `settings_with_conn` 函数体逐行一致）。
+    /// 仅限内部消费方调用；返回值不得直接透传给前端。
+    pub(crate) fn settings_unmasked_with_conn(
+        &self,
+        conn: &Connection,
+    ) -> Result<AppSettings, String> {
         // 字符串型设置统一按 registry 循环读取（新增设置项只需登记规格）。
         let mut strings = std::collections::HashMap::new();
         for spec in registry::STRING_SETTINGS {

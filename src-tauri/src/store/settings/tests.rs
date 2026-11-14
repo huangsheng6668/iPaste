@@ -310,7 +310,8 @@ mod cloud_ocr_keyring_tests {
             "保存会 trim 斜杠"
         );
         assert_eq!(s.cloud_ocr.openai_model, "glm-4v-flash");
-        assert_eq!(s.cloud_ocr.openai_api_key, "sk-test");
+        // settings() 出口统一掩码；明文落库由凭据库直读断言覆盖
+        assert_eq!(s.cloud_ocr.openai_api_key, crate::util::MASKED_SECRET);
         assert_eq!(s.cloud_ocr.openai_prompts, custom_prompts);
 
         let reloaded = store.settings().unwrap();
@@ -319,8 +320,9 @@ mod cloud_ocr_keyring_tests {
             "https://open.bigmodel.cn/api/paas/v4"
         );
         assert_eq!(
-            reloaded.cloud_ocr.openai_api_key, "sk-test",
-            "Key 从凭据库回填"
+            reloaded.cloud_ocr.openai_api_key,
+            crate::util::MASKED_SECRET,
+            "Key 从凭据库回填后出口按掩码返回"
         );
         assert_eq!(reloaded.cloud_ocr.openai_prompts, custom_prompts);
 
@@ -386,7 +388,8 @@ mod cloud_ocr_keyring_tests {
             "https://model-a.example.com/v1"
         );
         assert_eq!(saved.cloud_ocr.openai_model, "model-a");
-        assert_eq!(saved.cloud_ocr.openai_api_key, "key-a");
+        // settings() 出口统一掩码；明文落库由下方凭据库直读断言覆盖
+        assert_eq!(saved.cloud_ocr.openai_api_key, crate::util::MASKED_SECRET);
 
         let saved = store
             .save_openai_ocr_profile(profile("", "model-b", "key-b"), None)
@@ -400,8 +403,14 @@ mod cloud_ocr_keyring_tests {
 
         let reloaded = store.settings().unwrap();
         assert_eq!(reloaded.cloud_ocr.openai_profiles.len(), 2);
-        assert_eq!(reloaded.cloud_ocr.openai_profiles[0].api_key, "key-a");
-        assert_eq!(reloaded.cloud_ocr.openai_profiles[1].api_key, "key-b");
+        assert_eq!(
+            reloaded.cloud_ocr.openai_profiles[0].api_key,
+            crate::util::MASKED_SECRET
+        );
+        assert_eq!(
+            reloaded.cloud_ocr.openai_profiles[1].api_key,
+            crate::util::MASKED_SECRET
+        );
         assert_eq!(
             secrets::get_openai_ocr_profile_api_key(&first_id).unwrap(),
             Some("key-a".to_string())
@@ -424,7 +433,10 @@ mod cloud_ocr_keyring_tests {
             .unwrap();
         assert_eq!(switched.cloud_ocr.openai_active_profile_id, second_id);
         assert_eq!(switched.cloud_ocr.openai_model, "model-b");
-        assert_eq!(switched.cloud_ocr.openai_api_key, "key-b");
+        assert_eq!(
+            switched.cloud_ocr.openai_api_key,
+            crate::util::MASKED_SECRET
+        );
 
         let deleted = store.delete_openai_ocr_profile(second_id.clone()).unwrap();
         assert_eq!(deleted.cloud_ocr.openai_profiles.len(), 1);
@@ -461,7 +473,8 @@ mod cloud_ocr_keyring_tests {
             .save_openai_ocr_profile(profile("", "local-model", "key-to-clear"), None)
             .unwrap();
         let id = saved.cloud_ocr.openai_active_profile_id.clone();
-        assert_eq!(saved.cloud_ocr.openai_api_key, "key-to-clear");
+        // settings() 出口统一掩码
+        assert_eq!(saved.cloud_ocr.openai_api_key, crate::util::MASKED_SECRET);
 
         let cleared = store
             .save_openai_ocr_profile(profile(&id, "local-model", "   "), None)
@@ -533,10 +546,14 @@ mod cloud_ocr_keyring_tests {
         assert_eq!(legacy.id, "legacy");
         assert_eq!(legacy.base_url, "https://legacy.example.com/v1");
         assert_eq!(legacy.model, "legacy-model");
-        assert_eq!(legacy.api_key, "legacy-key");
+        // settings() 出口统一掩码
+        assert_eq!(legacy.api_key, crate::util::MASKED_SECRET);
         assert_eq!(settings.cloud_ocr.openai_active_profile_id, "legacy");
         assert_eq!(settings.cloud_ocr.openai_model, "legacy-model");
-        assert_eq!(settings.cloud_ocr.openai_api_key, "legacy-key");
+        assert_eq!(
+            settings.cloud_ocr.openai_api_key,
+            crate::util::MASKED_SECRET
+        );
 
         let updated = store
             .update_openai_ocr_config(
@@ -549,7 +566,7 @@ mod cloud_ocr_keyring_tests {
         assert_eq!(updated.cloud_ocr.openai_profiles[0].id, "legacy");
         assert_eq!(
             updated.cloud_ocr.openai_profiles[0].api_key,
-            "legacy-new-key"
+            crate::util::MASKED_SECRET
         );
         let conn = store.connect().unwrap();
         assert_eq!(
