@@ -384,9 +384,16 @@ impl DeviceLinkRegistry {
             reply_reject(&mut send, PairRejectReason::VersionMismatch).await;
             return;
         }
-        // 防爆破（key = node_id hex）+ 邀请校验
+        // 防爆破（节点维度 + 全局维度——身份轮换防护）+ 邀请校验
         self.inner.guard.prune(std::time::Instant::now());
         let now = std::time::Instant::now();
+        if self
+            .inner
+            .guard
+            .is_blocked(crate::lan_sync::pair_guard::GLOBAL_KEY, now)
+        {
+            return; // 全局封禁期：静默
+        }
         if self.inner.guard.is_blocked(&node_hex, now) {
             return; // 封禁期：静默
         }
@@ -396,6 +403,10 @@ impl DeviceLinkRegistry {
             .lock_recover("invites")
             .verify_and_consume(&invite_secret);
         if !verified {
+            let _ = self.inner.guard.record_failure(
+                crate::lan_sync::pair_guard::GLOBAL_KEY,
+                std::time::Instant::now(),
+            );
             let delay = self
                 .inner
                 .guard
@@ -406,6 +417,9 @@ impl DeviceLinkRegistry {
             return; // 邀请无效：静默（不回 PairReject，避免给探测者反馈）
         }
         self.inner.guard.record_success(&node_hex);
+        self.inner
+            .guard
+            .record_success(crate::lan_sync::pair_guard::GLOBAL_KEY);
         // 用户确认（oneshot + 事件）
         let (decision_tx, decision_rx) = oneshot::channel();
         *self.inner.pending_pair.lock_recover("pending") = Some(pairing::PendingPair {

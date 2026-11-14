@@ -4,6 +4,12 @@
 //! [version u8=1][endpoint_id 32B][relay_flag u8][relay_len u16 + bytes]
 //! [addr_count u8][addr_len u16 + bytes]×N[invite_secret 16B]
 //! 直连地址让「局域网无外网」也能拨号（中继不可达时）。
+//!
+//! 安全加固周期②（H1）：`verify_and_consume` 对 v5 spec §4.2 的「校验失败
+//! 邀请保留」做出修订——失败计数熔断（`INVITE_BURN_FAILURES`）。动机：
+//! 逐 node_id 限速可被零成本身份轮换绕过，未熔断的 6 位 PIN 在 10 分钟窗口
+//! 内可被持续猜测；熔断把骚扰面限制在「每邀请 10 个垃圾请求、用户一键重建」，
+//! 命中率封顶 0.001%。
 
 use std::time::{Duration, Instant};
 
@@ -11,6 +17,12 @@ use base64::Engine as _;
 
 pub(crate) const TICKET_PREFIX: &str = "ipaste-pair-v1:";
 pub(crate) const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
+
+/// 邀请熔断阈值：任何校验失败（PIN/秘密/格式）累计达此值即作废该邀请。
+/// 安全加固周期②（H1）：身份轮换使逐 node_id 限速失效，熔断把每个邀请的
+/// 有效猜测次数封顶在 10（命中率 0.001%）；骚扰成本 = 每邀请 10 个垃圾
+/// PairRequest，用户一键重建。推翻 v5 spec §4.2「失败保留」取舍，见文件头。
+pub(crate) const INVITE_BURN_FAILURES: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PairTicket {
@@ -166,6 +178,8 @@ struct Invite {
     pin: u32,
     secret: [u8; 16],
     expires_at: Instant,
+    /// 连续校验失败计数：达 `INVITE_BURN_FAILURES` 即作废（H1 熔断）。
+    failures: u32,
     /// 广播任务代次：create/cancel/核销/过期都会让旧任务停机。
     generation: u64,
 }
@@ -189,6 +203,7 @@ impl InviteRegistry {
             pin,
             secret,
             expires_at: Instant::now() + INVITE_TTL,
+            failures: 0,
             generation,
         });
         (pin, secret)
@@ -210,12 +225,13 @@ impl InviteRegistry {
         self.active.as_ref().map(|i| i.generation)
     }
 
-    /// 校验并核销：**校验成功即焚；校验失败邀请保留**（spec §4.2：只有成功
-    /// 才消耗一次性邀请）。失败即焚会让局域网攻击者轮换 NodeId 发垃圾密钥
-    /// 即可烧掉全部邀请、阻断正常配对（DoS）。过期视为已死（不回填）。
-    /// 输入为 6 位纯数字 → 常数时间比较 PIN；否则走原有 32 hex 秘密比较。
+    /// 校验并核销：**校验成功即焚；校验失败计数熔断**——任何失败（PIN 错/
+    /// 秘密错/非法格式）累计达 `INVITE_BURN_FAILURES` 即作废该邀请（对
+    /// spec §4.2「失败保留」的修订，动机见文件头）。过期视为已死（不回填、
+    /// 不计数）。输入为 6 位纯数字 → 常数时间比较 PIN；否则走原有 32 hex
+    /// 秘密比较。
     pub(crate) fn verify_and_consume(&mut self, secret_or_pin: &str) -> bool {
-        let Some(invite) = self.active.take() else {
+        let Some(mut invite) = self.active.take() else {
             return false;
         };
         if Instant::now() > invite.expires_at {
@@ -224,26 +240,24 @@ impl InviteRegistry {
         let matched = if is_pin(secret_or_pin) {
             match secret_or_pin.parse::<u32>() {
                 Ok(pin) => constant_time_eq(&pin.to_be_bytes(), &invite.pin.to_be_bytes()),
-                Err(_) => {
-                    self.active = Some(invite);
-                    return false;
-                }
+                Err(_) => false, // 非 6 位数字：与下面非法 hex 同计失败
             }
         } else {
             match hex_decode_16(secret_or_pin) {
                 Ok(bytes) => constant_time_eq(&bytes, &invite.secret),
-                Err(_) => {
-                    self.active = Some(invite); // 非法定长 hex：误输入/探测，保留邀请
-                    return false;
-                }
+                Err(_) => false,
             }
         };
         if matched {
-            true // 匹配：保持取走状态（一次性核销）
-        } else {
-            self.active = Some(invite); // 回填，等待真正的配对方
-            false
+            return true; // 匹配：保持取走状态（一次性核销；计数无意义化）
         }
+        // 失败计数熔断：达阈值即作废（不回填）；否则回填等待真正的配对方。
+        invite.failures += 1;
+        if invite.failures >= INVITE_BURN_FAILURES {
+            return false; // 邀请已死（保持取走状态）
+        }
+        self.active = Some(invite);
+        false
     }
 
     /// 测试辅助：把当前邀请的过期时间改到过去（不引入时钟抽象，YAGNI）。
@@ -422,6 +436,50 @@ mod tests {
         assert!(!reg.verify_and_consume(&"00".repeat(16)));
         assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
         assert!(reg.verify_and_consume(&format_pin(pin)), "PIN 路径仍可核销");
+    }
+
+    #[test]
+    fn invite_burns_after_ten_failures() {
+        let mut registry = InviteRegistry::new();
+        let (pin, _) = registry.create();
+        // 前 9 次失败：邀请仍可用（第 9 次后真 PIN 仍能核销）
+        for _ in 0..9 {
+            assert!(!registry.verify_and_consume("000000"));
+        }
+        assert!(registry.verify_and_consume(&format_pin(pin)));
+        // 重建邀请，连续 10 次失败：第 10 次即作废
+        let (pin, _) = registry.create();
+        for i in 0..10 {
+            assert!(!registry.verify_and_consume("000000"));
+            if i == 9 {
+                // 第 10 次失败后邀请已死：正确 PIN 也不可用
+                assert!(!registry.verify_and_consume(&format_pin(pin)));
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_input_counts_toward_burn() {
+        let mut registry = InviteRegistry::new();
+        let (pin, _) = registry.create();
+        for _ in 0..9 {
+            assert!(!registry.verify_and_consume("zzzz"));
+        }
+        // 第 10 次失败（这次是合法形态的错误 PIN）：熔断
+        assert!(!registry.verify_and_consume("999999"));
+        assert!(!registry.verify_and_consume(&format_pin(pin)));
+    }
+
+    #[test]
+    fn success_consumption_ignores_counter() {
+        // 计数不影响成功核销：9 次失败后成功即焚（一次性语义优先）
+        let mut registry = InviteRegistry::new();
+        let (pin, _) = registry.create();
+        for _ in 0..9 {
+            assert!(!registry.verify_and_consume("000000"));
+        }
+        assert!(registry.verify_and_consume(&format_pin(pin)));
+        assert!(!registry.verify_and_consume(&format_pin(pin)));
     }
 
     #[test]

@@ -4,9 +4,7 @@
 //! 「来源 IP」语义（可能经中继），改用对端 EndpointId hex——语义不变：同一来源
 //! 反复配对失败即退避/封禁。
 
-// Task 7 的配对门（DeviceLinkRegistry）接线前暂无生产调用方，测试先行为其
-// 锁定退避/封禁语义。
-#![allow(dead_code)]
+// 已于 registry.rs 的 PairRequest 处理接线（节点维度 + GLOBAL_KEY 全局维度）。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -26,6 +24,11 @@ struct AttemptState {
     blocked_until: Option<Instant>,
     last_activity: Instant,
 }
+
+/// 全局维度保留 key：跨 node_id 的失败序列在此累积退避（安全加固周期② H1——
+/// 身份轮换绕过逐节点限速）。与节点 key 同表同语义（5 次起 2s 指数退避封顶
+/// 32s、20 次封禁 10 分钟）；`record_success(GLOBAL_KEY)` 由正常配对触发清零。
+pub(crate) const GLOBAL_KEY: &str = "__global__";
 
 pub(crate) struct PairGuard {
     states: Mutex<HashMap<String, AttemptState>>,
@@ -171,5 +174,23 @@ mod tests {
         // 清理后重新失败应从零计数：单次失败不应再次触发封禁
         let _ = g.record_failure(node(), later);
         assert!(!g.is_blocked(node(), later));
+    }
+
+    #[test]
+    fn global_key_shares_table_with_node_keys() {
+        let guard = PairGuard::new();
+        let now = Instant::now();
+        // 全局维度退避独立于节点维度：节点 a 失败 4 次不触发全局（各记各的）
+        for _ in 0..4 {
+            guard.record_failure("node-a", now);
+            guard.record_failure(GLOBAL_KEY, now);
+        }
+        // 第 5 次起全局也有退避（复用同一语义）
+        let delay = guard.record_failure(GLOBAL_KEY, now);
+        assert!(!delay.is_zero());
+        // success 清零全局：正常配对一次即复位
+        guard.record_success(GLOBAL_KEY);
+        let delay = guard.record_failure(GLOBAL_KEY, now);
+        assert!(delay.is_zero());
     }
 }
