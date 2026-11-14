@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { t } from "../../i18n";
 import type { NearbyDevice } from "../../types/generated/NearbyDevice";
 
@@ -38,9 +38,14 @@ const selectedDeviceName = computed(() => {
   return device ? device.deviceName : "";
 });
 
-function requestJoin() {
+/** 确认按钮引用：确认层打开后把焦点移入，键盘流从确认动作继续。 */
+const confirmButtonRef = ref<HTMLButtonElement | null>(null);
+
+async function requestJoin() {
   if (!pinValid.value || !props.selectedEndpointId) return;
   confirming.value = true;
+  await nextTick();
+  confirmButtonRef.value?.focus();
 }
 
 function confirmJoin() {
@@ -164,6 +169,7 @@ function cancelJoin() {
       <div
         class="dialog-panel"
         role="dialog"
+        aria-modal="true"
         @keydown.esc="cancelJoin"
       >
         <div class="dialog-body">
@@ -189,8 +195,10 @@ function cancelJoin() {
             {{ t("common.cancel") }}
           </button>
           <button
+            ref="confirmButtonRef"
             type="button"
             class="btn-primary"
+            :disabled="!selectedFingerprint"
             @click="confirmJoin"
           >
             {{ t("deviceSync.joinConfirm.confirm") }}

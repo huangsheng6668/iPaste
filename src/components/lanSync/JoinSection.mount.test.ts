@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import JoinSection from "./JoinSection.vue";
 import type { NearbyDevice } from "../../types/generated/NearbyDevice";
 
@@ -104,6 +104,38 @@ describe("JoinSection 配对确认层", () => {
     // 可重新发起：再次点击配对仍能打开确认层。
     await wrapper.find("#lan-pin-join").trigger("click");
     expect(wrapper.find(".dialog-panel").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("确认层面板声明 aria-modal 且打开后聚焦确认按钮", async () => {
+    const wrapper = mount(JoinSection, {
+      attachTo: document.body,
+      props: {
+        errorText: null,
+        modelValue: "",
+        nearby: confirmDevices,
+        selectedEndpointId: confirmDevices[1]?.endpointId ?? null,
+        pin: "123456",
+      },
+    });
+    await wrapper.find("#lan-pin-join").trigger("click");
+    const dialog = wrapper.find(".dialog-panel");
+    expect(dialog.attributes("role")).toBe("dialog");
+    expect(dialog.attributes("aria-modal")).toBe("true");
+    // 焦点移入确认按钮：键盘用户从确认动作继续（Esc 取消 / Enter 确认）。
+    await flushPromises();
+    expect(document.activeElement).toBe(wrapper.find(".dialog-panel .btn-primary").element);
+    wrapper.unmount();
+  });
+
+  it("确认层打开期间所选条目过期（指纹为空）时确认按钮禁用", async () => {
+    // 选中 id 不在 nearby 列表中：模拟确认层打开期间附近设备 TTL 过期消失。
+    const wrapper = mountSection(confirmDevices, `b${"0".repeat(63)}`, "123456");
+    await wrapper.find("#lan-pin-join").trigger("click");
+    expect(wrapper.find(".dialog-panel").exists()).toBe(true);
+    expect(wrapper.find(".dialog-panel .btn-primary").attributes("disabled")).toBeDefined();
+    // 取消按钮不受影响（用户仍可关闭确认层）。
+    expect(wrapper.find(".dialog-panel .btn-ghost").attributes("disabled")).toBeUndefined();
     wrapper.unmount();
   });
 });

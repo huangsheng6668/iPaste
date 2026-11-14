@@ -167,6 +167,19 @@ fn random_pin() -> u32 {
     }
 }
 
+/// `verify_and_consume` 的三态结果：
+/// - `Verified`：校验成功，邀请已核销（一次性语义）；
+/// - `Failed`：校验时存在存活邀请，但提交的秘密错误或畸形——失败计数已
+///   递增；计数达 `INVITE_BURN_FAILURES` 时**熔断转变在 Failed 内部发生**
+///   （邀请随本次返回死亡，之后的校验呈 NoInvite）；
+/// - `NoInvite`：无存活邀请（从未创建 / 已过期 / 已熔断或已核销）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConsumeOutcome {
+    Verified,
+    Failed,
+    NoInvite,
+}
+
 /// 内存态邀请登记：一次性 + TTL + 可作废。app 重启即全部作废（不持久化）。
 /// 同一邀请同时持有 6 位 PIN（局域网手输）与 16B 秘密（票据），任一核销成功即焚。
 pub(crate) struct InviteRegistry {
@@ -230,12 +243,16 @@ impl InviteRegistry {
     /// spec §4.2「失败保留」的修订，动机见文件头）。过期视为已死（不回填、
     /// 不计数）。输入为 6 位纯数字 → 常数时间比较 PIN；否则走原有 32 hex
     /// 秘密比较。
-    pub(crate) fn verify_and_consume(&mut self, secret_or_pin: &str) -> bool {
+    ///
+    /// 三态结果（`ConsumeOutcome`）供调用方区分「失败但邀请存活」与
+    /// 「无存活邀请」——前者喂防爆破计数、后者必须豁免（无邀请的垃圾请求
+    /// 不得造成可续期的全局锁定）。
+    pub(crate) fn verify_and_consume(&mut self, secret_or_pin: &str) -> ConsumeOutcome {
         let Some(mut invite) = self.active.take() else {
-            return false;
+            return ConsumeOutcome::NoInvite;
         };
         if Instant::now() > invite.expires_at {
-            return false; // 已过期：邀请作废，无需回填
+            return ConsumeOutcome::NoInvite; // 已过期：邀请作废，无需回填
         }
         let matched = if is_pin(secret_or_pin) {
             match secret_or_pin.parse::<u32>() {
@@ -249,15 +266,16 @@ impl InviteRegistry {
             }
         };
         if matched {
-            return true; // 匹配：保持取走状态（一次性核销；计数无意义化）
+            return ConsumeOutcome::Verified; // 匹配：保持取走状态（一次性核销）
         }
-        // 失败计数熔断：达阈值即作废（不回填）；否则回填等待真正的配对方。
+        // 失败计数熔断：达阈值即作废（不回填，熔断转变发生在 Failed 内部）；
+        // 否则回填等待真正的配对方。
         invite.failures += 1;
         if invite.failures >= INVITE_BURN_FAILURES {
-            return false; // 邀请已死（保持取走状态）
+            return ConsumeOutcome::Failed; // 邀请已死（保持取走状态）
         }
         self.active = Some(invite);
-        false
+        ConsumeOutcome::Failed
     }
 
     /// 测试辅助：把当前邀请的过期时间改到过去（不引入时钟抽象，YAGNI）。
@@ -342,8 +360,16 @@ mod tests {
         let mut reg = InviteRegistry::new();
         let (_, secret) = reg.create();
         let hex_str: String = secret.iter().map(|b| format!("{b:02x}")).collect();
-        assert!(reg.verify_and_consume(&hex_str), "首次校验成功");
-        assert!(!reg.verify_and_consume(&hex_str), "一次性：二次失败");
+        assert_eq!(
+            reg.verify_and_consume(&hex_str),
+            ConsumeOutcome::Verified,
+            "首次校验成功"
+        );
+        assert_eq!(
+            reg.verify_and_consume(&hex_str),
+            ConsumeOutcome::NoInvite,
+            "一次性：核销后再无邀请"
+        );
     }
 
     #[test]
@@ -352,37 +378,52 @@ mod tests {
         let (_, secret) = reg.create();
         reg.cancel();
         let hex_str: String = secret.iter().map(|b| format!("{b:02x}")).collect();
-        assert!(!reg.verify_and_consume(&hex_str));
+        assert_eq!(reg.verify_and_consume(&hex_str), ConsumeOutcome::NoInvite);
     }
 
     #[test]
     fn invite_wrong_secret_fails() {
         let mut reg = InviteRegistry::new();
         let (_, _secret) = reg.create();
-        assert!(!reg.verify_and_consume(&"00".repeat(16)));
+        assert_eq!(
+            reg.verify_and_consume(&"00".repeat(16)),
+            ConsumeOutcome::Failed
+        );
     }
 
-    /// 失败不焚毁（F1 回归）：错误密钥/坏 hex 之后，正确密钥仍可核销；
-    /// 核销成功后才是一次性。
+    /// 阈值内失败不熔断（计数递增）：9 次以内的错误密钥/坏 hex/错 PIN 之后，
+    /// 正确密钥仍可核销；核销成功后才是一次性。
     #[test]
     fn invite_survives_failed_verification() {
         let mut reg = InviteRegistry::new();
-        let (_, secret) = reg.create();
+        let (pin, secret) = reg.create();
         let correct: String = secret.iter().map(|b| format!("{b:02x}")).collect();
-        // 错误密钥（合法定长 hex）：不得烧掉邀请
-        assert!(!reg.verify_and_consume(&"00".repeat(16)));
-        // 非法 hex（探测垃圾）：同样不得烧掉邀请
-        assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
-        assert!(!reg.verify_and_consume("aabb"));
-        // 错误 PIN：同样不得烧掉邀请
-        assert!(!reg.verify_and_consume("000000"));
-        // 正确密钥在一系列失败尝试后仍应核销成功
-        assert!(
+        let wrong_pin = if pin == 0 { "999999" } else { "000000" };
+        // 错误密钥（合法定长 hex）：计数递增但不熔断
+        assert_eq!(
+            reg.verify_and_consume(&"00".repeat(16)),
+            ConsumeOutcome::Failed
+        );
+        // 非法 hex（探测垃圾）：同样计数递增但不熔断
+        assert_eq!(
+            reg.verify_and_consume("zz!not-hex-at-all-------------"),
+            ConsumeOutcome::Failed
+        );
+        assert_eq!(reg.verify_and_consume("aabb"), ConsumeOutcome::Failed);
+        // 错误 PIN：同样计数递增但不熔断
+        assert_eq!(reg.verify_and_consume(wrong_pin), ConsumeOutcome::Failed);
+        // 正确密钥在阈值内的失败尝试后仍应核销成功
+        assert_eq!(
             reg.verify_and_consume(&correct),
-            "失败尝试后正确密钥应仍有效"
+            ConsumeOutcome::Verified,
+            "阈值内失败尝试后正确密钥应仍有效"
         );
         // 成功即焚：一次性语义保持
-        assert!(!reg.verify_and_consume(&correct), "核销成功后二次校验失败");
+        assert_eq!(
+            reg.verify_and_consume(&correct),
+            ConsumeOutcome::NoInvite,
+            "核销成功后二次校验呈无邀请"
+        );
     }
 
     #[test]
@@ -391,7 +432,7 @@ mod tests {
         let (_, secret) = reg.create();
         reg.expire_now();
         let hex_str: String = secret.iter().map(|b| format!("{b:02x}")).collect();
-        assert!(!reg.verify_and_consume(&hex_str));
+        assert_eq!(reg.verify_and_consume(&hex_str), ConsumeOutcome::NoInvite);
     }
 
     fn hex(secret: &[u8; 16]) -> String {
@@ -413,8 +454,15 @@ mod tests {
     fn correct_pin_consumes_invite_once() {
         let mut reg = InviteRegistry::new();
         let (pin, _) = reg.create();
-        assert!(reg.verify_and_consume(&format_pin(pin)));
-        assert!(!reg.verify_and_consume(&format_pin(pin)), "成功即焚");
+        assert_eq!(
+            reg.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::Verified
+        );
+        assert_eq!(
+            reg.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::NoInvite,
+            "成功即焚"
+        );
     }
 
     #[test]
@@ -422,9 +470,10 @@ mod tests {
         let mut reg = InviteRegistry::new();
         let (pin, secret) = reg.create();
         let wrong = if pin == 0 { "999999" } else { "000000" };
-        assert!(!reg.verify_and_consume(wrong));
-        assert!(
+        assert_eq!(reg.verify_and_consume(wrong), ConsumeOutcome::Failed);
+        assert_eq!(
             reg.verify_and_consume(&hex(&secret)),
+            ConsumeOutcome::Verified,
             "票据 hex 路径仍可核销"
         );
     }
@@ -433,27 +482,49 @@ mod tests {
     fn wrong_hex_does_not_burn_invite_and_pin_still_works() {
         let mut reg = InviteRegistry::new();
         let (pin, _secret) = reg.create();
-        assert!(!reg.verify_and_consume(&"00".repeat(16)));
-        assert!(!reg.verify_and_consume("zz!not-hex-at-all-------------"));
-        assert!(reg.verify_and_consume(&format_pin(pin)), "PIN 路径仍可核销");
+        assert_eq!(
+            reg.verify_and_consume(&"00".repeat(16)),
+            ConsumeOutcome::Failed
+        );
+        assert_eq!(
+            reg.verify_and_consume("zz!not-hex-at-all-------------"),
+            ConsumeOutcome::Failed
+        );
+        assert_eq!(
+            reg.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::Verified,
+            "PIN 路径仍可核销"
+        );
     }
 
     #[test]
     fn invite_burns_after_ten_failures() {
         let mut registry = InviteRegistry::new();
         let (pin, _) = registry.create();
+        let wrong = if pin == 0 { "999999" } else { "000000" };
         // 前 9 次失败：邀请仍可用（第 9 次后真 PIN 仍能核销）
         for _ in 0..9 {
-            assert!(!registry.verify_and_consume("000000"));
+            assert_eq!(registry.verify_and_consume(wrong), ConsumeOutcome::Failed);
         }
-        assert!(registry.verify_and_consume(&format_pin(pin)));
-        // 重建邀请，连续 10 次失败：第 10 次即作废
+        assert_eq!(
+            registry.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::Verified
+        );
+        // 重建邀请，连续 10 次失败：第 10 次即熔断（熔断那次仍呈 Failed）
         let (pin, _) = registry.create();
+        let wrong = if pin == 0 { "999999" } else { "000000" };
         for i in 0..10 {
-            assert!(!registry.verify_and_consume("000000"));
+            assert_eq!(
+                registry.verify_and_consume(wrong),
+                ConsumeOutcome::Failed,
+                "失败（含熔断的那次）均呈 Failed"
+            );
             if i == 9 {
-                // 第 10 次失败后邀请已死：正确 PIN 也不可用
-                assert!(!registry.verify_and_consume(&format_pin(pin)));
+                // 第 10 次失败后邀请已死：正确 PIN 呈无邀请
+                assert_eq!(
+                    registry.verify_and_consume(&format_pin(pin)),
+                    ConsumeOutcome::NoInvite
+                );
             }
         }
     }
@@ -463,11 +534,18 @@ mod tests {
         let mut registry = InviteRegistry::new();
         let (pin, _) = registry.create();
         for _ in 0..9 {
-            assert!(!registry.verify_and_consume("zzzz"));
+            assert_eq!(registry.verify_and_consume("zzzz"), ConsumeOutcome::Failed);
         }
         // 第 10 次失败（这次是合法形态的错误 PIN）：熔断
-        assert!(!registry.verify_and_consume("999999"));
-        assert!(!registry.verify_and_consume(&format_pin(pin)));
+        let wrong_pin = if pin == 0 { "999999" } else { "000000" };
+        assert_eq!(
+            registry.verify_and_consume(wrong_pin),
+            ConsumeOutcome::Failed
+        );
+        assert_eq!(
+            registry.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::NoInvite
+        );
     }
 
     #[test]
@@ -475,11 +553,18 @@ mod tests {
         // 计数不影响成功核销：9 次失败后成功即焚（一次性语义优先）
         let mut registry = InviteRegistry::new();
         let (pin, _) = registry.create();
+        let wrong = if pin == 0 { "999999" } else { "000000" };
         for _ in 0..9 {
-            assert!(!registry.verify_and_consume("000000"));
+            assert_eq!(registry.verify_and_consume(wrong), ConsumeOutcome::Failed);
         }
-        assert!(registry.verify_and_consume(&format_pin(pin)));
-        assert!(!registry.verify_and_consume(&format_pin(pin)));
+        assert_eq!(
+            registry.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::Verified
+        );
+        assert_eq!(
+            registry.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::NoInvite
+        );
     }
 
     #[test]
@@ -498,7 +583,10 @@ mod tests {
         let (pin, _) = reg.create();
         reg.expire_now();
         assert_eq!(reg.active_generation(), None);
-        assert!(!reg.verify_and_consume(&format_pin(pin)));
+        assert_eq!(
+            reg.verify_and_consume(&format_pin(pin)),
+            ConsumeOutcome::NoInvite
+        );
     }
 
     #[test]

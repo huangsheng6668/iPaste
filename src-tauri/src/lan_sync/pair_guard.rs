@@ -28,6 +28,10 @@ struct AttemptState {
 /// 全局维度保留 key：跨 node_id 的失败序列在此累积退避（安全加固周期② H1——
 /// 身份轮换绕过逐节点限速）。与节点 key 同表同语义（5 次起 2s 指数退避封顶
 /// 32s、20 次封禁 10 分钟）；`record_success(GLOBAL_KEY)` 由正常配对触发清零。
+/// 退避时长由调用方真实执行（registry.rs 的 PairRequest 失败路径取节点/全局
+/// 两维的最大值后休眠，不再丢弃全局维度）。**只统计「有存活邀请时」的校验
+/// 失败**——无邀请的垃圾请求不计数：否则零成本请求可堆出可续期的全局锁定
+///（锁定期内 record_success 不可达，10 分钟封禁被无限续期）。
 pub(crate) const GLOBAL_KEY: &str = "__global__";
 
 pub(crate) struct PairGuard {
@@ -89,6 +93,17 @@ impl PairGuard {
             s.blocked_until.map(|until| now < until).unwrap_or(false)
                 || now.duration_since(s.last_activity) < STALE_AFTER
         });
+    }
+
+    /// 测试观察口：该 key 当前累计的失败次数（无记录为 0）——供「无邀请
+    /// 请求不喂防爆破表」等断言读取。
+    #[cfg(test)]
+    pub(crate) fn failures_for_test(&self, node_id: &str) -> u32 {
+        self.states
+            .lock_recover("pair guard")
+            .get(node_id)
+            .map(|s| s.failures)
+            .unwrap_or(0)
     }
 }
 

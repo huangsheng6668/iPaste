@@ -31,13 +31,14 @@ use iroh::{Endpoint, EndpointId, RelayMode, SecretKey};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::events::{
-    DeviceListChanged, DeviceStatusChanged, PairRequested, EVENT_DEVICE_LIST_CHANGED,
-    EVENT_DEVICE_STATUS_CHANGED, EVENT_PAIR_REQUEST,
+    DeviceListChanged, DeviceStatusChanged, PairInviteState, PairRequested,
+    EVENT_DEVICE_LIST_CHANGED, EVENT_DEVICE_STATUS_CHANGED, EVENT_PAIR_INVITE_STATE,
+    EVENT_PAIR_REQUEST,
 };
 use crate::lan_sync::autopush::RecentReceived;
 use crate::lan_sync::discovery::Discovery;
 use crate::lan_sync::frame::{read_message_with_raw, FrameWriter, PrefixedFrame};
-use crate::lan_sync::pair_guard::PairGuard;
+use crate::lan_sync::pair_guard::{PairGuard, GLOBAL_KEY};
 use crate::lan_sync::protocol::{
     LanMessage, PairRejectReason, IPASTE_ALPN, LAN_MAX_PAYLOAD, LAN_PROTOCOL_VERSION,
 };
@@ -329,6 +330,66 @@ impl DeviceLinkRegistry {
             .remove(node_id);
     }
 
+    /// PairRequest 的邀请校验与防爆破记账（F1 熔断可见 / F2 无邀请豁免）。
+    /// 返回 `(是否放行, 调用方需休眠的退避时长)`：
+    /// - 校验通过：节点/全局双维度 record_success，放行（确认流程继续）；
+    /// - 校验失败（有存活邀请）：双维度 record_failure；退避取节点/全局两维
+    ///   的**最大值**（全局维度不再被丢弃——只作用于已失败的处理器任务，
+    ///   对正常流量零成本）；若本次失败恰好把存活邀请打到熔断，广播 all-None
+    ///   的 `PairInviteState` 让主机 PIN 卡片立即复位（熔断对主机可见，
+    ///   「一键重建」补救才对用户可达）；
+    /// - 无存活邀请：**不喂防爆破表**（无邀请的垃圾请求不得造成可续期的
+    ///   全局锁定——锁定期内 record_success 不可达，封禁会被无限续期），
+    ///   也不广播（NoInvite 对主机无可操作性）。
+    fn verify_pair_request(&self, node_hex: &str, invite_secret: &str) -> (bool, Duration) {
+        // 校验前快照「是否有存活邀请」：熔断广播只发生在「本请求把存活邀请
+        // 打死」这一转变上（had_invite && Failed && 事后已无存活邀请），
+        // 单纯的 NoInvite 路径绝不广播。
+        let had_invite = self
+            .inner
+            .invites
+            .lock_recover("invites")
+            .active_generation()
+            .is_some();
+        let outcome = self
+            .inner
+            .invites
+            .lock_recover("invites")
+            .verify_and_consume(invite_secret);
+        match outcome {
+            crate::lan_sync::ticket::ConsumeOutcome::Verified => {
+                self.inner.guard.record_success(node_hex);
+                self.inner.guard.record_success(GLOBAL_KEY);
+                (true, Duration::ZERO)
+            }
+            crate::lan_sync::ticket::ConsumeOutcome::Failed => {
+                let now = std::time::Instant::now();
+                let global_delay = self.inner.guard.record_failure(GLOBAL_KEY, now);
+                let node_delay = self.inner.guard.record_failure(node_hex, now);
+                if had_invite
+                    && self
+                        .inner
+                        .invites
+                        .lock_recover("invites")
+                        .active_generation()
+                        .is_none()
+                {
+                    self.emit(
+                        EVENT_PAIR_INVITE_STATE,
+                        &PairInviteState {
+                            ticket: None,
+                            expires_at: None,
+                            pin: None,
+                            fingerprint: None,
+                        },
+                    );
+                }
+                (false, global_delay.max(node_delay))
+            }
+            crate::lan_sync::ticket::ConsumeOutcome::NoInvite => (false, Duration::ZERO),
+        }
+    }
+
     /// 单条入站连接：按**首帧**分流（v0.9.2 A2），不再按本端信任态分流。
     ///
     /// - 首帧 `PairRequest` → 票据配对门（无论对端陌生、仍被信任或曾被显式
@@ -385,41 +446,22 @@ impl DeviceLinkRegistry {
             return;
         }
         // 防爆破（节点维度 + 全局维度——身份轮换防护）+ 邀请校验
+        //（F1 三态：熔断对主机可见；F2：无邀请的请求豁免防爆破表）
         self.inner.guard.prune(std::time::Instant::now());
         let now = std::time::Instant::now();
-        if self
-            .inner
-            .guard
-            .is_blocked(crate::lan_sync::pair_guard::GLOBAL_KEY, now)
-        {
+        if self.inner.guard.is_blocked(GLOBAL_KEY, now) {
             return; // 全局封禁期：静默
         }
         if self.inner.guard.is_blocked(&node_hex, now) {
             return; // 封禁期：静默
         }
-        let verified = self
-            .inner
-            .invites
-            .lock_recover("invites")
-            .verify_and_consume(&invite_secret);
+        let (verified, backoff) = self.verify_pair_request(&node_hex, &invite_secret);
         if !verified {
-            let _ = self.inner.guard.record_failure(
-                crate::lan_sync::pair_guard::GLOBAL_KEY,
-                std::time::Instant::now(),
-            );
-            let delay = self
-                .inner
-                .guard
-                .record_failure(&node_hex, std::time::Instant::now());
-            if !delay.is_zero() {
-                tokio::time::sleep(delay).await;
+            if !backoff.is_zero() {
+                tokio::time::sleep(backoff).await;
             }
             return; // 邀请无效：静默（不回 PairReject，避免给探测者反馈）
         }
-        self.inner.guard.record_success(&node_hex);
-        self.inner
-            .guard
-            .record_success(crate::lan_sync::pair_guard::GLOBAL_KEY);
         // 用户确认（oneshot + 事件）
         let (decision_tx, decision_rx) = oneshot::channel();
         *self.inner.pending_pair.lock_recover("pending") = Some(pairing::PendingPair {

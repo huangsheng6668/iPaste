@@ -16,8 +16,9 @@ use crate::events::{
     EVENT_PAIR_JOIN_FAILED, EVENT_PAIR_REQUEST,
 };
 use crate::lan_sync::frame::{read_message_with_raw, PrefixedFrame};
+use crate::lan_sync::pair_guard::GLOBAL_KEY;
 use crate::lan_sync::protocol::{LanMessage, LAN_MAX_PAYLOAD};
-use crate::lan_sync::ticket::{PairTicket, INVITE_TTL};
+use crate::lan_sync::ticket::{format_pin, PairTicket, INVITE_TTL};
 use crate::lan_sync::{ControlMsg, LanEventSink};
 use crate::models::{AutoSyncMode, ClipItem, DeviceOnline};
 use crate::store::test_support::temp_store;
@@ -248,6 +249,119 @@ async fn create_and_cancel_invite_emit_state() {
         None,
         "cancel 事件指纹应为 null"
     );
+}
+
+/// F1（熔断可见）：存活邀请被打到熔断阈值时，PairRequest 校验失败路径必须
+/// 广播 all-None 的 PairInviteState——主机 PIN 卡片立即复位，「一键重建」
+/// 补救才对用户可见；阈值内的失败与熔断后的后续请求均不得广播。
+#[tokio::test]
+async fn invite_burnout_broadcasts_all_none_invite_state() {
+    let (registry, sink) = test_registry().await;
+    let (pin, _) = registry.inner.invites.lock().unwrap().create();
+    let wrong_pin = if pin == 0 { "999999" } else { "000000" };
+    // 前 9 次失败：邀请存活，不广播任何邀请状态
+    for _ in 0..9 {
+        let (ok, _) = registry.verify_pair_request(&hex32(4), wrong_pin);
+        assert!(!ok, "错误 PIN 不得放行");
+    }
+    assert!(
+        find_events(&sink, EVENT_PAIR_INVITE_STATE).is_empty(),
+        "阈值内失败不得广播邀请状态"
+    );
+    // 第 10 次失败：熔断 → all-None 复位广播恰好一次
+    let (ok, _) = registry.verify_pair_request(&hex32(4), wrong_pin);
+    assert!(!ok);
+    let events = find_events(&sink, EVENT_PAIR_INVITE_STATE);
+    assert_eq!(events.len(), 1, "熔断恰好广播一次");
+    assert_eq!(events[0]["ticket"].as_str(), None);
+    assert_eq!(events[0]["expiresAt"].as_u64(), None);
+    assert_eq!(events[0]["pin"].as_str(), None);
+    assert_eq!(events[0]["fingerprint"].as_str(), None);
+    // 熔断后的后续请求走 NoInvite 分支：不再广播、不再喂防爆破表、不退避
+    let global_failures = registry.inner.guard.failures_for_test(GLOBAL_KEY);
+    let (ok, delay) = registry.verify_pair_request(&hex32(4), wrong_pin);
+    assert!(!ok);
+    assert_eq!(delay, Duration::ZERO, "无存活邀请：不退避");
+    assert_eq!(
+        registry.inner.guard.failures_for_test(GLOBAL_KEY),
+        global_failures,
+        "熔断后的垃圾请求不得继续喂全局计数"
+    );
+    assert_eq!(
+        find_events(&sink, EVENT_PAIR_INVITE_STATE).len(),
+        1,
+        "NoInvite 路径不得广播"
+    );
+}
+
+/// F2（无邀请豁免）：无存活邀请的 PairRequest 不得喂防爆破表——否则零成本
+/// 垃圾请求可堆出可续期的全局锁定（锁定期内 record_success 不可达，10 分钟
+/// 封禁被无限续期）。连发超过封禁阈值（20 次）后节点/全局计数仍为零。
+#[tokio::test]
+async fn no_invite_pair_request_does_not_feed_guard() {
+    let (registry, sink) = test_registry().await;
+    // 从未创建邀请：连发 25 次（超过 20 次封禁阈值）
+    for _ in 0..25 {
+        let (ok, delay) = registry.verify_pair_request(&hex32(4), "123456");
+        assert!(!ok, "无邀请不得放行");
+        assert_eq!(delay, Duration::ZERO, "无邀请：不退避");
+    }
+    assert_eq!(
+        registry.inner.guard.failures_for_test(&hex32(4)),
+        0,
+        "节点维度零计数"
+    );
+    assert_eq!(
+        registry.inner.guard.failures_for_test(GLOBAL_KEY),
+        0,
+        "全局维度零计数"
+    );
+    assert!(!registry
+        .inner
+        .guard
+        .is_blocked(GLOBAL_KEY, std::time::Instant::now()));
+    assert!(
+        find_events(&sink, EVENT_PAIR_INVITE_STATE).is_empty(),
+        "NoInvite 路径不得广播邀请状态"
+    );
+}
+
+/// F2（退避取最大值）：全局退避不再被丢弃——预垫节点维度 5 次失败后，下一次
+/// 校验失败的节点退避为 4s、全局首次失败为 0s，返回给调用方的休眠时长必须
+/// 是两维最大值（4s）。
+#[tokio::test]
+async fn failed_verification_backoff_is_max_of_node_and_global() {
+    let (registry, _sink) = test_registry().await;
+    let (pin, _) = registry.inner.invites.lock().unwrap().create();
+    let wrong_pin = if pin == 0 { "999999" } else { "000000" };
+    let now = std::time::Instant::now();
+    for _ in 0..5 {
+        let _ = registry.inner.guard.record_failure(&hex32(4), now);
+    }
+    let (ok, delay) = registry.verify_pair_request(&hex32(4), wrong_pin);
+    assert!(!ok);
+    assert_eq!(
+        delay,
+        Duration::from_secs(4),
+        "休眠时长 = max(节点 4s, 全局 0s)"
+    );
+}
+
+/// 校验通过：双维度失败计数清零并放行（后续确认流程继续）。
+#[tokio::test]
+async fn verified_pair_request_clears_guard_and_proceeds() {
+    let (registry, _sink) = test_registry().await;
+    let (pin, _) = registry.inner.invites.lock().unwrap().create();
+    let now = std::time::Instant::now();
+    for _ in 0..3 {
+        let _ = registry.inner.guard.record_failure(&hex32(4), now);
+        let _ = registry.inner.guard.record_failure(GLOBAL_KEY, now);
+    }
+    let (ok, delay) = registry.verify_pair_request(&hex32(4), &format_pin(pin));
+    assert!(ok, "正确 PIN 应放行");
+    assert_eq!(delay, Duration::ZERO);
+    assert_eq!(registry.inner.guard.failures_for_test(&hex32(4)), 0);
+    assert_eq!(registry.inner.guard.failures_for_test(GLOBAL_KEY), 0);
 }
 
 /// 无 pending 配对请求时 respond_pair 报错。
