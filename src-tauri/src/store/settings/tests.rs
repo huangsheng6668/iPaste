@@ -696,7 +696,9 @@ mod cloud_keyring_tests {
     use crate::store::test_support::temp_store;
 
     /// mock keyring 是进程级共享的内存后端，相关测试必须串行。
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// 与 write.rs 的 secret_mask_tests 共用 test_support 的同一把锁——
+    /// 模块私有锁互不感知，共享账户（legacy/cloud）的写读断言会被并发测试穿插打断。
+    use crate::store::test_support::KEYRING_MOCK_LOCK as LOCK;
 
     #[test]
     fn legacy_plaintext_key_migrates_into_secret_store() {

@@ -127,6 +127,10 @@ export function useOpenaiOcr() {
         openaiBaseUrl.value,
         openaiModel.value,
         openaiApiKey.value,
+        // 哨兵按「正在编辑的配置」解析：测非主接口时取它自己存储的 Key，
+        // 不串用激活配置的凭据；新建草稿传空串（Key 字段本就不会出现哨兵，
+        // 空串 + 哨兵由后端显式拒绝兜底）。
+        selectedProfileId.value ?? "",
         openaiPrompts.value,
       );
       openaiMessage.value = t("settings.openai.connected");

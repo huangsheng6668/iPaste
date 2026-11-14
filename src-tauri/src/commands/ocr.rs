@@ -126,9 +126,12 @@ pub(crate) fn clear_openai_ocr_config(
 
 /// 设置页「测试」按钮：上传空白小图跑一次视觉模型转写，验证 Base URL /
 /// 模型 / Key 的组合可用（不校验转写内容）。
+/// `profile_id` 为正在编辑的配置 id：哨兵按它解析存储的真实 Key，避免把
+/// 激活配置的凭据发给所选配置的接口地址（串 Key）。
 #[tauri::command]
 pub(crate) async fn test_openai_ocr(
     state: tauri::State<'_, AppState>,
+    profile_id: String,
     base_url: String,
     model: String,
     api_key: String,
@@ -136,16 +139,24 @@ pub(crate) async fn test_openai_ocr(
 ) -> Result<bool, AppError> {
     let base_url = clean_openai_base_url(base_url)?;
     let model = clean_openai_model(model)?;
-    // 掩码哨兵 = 输入框未改动：用当前激活配置存储的真实 Key 测试。
-    // 解析结果为空时按空 Key 透传（本地无鉴权端点允许）。
+    // 掩码哨兵 = 输入框未改动：按正在编辑的配置 id 读取其存储的真实 Key。
+    // 新建草稿（空 id）没有属于自己的凭据，哨兵属于异常输入，直接报错。
     let api_key = if crate::util::is_masked_secret(&api_key) {
+        if profile_id.trim().is_empty() {
+            return Err(AppError::internal("OCR 接口 API Key 未配置，请重新输入"));
+        }
         state
             .store
-            .active_openai_ocr_profile_secret()
+            .openai_ocr_profile_secret(&profile_id)
             .map_err(AppError::from)?
     } else {
         api_key.trim().to_string()
     };
+    // 解析后 Key 为空且接口地址非本地端点：拒绝执行，避免把空凭据发给云端
+    // 得到误导性的「连接成功」（本地 vLLM/Ollama 等无鉴权端点仍允许空 Key）。
+    if api_key.is_empty() && !crate::ocr::openai::is_local_noauth_endpoint(&base_url) {
+        return Err(AppError::internal("OCR 接口 API Key 未配置，请重新输入"));
+    }
     tokio::task::spawn_blocking(move || {
         crate::ocr::openai::test_connection(&base_url, &model, &api_key, prompts.as_deref())
     })

@@ -55,4 +55,23 @@ describe("settingsApi.saveOpenaiOcrProfile", () => {
       prompts: expect.any(Array),
     });
   });
+
+  it("test_openai_ocr 携带 profileId，供后端按所选配置解析哨兵", async () => {
+    vi.mocked(invoke).mockResolvedValue(true);
+
+    await settingsApi.testOpenaiOcr(
+      "https://api.example.com/v1",
+      "vision-model",
+      "••••••••",
+      "profile-b",
+    );
+
+    expect(invoke).toHaveBeenCalledWith("test_openai_ocr", {
+      baseUrl: "https://api.example.com/v1",
+      model: "vision-model",
+      apiKey: "••••••••",
+      profileId: "profile-b",
+      prompts: undefined,
+    });
+  });
 });

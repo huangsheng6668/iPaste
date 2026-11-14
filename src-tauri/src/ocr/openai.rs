@@ -121,6 +121,33 @@ fn profile_is_complete(profile: &OpenaiOcrProfile) -> bool {
     !profile.base_url.trim().is_empty() && !profile.model.trim().is_empty()
 }
 
+/// 本地无鉴权端点判定（vLLM/Ollama 等）：host 为 localhost（含子域）/ 环回地址 /
+/// 0.0.0.0 视为本地，允许空 API Key。识别路径与测试连接共用这一份判定，
+/// 避免两处口径漂移。入参须是已清洗的 base_url（http/https + 无结尾斜杠）。
+pub(crate) fn is_local_noauth_endpoint(base_url: &str) -> bool {
+    let authority = base_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base_url)
+        .split('/')
+        .next()
+        .unwrap_or("");
+    // 丢弃可能的 userinfo，再取 host：IPv6 带方括号、端口在 ] 之后，
+    // 其余按第一个 ':' 截断端口。
+    let host_part = authority.rsplit('@').next().unwrap_or("");
+    let host = if let Some(rest) = host_part.strip_prefix('[') {
+        rest.split(']').next().unwrap_or(rest)
+    } else {
+        host_part.split(':').next().unwrap_or(host_part)
+    };
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.starts_with("127.")
+        || host == "::1"
+        || host == "0.0.0.0"
+}
+
 fn profile_label(profile: &OpenaiOcrProfile) -> &str {
     if profile.name.trim().is_empty() {
         &profile.model
@@ -586,6 +613,19 @@ mod tests {
             chat_completions_url("http://localhost:11434/v1/chat/completions/"),
             "http://localhost:11434/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn is_local_noauth_endpoint_detects_local_hosts() {
+        assert!(is_local_noauth_endpoint("http://localhost:11434/v1"));
+        assert!(is_local_noauth_endpoint("http://127.0.0.1:1234/v1"));
+        assert!(is_local_noauth_endpoint("http://127.9.9.9"));
+        assert!(is_local_noauth_endpoint("http://[::1]:8080/v1"));
+        assert!(is_local_noauth_endpoint("http://0.0.0.0:8000"));
+        assert!(is_local_noauth_endpoint("https://ollama.localhost/v1"));
+        assert!(!is_local_noauth_endpoint("https://api.openai.com/v1"));
+        assert!(!is_local_noauth_endpoint("http://10.0.0.5:11434/v1"));
+        assert!(!is_local_noauth_endpoint("http://172.16.0.1/v1"));
     }
 
     #[test]

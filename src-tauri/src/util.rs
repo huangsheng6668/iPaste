@@ -341,6 +341,8 @@ pub(crate) fn clean_api_key(api_key: String) -> Result<String, String> {
 // docs/superpowers/specs/2026-11-14-secret-masking-csp-design.md）——
 
 /// 设置读取层对非空 API Key 的统一掩码（展示即哨兵）。前端永不持有明文 Key。
+/// 与前端 src/lib/secretMask.ts 的 MASKED_SECRET 必须逐字一致（两侧测试各自钉住）。
+/// 已知边界：若用户真实 Key 恰为哨兵字面量（8 个 U+2022），将无法通过输入框设置。
 pub(crate) const MASKED_SECRET: &str = "••••••••";
 
 pub(crate) fn is_masked_secret(value: &str) -> bool {

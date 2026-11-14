@@ -216,20 +216,26 @@ impl Store {
         })
     }
 
-    /// OCR 测试连接的哨兵解析用：当前激活配置的存储 Key。
-    /// 无激活配置时回退旧单配置凭据；都没有返回空串（本地无鉴权端点允许空 Key）。
-    pub(crate) fn active_openai_ocr_profile_secret(&self) -> Result<String, String> {
+    /// OCR 测试连接的哨兵解析用：按配置 id 读取存储的真实 Key。
+    /// `profile_id` 为空时回退当前激活配置（兼容旧调用方），仍无激活配置再回退
+    /// 旧单配置凭据；都没有返回空串（本地无鉴权端点允许空 Key）。
+    /// 注意：新建草稿（空 id）没有属于自己的凭据，调用方需在「空 id + 哨兵」时
+    /// 直接拒绝，不得依赖此回退。
+    pub(crate) fn openai_ocr_profile_secret(&self, profile_id: &str) -> Result<String, String> {
         let conn = self.connect()?;
-        let active_id = self
-            .setting_value_with_conn(&conn, "openai_ocr_active_profile")?
-            .unwrap_or_default();
-        if active_id.is_empty() {
+        let target_id = if profile_id.trim().is_empty() {
+            self.setting_value_with_conn(&conn, "openai_ocr_active_profile")?
+                .unwrap_or_default()
+        } else {
+            profile_id.trim().to_string()
+        };
+        if target_id.is_empty() {
             return Ok(super::super::secrets::get_openai_ocr_api_key()
                 .unwrap_or_default()
                 .unwrap_or_default());
         }
         Ok(
-            super::super::secrets::get_openai_ocr_profile_api_key(&active_id)
+            super::super::secrets::get_openai_ocr_profile_api_key(&target_id)
                 .unwrap_or_default()
                 .unwrap_or_default(),
         )
@@ -839,5 +845,90 @@ mod secret_mask_tests {
             .find(|p| p.model == "test-model-2")
             .unwrap();
         assert_eq!(second.api_key, "");
+    }
+
+    #[test]
+    fn openai_ocr_profile_secret_resolves_by_profile_id() {
+        // 测试连接的哨兵解析按「正在编辑的配置」取 Key：非激活配置必须取到
+        // 自己的凭据，避免把激活配置的 Key 发到所选配置的接口地址（串 Key）；
+        // 空 id 才回退激活配置（兼容旧调用方）。
+        let _guard = KEYRING_MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let store = temp_store();
+        store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: String::new(),
+                    name: "main".to_string(),
+                    base_url: "https://a.example.com/v1".to_string(),
+                    model: "model-a".to_string(),
+                    api_key: "sk-active".to_string(),
+                },
+                None,
+            )
+            .unwrap();
+        let created = store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: String::new(),
+                    name: "other".to_string(),
+                    base_url: "https://b.example.com/v1".to_string(),
+                    model: "model-b".to_string(),
+                    api_key: "sk-other".to_string(),
+                },
+                None,
+            )
+            .unwrap();
+        let other_id = created.cloud_ocr.openai_profiles[1].id.clone();
+
+        // 指定非激活配置 id：取到该配置自己的 Key
+        assert_eq!(
+            store.openai_ocr_profile_secret(&other_id).unwrap(),
+            "sk-other"
+        );
+        // 空 id 回退激活配置（旧行为）
+        assert_eq!(store.openai_ocr_profile_secret("").unwrap(), "sk-active");
+    }
+
+    #[test]
+    fn settings_masks_cloud_api_key_when_stored() {
+        // 与 keyring 相关测试共用 test_support 的锁串行：mock 凭据库是
+        // 进程级共享内存，cloud_api_key 账户是共享账户。
+        let _guard = KEYRING_MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = crate::store::secrets::delete_api_key();
+        let store = temp_store();
+        crate::store::secrets::put_api_key("sk-cloud-1").unwrap();
+        {
+            let conn = store.connect().unwrap();
+            store
+                .upsert_setting_value_with_conn(&conn, "cloud_api_address", "https://cloud.example")
+                .unwrap();
+        }
+
+        let masked = store.settings().unwrap();
+        assert_eq!(masked.cloud.api_key, crate::util::MASKED_SECRET);
+        let _ = crate::store::secrets::delete_api_key();
+    }
+
+    #[test]
+    fn settings_keeps_empty_profile_api_key_empty() {
+        // 空 Key 配置合法（本地无鉴权端点）：掩码出口必须保持空串而非误填哨兵。
+        let _guard = KEYRING_MOCK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let store = temp_store();
+        store
+            .save_openai_ocr_profile(
+                OpenaiOcrProfile {
+                    id: String::new(),
+                    name: "local".to_string(),
+                    base_url: "http://127.0.0.1:1234/v1".to_string(),
+                    model: "test-model".to_string(),
+                    api_key: String::new(),
+                },
+                None,
+            )
+            .unwrap();
+
+        let masked = store.settings().unwrap();
+        assert_eq!(masked.cloud_ocr.openai_profiles[0].api_key, "");
+        assert_eq!(masked.cloud_ocr.openai_api_key, "");
     }
 }

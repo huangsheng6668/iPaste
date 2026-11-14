@@ -15,7 +15,7 @@ import {
 } from "lucide-vue-next";
 import { t } from "../../../i18n";
 import { useOpenaiOcr } from "../../../composables/useOpenaiOcr";
-import { clearIfMasked } from "../../../lib/secretMask";
+import { clearIfMasked, restoreSentinelIfEmpty } from "../../../lib/secretMask";
 import type { OpenaiOcrProfile } from "../../../types";
 
 // 多接口 OpenAI 兼容云 OCR：接口列表 + 当前编辑表单 + 共用 Prompt。
@@ -250,6 +250,7 @@ function confirmClearAll() {
           autocomplete="current-password"
           spellcheck="false"
           @focus="openaiApiKey = clearIfMasked(openaiApiKey)"
+          @blur="openaiApiKey = restoreSentinelIfEmpty(openaiApiKey)"
         >
       </label>
     </div>

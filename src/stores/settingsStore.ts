@@ -156,9 +156,10 @@ export const useSettingsStore = defineStore("settings", () => {
     baseUrl: string,
     model: string,
     apiKey: string,
+    profileId: string,
     prompts?: CloudOcrPromptMessage[],
   ) {
-    return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey, prompts);
+    return ipasteApi.testOpenaiOcr(baseUrl, model, apiKey, profileId, prompts);
   }
 
   // —— 统一写路径（Task 39：全库唯一设置写入编排）——

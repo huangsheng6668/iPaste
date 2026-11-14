@@ -113,8 +113,9 @@ export const settingsApi = {
   clearOpenaiOcrConfig() {
     return call<AppSettings>("clear_openai_ocr_config", undefined, applyMockCloudOcr([], "", DEFAULT_OPENAI_OCR_PROMPTS.map((item) => ({ ...item }))));
   },
-  testOpenaiOcr(baseUrl: string, model: string, apiKey: string, prompts?: CloudOcrPromptMessage[]) {
-    return call<boolean>("test_openai_ocr", { baseUrl, model, apiKey, prompts }, true);
+  // profileId 供后端按「正在编辑的配置」解析掩码哨兵（空串 = 新建草稿，后端拒绝哨兵）。
+  testOpenaiOcr(baseUrl: string, model: string, apiKey: string, profileId: string, prompts?: CloudOcrPromptMessage[]) {
+    return call<boolean>("test_openai_ocr", { baseUrl, model, apiKey, profileId, prompts }, true);
   },
   updateLanguage(language: Language) {
     return call<AppSettings>("update_language", { language }, mockSettings({ language }));

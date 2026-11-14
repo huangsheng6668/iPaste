@@ -167,6 +167,52 @@ describe("useOpenaiOcr", () => {
     expect(openaiModel.value).toBe("model-a");
   });
 
+  it("测试连接按当前编辑的配置传 profileId（非主接口测自己的 Key）", async () => {
+    const settings = useSettingsStore();
+    settings.cloudOcr = {
+      openaiProfiles: [
+        { id: "a", name: "接口 A", baseUrl: "https://a.example.com/v1", model: "model-a", apiKey: "••••••••" },
+        { id: "b", name: "接口 B", baseUrl: "https://b.example.com/v1", model: "model-b", apiKey: "••••••••" },
+      ],
+      openaiActiveProfileId: "a",
+      openaiBaseUrl: "https://a.example.com/v1",
+      openaiModel: "model-a",
+      openaiApiKey: "••••••••",
+      openaiPrompts: [{ role: "system", content: "Extract text." }],
+    };
+
+    const { selectProfile, testOpenai, selectedProfileId } = useOpenaiOcr();
+    selectProfile("b");
+    expect(selectedProfileId.value).toBe("b");
+
+    vi.mocked(ipasteApi.testOpenaiOcr).mockResolvedValue(true);
+    await testOpenai();
+
+    expect(ipasteApi.testOpenaiOcr).toHaveBeenCalledWith(
+      "https://b.example.com/v1",
+      "model-b",
+      "••••••••",
+      "b",
+      expect.any(Array),
+    );
+  });
+
+  it("新建草稿下测试连接传空 profileId（后端拒绝空 id + 哨兵）", async () => {
+    const { startNewProfile, testOpenai } = useOpenaiOcr();
+    startNewProfile();
+
+    vi.mocked(ipasteApi.testOpenaiOcr).mockResolvedValue(true);
+    await testOpenai();
+
+    expect(ipasteApi.testOpenaiOcr).toHaveBeenCalledWith(
+      "",
+      "",
+      "",
+      "",
+      expect.any(Array),
+    );
+  });
+
   it("保存新接口后选中后端生成的配置", async () => {
     const settings = useSettingsStore();
     const createdProfile = {
