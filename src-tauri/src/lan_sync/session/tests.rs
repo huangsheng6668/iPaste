@@ -535,6 +535,7 @@ mod category_meta_tests {
 /// 两级门控；手动帧与分组帧不受门控影响。
 mod recv_gate_tests {
     use super::*;
+    use crate::events::EVENT_DEVICE_CLIP_RECEIVE_FAILED;
     use crate::models::AutoSyncMode;
 
     const PEER: &str = "ab"; // apply_ctx 固定 peer = "ab".repeat(32)
@@ -616,7 +617,9 @@ mod recv_gate_tests {
         landed && after == before + 1 && count_events(sink, EVENT_DEVICE_CLIP_RECEIVED) == 0
     }
 
-    fn gate_case(master: bool, recv: AutoSyncMode, clip_type: &str, payload: &str) -> bool {
+    /// 单臂夹具：建库 + 配对 + 设 master/recv + sink/ctx
+    ///（gate_case 与 gate_case_observed 共用同一形状）。
+    fn gate_fixture(master: bool, recv: AutoSyncMode) -> (Store, Arc<CapturingSink>, SessionCtx) {
         let store = temp_store();
         paired_peer(&store);
         set_master(&store, master);
@@ -630,15 +633,69 @@ mod recv_gate_tests {
             &"aa".repeat(32),
             &Arc::new(RecentReceived::new()),
         );
+        (store, sink, ctx)
+    }
+
+    fn gate_case(master: bool, recv: AutoSyncMode, clip_type: &str, payload: &str) -> bool {
+        let (store, sink, ctx) = gate_fixture(master, recv);
         recv_auto_lands(&store, &ctx, &sink, clip_type, payload)
+    }
+
+    /// gate_case 的可观测姊妹形态：同参跑单个拒收臂，返回
+    /// (landed, store, sink, clips 全表行数快照)，供拒收臂三分离断言。
+    fn gate_case_observed(
+        master: bool,
+        recv: AutoSyncMode,
+        clip_type: &str,
+        payload: &str,
+    ) -> (bool, Store, Arc<CapturingSink>, i64) {
+        let (store, sink, ctx) = gate_fixture(master, recv);
+        let conn = store.connect().unwrap();
+        let rows_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        let landed = apply_received(
+            &ctx,
+            &store,
+            clip_type,
+            payload.as_bytes(),
+            None,
+            None,
+            None,
+            None,
+            false,
+            true, // auto
+            None,
+        );
+        (landed, store, sink, rows_before)
+    }
+
+    /// 拒收三分离断言：未落库返回 + clips 全表行数不变 + 零接收/失败事件。
+    fn assert_rejected(store: &Store, sink: &Arc<CapturingSink>, rows_before: i64, landed: bool) {
+        assert!(!landed, "拒收臂不应返回成功");
+        let conn = store.connect().unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, rows_before, "拒收臂不得插入行");
+        assert_eq!(count_events(sink, EVENT_DEVICE_CLIP_RECEIVED), 0);
+        assert_eq!(
+            count_events(sink, EVENT_DEVICE_CLIP_RECEIVE_FAILED),
+            0,
+            "拒收臂不得发任何事件（含诊断）"
+        );
     }
 
     #[test]
     fn gate_matrix() {
-        // master off：任意类型拒
-        assert!(!gate_case(false, AutoSyncMode::All, "text", "m-off-text"));
+        // master off：任意类型拒（三分离：未落库 + 行数不变 + 零事件）
+        let (landed, store, sink, rows_before) =
+            gate_case_observed(false, AutoSyncMode::All, "text", "m-off-text");
+        assert_rejected(&store, &sink, rows_before, landed);
         // recv off：拒
-        assert!(!gate_case(true, AutoSyncMode::Off, "text", "recv-off-text"));
+        let (landed, store, sink, rows_before) =
+            gate_case_observed(true, AutoSyncMode::Off, "text", "recv-off-text");
+        assert_rejected(&store, &sink, rows_before, landed);
         // text_only：四类文本收
         assert!(gate_case(true, AutoSyncMode::TextOnly, "text", "t-text"));
         assert!(gate_case(
@@ -650,12 +707,13 @@ mod recv_gate_tests {
         assert!(gate_case(true, AutoSyncMode::TextOnly, "color", "#aabbcc"));
         assert!(gate_case(true, AutoSyncMode::TextOnly, "html", "<b>t</b>"));
         // text_only：图片拒
-        assert!(!gate_case(
+        let (landed, store, sink, rows_before) = gate_case_observed(
             true,
             AutoSyncMode::TextOnly,
             "image",
-            &tiny_png_data_url([0x10, 0x80, 0xF0, 0xFF])
-        ));
+            &tiny_png_data_url([0x10, 0x80, 0xF0, 0xFF]),
+        );
+        assert_rejected(&store, &sink, rows_before, landed);
         // all：图片收
         assert!(gate_case(
             true,
@@ -667,7 +725,7 @@ mod recv_gate_tests {
 
     #[test]
     fn gate_fails_closed_on_missing_row_or_read_error() {
-        // 未配对（行缺失）→ 拒，即便 master 开、recv 逻辑上默认
+        // 未配对（行缺失）→ 拒，即便 master 开、recv 逻辑上默认（三分离断言）
         let store = temp_store();
         set_master(&store, true);
         let sink = Arc::new(CapturingSink {
@@ -679,7 +737,57 @@ mod recv_gate_tests {
             &"aa".repeat(32),
             &Arc::new(RecentReceived::new()),
         );
-        assert!(!recv_auto_lands(&store, &ctx, &sink, "text", "no-row-text"));
+        let conn = store.connect().unwrap();
+        let rows_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        let landed = apply_received(
+            &ctx,
+            &store,
+            "text",
+            b"no-row-text".as_slice(),
+            None,
+            None,
+            None,
+            None,
+            false,
+            true,
+            None,
+        );
+        assert_rejected(&store, &sink, rows_before, landed);
+    }
+
+    /// 门关时（master off），不可解码垃圾 payload 的 image auto 帧在解码前被
+    /// 丢弃：零诊断事件（EVENT_DEVICE_CLIP_RECEIVE_FAILED 也为零）。
+    #[test]
+    fn gate_rejects_garbage_payload_before_decode_zero_events() {
+        let store = temp_store();
+        paired_peer(&store);
+        set_master(&store, false);
+        let sink = Arc::new(CapturingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let ctx = apply_ctx(
+            &sink,
+            &store,
+            &"aa".repeat(32),
+            &Arc::new(RecentReceived::new()),
+        );
+        let landed = apply_received(
+            &ctx,
+            &store,
+            "image",
+            b"not-an-image".as_slice(),
+            None,
+            None,
+            None,
+            None,
+            false,
+            true,
+            None,
+        );
+        assert!(!landed);
+        assert_eq!(count_events(&sink, EVENT_DEVICE_CLIP_RECEIVE_FAILED), 0);
     }
 
     #[test]

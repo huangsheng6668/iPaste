@@ -82,6 +82,17 @@ pub(super) fn apply_received(
     auto: bool,
     origin_node_id: Option<&str>,
 ) -> bool {
+    // 接收门（安全加固周期① M1；第 5 项上提）：auto 历史帧在**任何解码/清洗
+    // 之前**校验本端授权——拒收帧零解码成本，且不可解码 payload 也不再产生
+    // 门关时的诊断事件（规格 §2「不发任何事件」）。分组帧与手动帧不经此门。
+    if auto && category_name.is_none() && !auto_receive_allowed(store, &ctx.peer_node_id, clip_type)
+    {
+        eprintln!(
+            "[lan-sync] auto 帧被接收门拒收：peer={} type={clip_type}",
+            ctx.peer_node_id
+        );
+        return false;
+    }
     // 图片 = data url（utf-8）；文本 = 原文 utf-8。
     // 用 Cow 承接而非 to_string：图片 data url 可达数 MB，整段复制纯属浪费
     // （本函数只以 &str 消费它）。
@@ -194,16 +205,6 @@ pub(super) fn apply_received(
         }
         // 历史/无分组：按 auto 分流（spec §2/§3）
         None => {
-            // 接收门（M1）：auto 帧需本端授权（全局+设备级），拒收=完全丢弃
-            //（不落库/不写剪贴板/不发事件，仅诊断日志；不回执发送方防探测）。
-            // 手动帧与分组帧不经此门。
-            if auto && !auto_receive_allowed(store, &ctx.peer_node_id, clip_type) {
-                eprintln!(
-                    "[lan-sync] auto 帧被接收门拒收：peer={} type={clip_type}",
-                    ctx.peer_node_id
-                );
-                return false;
-            }
             // origin 自环防御（spec §3 第三道）：自己发出的内容绕回，静默丢弃。
             if auto && origin_node_id == Some(ctx.local_node_id.as_str()) {
                 return false;

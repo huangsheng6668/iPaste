@@ -43,7 +43,6 @@ export default [
       "@typescript-eslint/no-empty-object-type": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
       "vue/multi-word-component-names": "off",
-      "vue/no-v-html": "off",
     },
   },
   {
