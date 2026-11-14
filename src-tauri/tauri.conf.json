@@ -58,6 +58,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERENTFGRUE2NUEyRjAxMDQKUldRRUFTOWFwdjVSM1NGTTZOaUl2UlJFQVZBUEx1a3ZGY0JGcThINzc4TnF5RHdvcVh1R256NWQK",
+      "requireSignedVersion": true,
       "endpoints": [
         "https://github.com/huangsheng6668/iPaste/releases/latest/download/latest.json"
       ],
