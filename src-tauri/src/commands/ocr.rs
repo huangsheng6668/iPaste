@@ -7,6 +7,10 @@ use crate::models::{
 use crate::util::{clean_openai_base_url, clean_openai_model};
 
 use super::apply_settings_update;
+use tauri::Manager;
+
+/// recognize_image_text 路径越界时的统一拒绝文案。
+const OCR_IMAGE_PATH_REJECTED: &str = "仅支持应用数据目录内的剪贴板图片与截图";
 
 #[tauri::command]
 pub(crate) fn get_ocr_install_status(
@@ -59,14 +63,52 @@ pub(crate) async fn remove_mocr_assets(
         .map_err(AppError::from)
 }
 
+/// OCR 识别路径白名单（安全加固第 5 项）：仅放行 `$APPDATA/clip-images/**` 与
+/// `$APPDATA/ocr-overlay/**`——两类合法调用方（图片查看器 / 截图冻结帧）之外，
+/// 阻断 webview 被攻破时的任意本地图片读取原语。canonicalize 失败按越界拒绝
+///（fail-closed）；前缀比较基于 canonicalize 后的 Path::starts_with，杜绝
+/// `clip-images-evil/` 类字符串前缀伪造。
+fn ensure_recognizable_image_path_impl(
+    data_root: &std::path::Path,
+    image_path: &std::path::Path,
+) -> Result<(), String> {
+    // 白名单目录两侧都过 canonicalize：Windows 上 canonicalize 返回 `\\?\`
+    // 前缀的 verbatim 路径，与未归一的目录前缀组件不等，合法路径会被误拒。
+    let Ok(root) = std::fs::canonicalize(data_root) else {
+        return Err(OCR_IMAGE_PATH_REJECTED.to_string());
+    };
+    let Ok(resolved) = std::fs::canonicalize(image_path) else {
+        return Err(OCR_IMAGE_PATH_REJECTED.to_string());
+    };
+    let allowed = [root.join("clip-images"), root.join("ocr-overlay")];
+    if allowed.iter().any(|dir| resolved.starts_with(dir)) {
+        Ok(())
+    } else {
+        Err(OCR_IMAGE_PATH_REJECTED.to_string())
+    }
+}
+
+fn ensure_recognizable_image_path(
+    app: &tauri::AppHandle,
+    image_path: &str,
+) -> Result<(), AppError> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::internal(format!("无法定位应用数据目录：{e}")))?;
+    ensure_recognizable_image_path_impl(&root, std::path::Path::new(image_path))
+        .map_err(AppError::internal)
+}
+
 #[tauri::command]
 pub(crate) async fn recognize_image_text(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     image_path: String,
     profile: Option<String>,
     language: Option<String>,
 ) -> Result<ImageOcrResult, AppError> {
-    crate::ocr::recognize_image(_app, image_path, profile, language)
+    ensure_recognizable_image_path(&app, &image_path)?;
+    crate::ocr::recognize_image(app, image_path, profile, language)
         .await
         .map_err(AppError::from)
 }
@@ -188,4 +230,61 @@ pub(crate) fn screen_capture_permission_status() -> Result<bool, AppError> {
 #[tauri::command]
 pub(crate) fn request_screen_capture_permission() -> Result<bool, AppError> {
     Ok(crate::capture::screen::request_screen_capture_permission())
+}
+
+#[cfg(test)]
+mod image_path_tests {
+    use super::ensure_recognizable_image_path_impl;
+
+    fn setup(tag: &str) -> std::path::PathBuf {
+        // tempdir 无既有依赖：std::env::temp_dir + 按（测试函数名）唯一子目录，
+        // 并行测试不互踩；各测试自行清理。
+        let root =
+            std::env::temp_dir().join(format!("ipaste-ocr-path-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("clip-images")).unwrap();
+        std::fs::create_dir_all(root.join("ocr-overlay")).unwrap();
+        std::fs::write(root.join("clip-images/a.png"), b"png").unwrap();
+        std::fs::write(root.join("ocr-overlay/frozen-0.bmp"), b"bmp").unwrap();
+        root
+    }
+
+    #[test]
+    fn allows_clip_images_and_ocr_overlay() {
+        let root = setup("allows");
+        assert!(
+            ensure_recognizable_image_path_impl(&root, &root.join("clip-images/a.png")).is_ok()
+        );
+        assert!(
+            ensure_recognizable_image_path_impl(&root, &root.join("ocr-overlay/frozen-0.bmp"))
+                .is_ok()
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rejects_outside_and_prefix_spoof() {
+        let root = setup("rejects");
+        // 白名单外绝对路径
+        let outside = std::env::temp_dir().join(format!("evil-{}.png", std::process::id()));
+        std::fs::write(&outside, b"png").unwrap();
+        assert!(ensure_recognizable_image_path_impl(&root, &outside).is_err());
+        std::fs::remove_file(&outside).ok();
+        // 字符串前缀伪造：clip-images-evil/ 目录
+        let evil_dir = root.join("clip-images-evil");
+        std::fs::create_dir_all(&evil_dir).unwrap();
+        std::fs::write(evil_dir.join("x.png"), b"png").unwrap();
+        assert!(ensure_recognizable_image_path_impl(&root, &evil_dir.join("x.png")).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rejects_missing_path_fail_closed() {
+        let root = setup("missing");
+        // canonicalize 失败（文件不存在）→ 按越界拒绝（fail-closed）
+        assert!(
+            ensure_recognizable_image_path_impl(&root, &root.join("clip-images/ghost.png"))
+                .is_err()
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
 }
