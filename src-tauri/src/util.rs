@@ -337,6 +337,43 @@ pub(crate) fn clean_api_key(api_key: String) -> Result<String, String> {
     }
 }
 
+// —— Secret 掩码与哨兵（安全加固：前端零明文，见
+// docs/superpowers/specs/2026-11-14-secret-masking-csp-design.md）——
+
+/// 设置读取层对非空 API Key 的统一掩码（展示即哨兵）。前端永不持有明文 Key。
+// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+#[allow(dead_code)]
+pub(crate) const MASKED_SECRET: &str = "••••••••";
+
+// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+#[allow(dead_code)]
+pub(crate) fn is_masked_secret(value: &str) -> bool {
+    value.trim() == MASKED_SECRET
+}
+
+/// 前端回传 Key 的三态解析：哨兵=保留现有凭据，空串=清除，其他=设为新值。
+// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ResolvedSecret {
+    KeepExisting,
+    Clear,
+    Set(String),
+}
+
+// clippy 门禁豁免：Task 2/3/4 接线前的中间态，接线后移除。
+#[allow(dead_code)]
+pub(crate) fn resolve_secret_input(incoming: &str) -> ResolvedSecret {
+    let value = incoming.trim();
+    if value == MASKED_SECRET {
+        ResolvedSecret::KeepExisting
+    } else if value.is_empty() {
+        ResolvedSecret::Clear
+    } else {
+        ResolvedSecret::Set(value.to_string())
+    }
+}
+
 pub(crate) fn validate_relative_path(value: &str) -> Result<(), String> {
     let path = Path::new(value);
     if value.is_empty()
@@ -465,5 +502,28 @@ mod tests {
         assert_eq!(clean_ocr_language(Some("auto".to_string())), None);
         assert_eq!(clean_ocr_language(Some("korean".to_string())), None);
         assert_eq!(clean_ocr_language(None), None);
+    }
+
+    #[test]
+    fn masked_secret_detection_ignores_surrounding_whitespace() {
+        assert!(is_masked_secret(MASKED_SECRET));
+        assert!(is_masked_secret(" •••••••• "));
+        assert!(!is_masked_secret("sk-real-key"));
+        assert!(!is_masked_secret(""));
+        assert!(!is_masked_secret("********"));
+    }
+
+    #[test]
+    fn resolve_secret_input_covers_three_states() {
+        assert_eq!(
+            resolve_secret_input(MASKED_SECRET),
+            ResolvedSecret::KeepExisting
+        );
+        assert_eq!(resolve_secret_input(""), ResolvedSecret::Clear);
+        assert_eq!(resolve_secret_input("   "), ResolvedSecret::Clear);
+        assert_eq!(
+            resolve_secret_input(" sk-new-key "),
+            ResolvedSecret::Set("sk-new-key".to_string())
+        );
     }
 }
