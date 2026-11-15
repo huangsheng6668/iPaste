@@ -170,7 +170,10 @@ pub(crate) fn select_usable_profiles(
 ) -> (Vec<OpenaiOcrProfile>, Vec<OpenaiOcrProfile>) {
     let mut usable = Vec::new();
     let mut missing_key = Vec::new();
-    for profile in profiles.iter().filter(|profile| profile_is_complete(profile)) {
+    for profile in profiles
+        .iter()
+        .filter(|profile| profile_is_complete(profile))
+    {
         if profile_missing_api_key(profile) {
             missing_key.push(profile.clone());
         } else {
@@ -777,8 +780,8 @@ mod tests {
         no_key.base_url = "https://open.bigmodel.cn/api/coding/paas/v4".to_string();
         no_key.api_key.clear();
 
-        let error = recognize_image_openai_profiles("no-such-image.png", None, &[no_key], &[])
-            .unwrap_err();
+        let error =
+            recognize_image_openai_profiles("no-such-image.png", None, &[no_key], &[]).unwrap_err();
         assert!(error.contains("未配置 API Key"), "got: {error}");
         assert!(error.contains("glm-5.3-flash"), "got: {error}");
         assert!(
