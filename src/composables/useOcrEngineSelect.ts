@@ -2,8 +2,9 @@ import { computed, onUnmounted } from "vue";
 import { subscribe } from "../platform/events";
 import { t } from "../i18n";
 import { isTauri } from "../lib/env";
+import { isOpenaiProfileReady } from "../lib/openaiEndpoint";
 import { useIpasteStore } from "../stores/ipasteStore";
-import { cleanCloudOcrSettings, isOpenaiOcrConfigured } from "../stores/lib/settings";
+import { cleanCloudOcrSettings } from "../stores/lib/settings";
 import { useSettingsStore } from "../stores/settingsStore";
 import { IPASTE_EVENTS } from "../types/generated/events";
 import type { OcrEngine, OpenaiOcrProfile, SettingsChangedEvent } from "../types";
@@ -15,8 +16,9 @@ export type OcrEngineOption = {
 };
 
 /** OCR 界面（截图结果窗 / 图片查看器）共用的引擎切换下拉逻辑：
- * 选项复用设置页文案，未配置的云引擎禁用；切换写入全局设置并返回新值，
- * 调用方据此用新引擎重新识别。独立窗口需自行 store.load() 后使用。
+ * 选项复用设置页文案；未配齐或远端缺 API Key 的接口禁用（本地无鉴权端点
+ * 可留空 Key）；切换写入全局设置并返回新值，调用方据此用新引擎重新识别。
+ * 独立窗口需自行 store.load() 后使用。
  *
  * 这些窗口不经过 App.vue 的事件接线：这里自行订阅 settingsChanged，
  * 保证「先开着 OCR 窗口、再去设置页保存 Key」时选项能即时解锁，
@@ -25,14 +27,16 @@ export function useOcrEngineSelect(currentEngine?: () => OcrEngine) {
   const store = useIpasteStore(); // 仅剩 load()（防陈旧兜底重载）
   const settings = useSettingsStore();
 
-  const usableOpenaiProfiles = computed<OpenaiOcrProfile[]>(() =>
+  const configuredProfiles = computed<OpenaiOcrProfile[]>(() =>
     cleanCloudOcrSettings(settings.cloudOcr).openaiProfiles.filter(
       (profile) => Boolean(profile.baseUrl.trim() && profile.model.trim()),
     ),
   );
 
-  const activeUsableProfile = computed<OpenaiOcrProfile | null>(() => {
-    const list = usableOpenaiProfiles.value;
+  // 下拉的选中项必须落在「实际激活的配置」上：缺 Key 的激活接口要显示成不可用，
+  // 不能悄悄替换成另一个就绪接口，否则用户看到的和实际请求的不是同一个。
+  const activeConfiguredProfile = computed<OpenaiOcrProfile | null>(() => {
+    const list = configuredProfiles.value;
     if (list.length === 0) return null;
     const activeId = settings.cloudOcr.openaiActiveProfileId;
     return list.find((profile) => profile.id === activeId) ?? list[0];
@@ -40,23 +44,25 @@ export function useOcrEngineSelect(currentEngine?: () => OcrEngine) {
 
   const ocrEngineOptions = computed<OcrEngineOption[]>(() => {
     const baseLabel = t("settings.openai.engineOpenai");
-    const profiles = usableOpenaiProfiles.value;
+    const profiles = configuredProfiles.value;
     if (profiles.length >= 2) {
       return [
         { value: "local", label: t("settings.bigmodel.engineLocal"), ready: true },
         ...profiles.map((profile) => ({
           value: `openai:${profile.id}`,
           label: `OpenAI · ${profile.name.trim() || profile.model}`,
-          ready: true,
+          // 缺 Key 的远端接口仍列出（让用户看清是哪个没配好），但不可选中。
+          ready: isOpenaiProfileReady(profile),
         })),
       ];
     }
+    const active = activeConfiguredProfile.value;
     return [
       { value: "local", label: t("settings.bigmodel.engineLocal"), ready: true },
       {
         value: "openai",
         label: baseLabel,
-        ready: isOpenaiOcrConfigured(settings.cloudOcr),
+        ready: Boolean(active && isOpenaiProfileReady(active)),
       },
     ];
   });
@@ -64,8 +70,8 @@ export function useOcrEngineSelect(currentEngine?: () => OcrEngine) {
   const selectedEngineValue = computed<string>(() => {
     const engine = currentEngine ? currentEngine() : settings.ocrEngine;
     if (engine === "local") return "local";
-    if (usableOpenaiProfiles.value.length >= 2 && activeUsableProfile.value) {
-      return `openai:${activeUsableProfile.value.id}`;
+    if (configuredProfiles.value.length >= 2 && activeConfiguredProfile.value) {
+      return `openai:${activeConfiguredProfile.value.id}`;
     }
     return "openai";
   });

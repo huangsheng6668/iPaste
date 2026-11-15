@@ -130,8 +130,8 @@ impl Store {
             .unwrap_or(default))
     }
 
-    /// 云 OCR 引擎当前是否可用（引擎已选且配置完整）。preflight 与调度
-    /// 分支共用；凭据库读失败按未配置处理（可用性优先）。
+    /// 云 OCR 引擎当前是否可用（引擎已选且至少一个接口真的能发请求）。
+    /// preflight 与调度分支共用；凭据库读失败按未配置处理（可用性优先）。
     /// macOS 的 preflight 走屏幕录制权限分支，此处仅测试引用；
     /// allow(dead_code) 消除平台性警告。
     #[allow(dead_code)]
@@ -141,11 +141,14 @@ impl Store {
         };
         match settings.ocr_engine.as_str() {
             // Key 可为空：本地 vLLM/Ollama 等无鉴权端点也是合法配置。
-            "openai" => settings
-                .cloud_ocr
-                .openai_profiles
-                .iter()
-                .any(|profile| !profile.base_url.is_empty() && !profile.model.is_empty()),
+            // 远端端点没有 Key 时请求必然被拒，不算「可用」——否则用户要等到
+            // 截完图、选完区才发现是 Key 没填。settings() 出口已掩码，非空即已存凭据。
+            "openai" => settings.cloud_ocr.openai_profiles.iter().any(|profile| {
+                !profile.base_url.is_empty()
+                    && !profile.model.is_empty()
+                    && (!profile.api_key.is_empty()
+                        || crate::ocr::openai::is_local_noauth_endpoint(&profile.base_url))
+            }),
             _ => false,
         }
     }

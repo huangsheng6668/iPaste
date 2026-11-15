@@ -149,4 +149,81 @@ describe("useOcrEngineSelect", () => {
     expect(ipasteApi.updateOcrEngine).toHaveBeenCalledWith("openai");
     expect(selectedEngineValue.value).toBe("openai:pro");
   });
+
+  it("缺 API Key 的远端接口标记为未就绪，选中项仍指向实际激活配置", async () => {
+    const settings = useSettingsStore();
+    const profiles = [
+      {
+        id: "glm",
+        name: "glm-5.3-flash",
+        baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
+        model: "glm-5.3-flash",
+        apiKey: "",
+      },
+      {
+        id: "agnes",
+        name: "agnes-3.0-flash",
+        baseUrl: "https://apihub.agnes-ai.cn/v1",
+        model: "agnes-3.0-flash",
+        apiKey: "••••••••",
+      },
+    ];
+    settings.applySettings(
+      buildSettings({
+        ocrEngine: "openai",
+        cloudOcr: {
+          openaiProfiles: profiles,
+          openaiActiveProfileId: "glm",
+          openaiBaseUrl: profiles[0].baseUrl,
+          openaiModel: profiles[0].model,
+          openaiApiKey: "",
+          openaiPrompts: [],
+        },
+      }),
+    );
+
+    const { ocrEngineOptions, selectedEngineValue, switchOcrEngine } = useOcrEngineSelect();
+    expect(ocrEngineOptions.value.map((o) => o.value)).toEqual([
+      "local",
+      "openai:glm",
+      "openai:agnes",
+    ]);
+    expect(ocrEngineOptions.value[1].ready).toBe(false);
+    expect(ocrEngineOptions.value[2].ready).toBe(true);
+    // 显示实际激活项（即便它缺 Key），不能悄悄替换成就绪的另一个接口
+    expect(selectedEngineValue.value).toBe("openai:glm");
+
+    vi.mocked(ipasteApi.snapshot).mockResolvedValue({} as never);
+    expect(await switchOcrEngine("openai:glm")).toBeNull();
+    expect(ipasteApi.setOpenaiOcrActiveProfile).not.toHaveBeenCalled();
+  });
+
+  it("本地无鉴权端点留空 Key 仍可选中", () => {
+    const settings = useSettingsStore();
+    settings.applySettings(
+      buildSettings({
+        ocrEngine: "openai",
+        cloudOcr: {
+          openaiProfiles: [
+            {
+              id: "ollama",
+              name: "本地 Ollama",
+              baseUrl: "http://127.0.0.1:11434/v1",
+              model: "qwen2.5-vl",
+              apiKey: "",
+            },
+          ],
+          openaiActiveProfileId: "ollama",
+          openaiBaseUrl: "http://127.0.0.1:11434/v1",
+          openaiModel: "qwen2.5-vl",
+          openaiApiKey: "",
+          openaiPrompts: [],
+        },
+      }),
+    );
+
+    const { ocrEngineOptions } = useOcrEngineSelect();
+    expect(ocrEngineOptions.value[1].value).toBe("openai");
+    expect(ocrEngineOptions.value[1].ready).toBe(true);
+  });
 });

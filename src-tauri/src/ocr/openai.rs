@@ -156,6 +156,47 @@ fn profile_label(profile: &OpenaiOcrProfile) -> &str {
     }
 }
 
+/// 远端端点缺 API Key：这类请求必然被服务端以鉴权错误拒绝，既不该发出去，
+/// 也不该占 failover 名额（否则会把主接口的真实失败原因挤掉）。
+/// 本地无鉴权端点（Ollama / vLLM 等）留空 Key 属合法配置，不算缺 Key。
+fn profile_missing_api_key(profile: &OpenaiOcrProfile) -> bool {
+    profile.api_key.trim().is_empty() && !is_local_noauth_endpoint(profile.base_url.trim())
+}
+
+/// 识别候选筛选：先要求 base_url/model 完整，再把远端缺 Key 的配置单独挑出来。
+/// 返回（可请求列表，因缺 Key 被剔除的列表）——后者只用于生成可操作的错误提示。
+pub(crate) fn select_usable_profiles(
+    profiles: &[OpenaiOcrProfile],
+) -> (Vec<OpenaiOcrProfile>, Vec<OpenaiOcrProfile>) {
+    let mut usable = Vec::new();
+    let mut missing_key = Vec::new();
+    for profile in profiles.iter().filter(|profile| profile_is_complete(profile)) {
+        if profile_missing_api_key(profile) {
+            missing_key.push(profile.clone());
+        } else {
+            usable.push(profile.clone());
+        }
+    }
+    (usable, missing_key)
+}
+
+/// 缺 Key 的错误文案必须指名接口并给出下一步动作：用户看到服务端返回的
+/// 「Header 中未收到 Authorization」时无法判断是自己没存 Key。
+fn missing_api_key_error(missing: &[OpenaiOcrProfile]) -> String {
+    let names: Vec<&str> = missing.iter().map(profile_label).collect();
+    if names.len() == 1 {
+        format!(
+            "接口「{}」未配置 API Key，请在 设置 → 图片 OCR 中填写后重试",
+            names[0]
+        )
+    } else {
+        format!(
+            "接口「{}」均未配置 API Key，请在 设置 → 图片 OCR 中填写后重试",
+            names.join("」「")
+        )
+    }
+}
+
 const PROFILE_COOLDOWN_DURATION: Duration = Duration::from_secs(60);
 
 static PROFILE_COOLDOWNS: std::sync::OnceLock<
@@ -287,16 +328,14 @@ pub(crate) fn recognize_image_openai_profiles(
     profiles: &[OpenaiOcrProfile],
     prompts: &[crate::models::CloudOcrPromptMessage],
 ) -> Result<ImageOcrResult, String> {
-    let usable: Vec<OpenaiOcrProfile> = profiles
-        .iter()
-        .filter(|profile| profile_is_complete(profile))
-        .cloned()
-        .collect();
+    let (usable, missing_key) = select_usable_profiles(profiles);
     if usable.is_empty() {
-        return Err(
-            "OpenAI 兼容接口未配置完整（需要接口地址与模型；本地无鉴权端点可留空 API Key），请在 设置 → 图片 OCR 中保存"
-                .to_string(),
-        );
+        // 缺 Key 比「配置不完整」更具体，优先给出可操作提示。
+        return Err(if missing_key.is_empty() {
+            "OpenAI 兼容接口未配置完整（需要接口地址与模型；本地无鉴权端点可留空 API Key），请在 设置 → 图片 OCR 中保存".to_string()
+        } else {
+            missing_api_key_error(&missing_key)
+        });
     }
 
     let bytes = std::fs::read(image_path).map_err(|error| format!("读取图片失败：{error}"))?;
@@ -702,6 +741,66 @@ mod tests {
         local.base_url = "http://localhost:11434/v1".to_string();
         local.api_key.clear();
         assert!(profile_is_complete(&local));
+    }
+
+    #[test]
+    fn select_usable_profiles_drops_remote_profiles_without_api_key() {
+        let mut remote_no_key = profile("remote-no-key");
+        remote_no_key.api_key.clear();
+        remote_no_key.api_key = "  ".to_string(); // 纯空白等同未填
+        let mut local_no_key = profile("local-no-key");
+        local_no_key.base_url = "http://127.0.0.1:11434/v1".to_string();
+        local_no_key.api_key.clear();
+        let with_key = profile("with-key");
+        let mut incomplete = profile("incomplete");
+        incomplete.model.clear();
+
+        let (usable, missing) =
+            select_usable_profiles(&[remote_no_key, local_no_key, with_key, incomplete]);
+        assert_eq!(
+            usable.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["local-no-key", "with-key"],
+            "本地无鉴权端点保留，未填齐的配置直接排除"
+        );
+        assert_eq!(
+            missing.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["remote-no-key"],
+            "远端缺 Key 应单独挑出来用于报错"
+        );
+    }
+
+    #[test]
+    fn remote_profile_without_api_key_reports_actionable_error() {
+        // 在读取图片之前就该拒绝：不把注定 401 的请求发给服务端。
+        let mut no_key = profile("glm");
+        no_key.name = "glm-5.3-flash".to_string();
+        no_key.base_url = "https://open.bigmodel.cn/api/coding/paas/v4".to_string();
+        no_key.api_key.clear();
+
+        let error = recognize_image_openai_profiles("no-such-image.png", None, &[no_key], &[])
+            .unwrap_err();
+        assert!(error.contains("未配置 API Key"), "got: {error}");
+        assert!(error.contains("glm-5.3-flash"), "got: {error}");
+        assert!(
+            error.contains("设置 → 图片 OCR"),
+            "错误文案需要给出下一步动作，got: {error}"
+        );
+    }
+
+    #[test]
+    fn all_remote_profiles_without_api_key_lists_each_interface() {
+        let mut first = profile("a");
+        first.name = "接口甲".to_string();
+        first.api_key.clear();
+        let mut second = profile("b");
+        second.name = "接口乙".to_string();
+        second.api_key.clear();
+
+        let error =
+            recognize_image_openai_profiles("no-such-image.png", None, &[first, second], &[])
+                .unwrap_err();
+        assert!(error.contains("接口甲"), "got: {error}");
+        assert!(error.contains("接口乙"), "got: {error}");
     }
 
     fn profile(id: &str) -> crate::models::OpenaiOcrProfile {

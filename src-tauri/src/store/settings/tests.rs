@@ -471,15 +471,25 @@ mod cloud_ocr_keyring_tests {
         let _ = secrets::delete_openai_ocr_api_key();
         let store = temp_store();
 
+        // 本地无鉴权端点：留空 Key 是合法配置，凭据库里对应条目应被清除。
+        // （此处必须用真实本地地址——远端缺 Key 现在不再算「配置完整」。）
+        let local_profile = |id: &str, api_key: &str| crate::models::OpenaiOcrProfile {
+            id: id.to_string(),
+            name: String::new(),
+            base_url: "http://127.0.0.1:11434/v1".to_string(),
+            model: "llava".to_string(),
+            api_key: api_key.to_string(),
+        };
+
         let saved = store
-            .save_openai_ocr_profile(profile("", "local-model", "key-to-clear"), None)
+            .save_openai_ocr_profile(local_profile("", "key-to-clear"), None)
             .unwrap();
         let id = saved.cloud_ocr.openai_active_profile_id.clone();
         // settings() 出口统一掩码
         assert_eq!(saved.cloud_ocr.openai_api_key, crate::util::MASKED_SECRET);
 
         let cleared = store
-            .save_openai_ocr_profile(profile(&id, "local-model", "   "), None)
+            .save_openai_ocr_profile(local_profile(&id, "   "), None)
             .unwrap();
         assert_eq!(cleared.cloud_ocr.openai_api_key, "");
         assert_eq!(
@@ -491,7 +501,7 @@ mod cloud_ocr_keyring_tests {
         store.update_ocr_engine("openai".to_string()).unwrap();
         assert!(
             store.cloud_ocr_engine_ready(),
-            "无 Key 的本地无鉴权端点也算配置完整"
+            "本地无鉴权端点留空 Key 仍算配置完整"
         );
 
         store.update_ocr_engine("local".to_string()).unwrap();
@@ -645,6 +655,45 @@ mod cloud_ocr_keyring_tests {
             )
             .unwrap();
         assert!(store.cloud_ocr_engine_ready());
+
+        let _ = store.clear_openai_ocr_config();
+        store.update_ocr_engine("local".to_string()).unwrap();
+    }
+
+    #[test]
+    fn cloud_ocr_engine_ready_requires_api_key_for_remote_endpoints() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = secrets::delete_openai_ocr_api_key();
+        let store = temp_store();
+        store.update_ocr_engine("openai".to_string()).unwrap();
+
+        // 远端端点只填地址 + 模型、没存 Key：请求必然被拒，不应视为可用，
+        // 否则用户要截完图选完区才发现是 Key 没填。
+        store
+            .save_openai_ocr_profile(profile("", "remote-no-key", ""), None)
+            .unwrap();
+        assert!(
+            !store.cloud_ocr_engine_ready(),
+            "远端缺 API Key 不算配置完整"
+        );
+
+        // 本地无鉴权端点留空 Key 仍是合法配置。
+        store
+            .save_openai_ocr_profile(
+                crate::models::OpenaiOcrProfile {
+                    id: String::new(),
+                    name: "local".to_string(),
+                    base_url: "http://127.0.0.1:11434/v1".to_string(),
+                    model: "qwen2.5-vl".to_string(),
+                    api_key: String::new(),
+                },
+                None,
+            )
+            .unwrap();
+        assert!(
+            store.cloud_ocr_engine_ready(),
+            "本地无鉴权端点留空 Key 仍可用"
+        );
 
         let _ = store.clear_openai_ocr_config();
         store.update_ocr_engine("local".to_string()).unwrap();
