@@ -218,7 +218,65 @@ pub(crate) async fn device_send_clip(
             display_name.as_deref(),
         )
         .await
+        .map(|_delivered| ())
         .map_err(AppError::internal)
+}
+
+/// `device_send_items` 的返回值（驼峰序列化，前端消费）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeviceSendItemsResult {
+    pub(crate) sent: u32,
+    pub(crate) failed: u32,
+}
+
+/// 发送选中的多条历史条目（设备同步面板「历史条目」多选发送）。
+///
+/// 逐条装配 + 逐条发送，不套 `BatchStart…BatchEnd`：多选的是彼此无关的历史
+/// 片段，接收端不该把它们折进同一个分组（分组语义只属于
+/// `device_send_category`）。单条装配失败（图片文件丢失等）跳过并计入
+/// `failed`，不中断其余条目；目标全部离线属于动作级错误，直接回传由前端提示。
+#[tauri::command]
+pub(crate) async fn device_send_items(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    target: Option<String>,
+    ids: Vec<String>,
+) -> Result<DeviceSendItemsResult, AppError> {
+    if ids.is_empty() {
+        return Err(AppError::internal("没有选择要发送的条目"));
+    }
+    let registry = app.device_registry()?;
+    let mut sent: u32 = 0;
+    let mut failed: u32 = 0;
+    for id in &ids {
+        let (clip_type, payload, category_name, category_color, display_name) =
+            match build_item_send(&state.store, id) {
+                Ok(item) => item,
+                Err(reason) => {
+                    eprintln!("[lan-sync] 跳过条目 {id}：{reason}");
+                    failed += 1;
+                    continue;
+                }
+            };
+        match registry
+            .send_raw(
+                target.as_deref(),
+                &clip_type,
+                &payload,
+                category_name.as_deref(),
+                category_color.as_deref(),
+                display_name.as_deref(),
+            )
+            .await
+        {
+            // 至少一个目标入队成功即算已发送（与整组发送的 delivered_any 口径一致）。
+            Ok(delivered) if delivered > 0 => sent += 1,
+            Ok(_) => failed += 1,
+            Err(reason) => return Err(AppError::internal(reason)),
+        }
+    }
+    Ok(DeviceSendItemsResult { sent, failed })
 }
 
 /// `device_send_category` 的返回值（驼峰序列化，前端消费）。

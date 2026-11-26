@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import type { Category } from "../../types/generated/Category";
 import type { DeviceInfo } from "../../types/generated/DeviceInfo";
 
 // 组件内接收选择器对 ipasteApi 直调（fire-and-forget）：mock 域入口后即可
@@ -39,7 +38,6 @@ function mountSection() {
   return mount(DeviceListSection, {
     props: {
       devices: [device],
-      categories: [] as Category[],
       confirmingRevokeId: null,
       loadError: null,
       actionError: null,

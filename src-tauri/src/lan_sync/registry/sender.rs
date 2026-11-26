@@ -108,6 +108,8 @@ impl DeviceLinkRegistry {
 
     /// 发送单条剪贴板内容（无分组语义时 category_* 传 None）。
     /// 指定设备不在线 / 无任何在线设备时报错；个别目标会话已死时跳过并记日志。
+    /// 返回「成功入队的目标数」：调用方据此区分「已送达」与「目标全部断线」，
+    /// 避免把静默丢弃当成功（手动多选发送要如实回传已发送条数）。
     pub(crate) async fn send_raw(
         &self,
         target: Option<&str>,
@@ -116,8 +118,9 @@ impl DeviceLinkRegistry {
         category_name: Option<&str>,
         category_color: Option<&str>,
         display_name: Option<&str>,
-    ) -> Result<(), String> {
+    ) -> Result<u32, String> {
         let targets = self.online_targets(target)?;
+        let mut delivered: u32 = 0;
         for (node_id, tx) in targets {
             let msg = ControlMsg::SendClip {
                 clip_type: clip_type.to_string(),
@@ -129,11 +132,13 @@ impl DeviceLinkRegistry {
                 auto: false,
                 origin_node_id: None,
             };
-            if tx.send(msg).await.is_err() {
+            if tx.send(msg).await.is_ok() {
+                delivered += 1;
+            } else {
                 eprintln!("[lan-sync] 发送到 {node_id} 失败：会话已关闭");
             }
         }
-        Ok(())
+        Ok(delivered)
     }
 
     /// 整组发送某分组：`BatchStart` → 逐条 `SendClip`（携带分组名/颜色 + 重命名）→

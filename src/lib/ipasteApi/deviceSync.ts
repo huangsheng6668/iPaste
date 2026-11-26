@@ -56,6 +56,14 @@ export const deviceSyncApi = {
   deviceSendClip(target: string | null, source: LanClipSource) {
     return call<void>("device_send_clip", { target, source });
   },
+  /** 发送选中的多条历史条目：返回聚合计数（逐条发送，不做分组语义）。 */
+  deviceSendItems(target: string | null, ids: string[]) {
+    return call<{ sent: number; failed: number }>(
+      "device_send_items",
+      { target, ids },
+      { sent: 0, failed: 0 },
+    );
+  },
   deviceSendCategory(target: string | null, categoryId: string) {
     return call<{ categoryName: string; sent: number; failed: number }>(
       "device_send_category",

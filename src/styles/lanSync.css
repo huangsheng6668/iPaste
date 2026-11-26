@@ -294,12 +294,158 @@
   z-index: 11;
 }
 
-/* 发送内容选择：内容下拉 + 目标下拉 + 发送按钮，纵向紧凑排列 */
-.lan-send-controls {
+/* 发送区：内容来源标签页 + 历史条目多选 + 目标设备 + 就地反馈 */
+.lan-send-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--bg-app);
+}
+.lan-send-mode {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: none;
+  border-radius: calc(var(--r-md) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.lan-send-mode:hover { color: var(--text-1); }
+.lan-send-mode-active {
+  background: var(--surface-hover);
+  color: var(--text-1);
+  font-weight: 600;
+}
+.lan-send-mode:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.lan-picker {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+.lan-picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.lan-picker-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  background: var(--bg-app);
+  color: var(--text-2);
+}
+.lan-picker-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-1);
+  outline: none;
+}
+.lan-picker-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+}
+.lan-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.lan-picker-row:hover { background: var(--surface-hover); }
+.lan-picker-row-selected {
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+}
+.lan-picker-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 3px;
+  background: var(--bg-app);
+  color: var(--on-accent-fill);
+}
+.lan-picker-row-selected .lan-picker-check {
+  background: var(--accent-fill);
+  border-color: transparent;
+}
+.lan-picker-icon { color: var(--text-2); flex-shrink: 0; }
+.lan-picker-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lan-picker-time {
+  font-size: 11px;
+  color: var(--text-2);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.lan-send-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lan-send-target .lan-select { flex: 1 1 auto; min-width: 0; }
+.lan-send-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lan-send-status {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.lan-send-status-success { color: var(--success); }
+.lan-send-status-error { color: var(--danger-strong); }
 
 /* —— 短码配对：大号 PIN + 附近设备列表 —— */
 .lan-pin-row { display: flex; align-items: baseline; gap: 8px; }
