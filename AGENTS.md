@@ -124,6 +124,7 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 运行 `npm run release`，根据提示输入新版本号。例如当前版本是 `0.9.9` 时，发布输入 `0.10.0`。
 - 脚本会同步更新 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 和 `src-tauri/Cargo.toml`；如果 `src-tauri/Cargo.lock` 因版本号变化产生改动，也一并纳入提交。
 - 发版前至少运行 `npm run build`（包含 sidecar 时可运行 `npm run build:all`）。涉及 Rust 或 Tauri 原生逻辑时，再运行 `cargo check --manifest-path src-tauri/Cargo.toml`。
+- 更新器开启了 `requireSignedVersion`，要求 `@tauri-apps/cli` >= 2.11.5（该版本起 `tauri build` 才会把版本写进签名的 trusted comment）。CLI 更老时签出的包能正常发布，但所有已安装用户点「检查更新」都会报「更新包校验失败」。发布工作流用 `scripts/verify-updater-signatures.mjs` 兜底校验，不要降级 CLI。
 - 暂存并提交本次发布相关改动：`git add -A`，然后 `git commit -m "chore: release v版本号"`，例如 `git commit -m "chore: release v0.10.0"`。
 - 创建发布标签：`git tag v版本号`，例如 `git tag v0.10.0`。
 - 推送主分支和标签：`git push origin main`，然后 `git push origin v版本号`。

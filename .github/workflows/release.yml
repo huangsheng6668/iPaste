@@ -204,6 +204,16 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
 
+      # requireSignedVersion 要求签名 trusted comment 带 version 字段，由 Tauri CLI
+      # >= 2.11.5 写入。CLI 更老时签出的包会通过构建、发布，却让所有老用户点更新
+      # 时报“更新包校验失败”（MissingSignedVersion）。这里构建后立即校验，缺版本
+      # 直接让 job 失败，避免再发一个装不上的版本。
+      - name: Verify updater signature version binding
+        shell: bash
+        env:
+          TAURI_ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
+        run: node scripts/verify-updater-signatures.mjs
+
       - name: Verify macOS updater artifacts
         if: startsWith(matrix.name, 'macOS')
         shell: bash
