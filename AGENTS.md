@@ -128,4 +128,6 @@ iPaste 是一款本地优先的 macOS 和 Windows 托盘剪贴板管理器。当
 - 暂存并提交本次发布相关改动：`git add -A`，然后 `git commit -m "chore: release v版本号"`，例如 `git commit -m "chore: release v0.10.0"`。
 - 创建发布标签：`git tag v版本号`，例如 `git tag v0.10.0`。
 - 推送主分支和标签：`git push origin main`，然后 `git push origin v版本号`。
+- 发布工作流把 release 建成草稿：矩阵 job 只上传产物，`finalize` job 收齐并校验全部平台的 `.sig`（必须带 `version:`）后才生成 `latest.json`、把草稿转正并置为 latest。任一平台失败时 release 停在草稿，用户不会拿到缺平台的更新清单。
+- 某个平台 job 因 runner 网络抖动失败（如 `Connect Timeout Error`）时，在该次 run 上重跑失败 job；产物补齐后在 Actions 手动运行 `Finalize release`（输入 `iPaste-v版本号`）重建清单即可，无需重建其他平台。
 - 远端发布工作流由 `v*` 标签触发。推送标签后，需要检查 GitHub Actions 运行结果和发布产物。

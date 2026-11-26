@@ -196,13 +196,11 @@ jobs:
             截图识别文字需要「屏幕录制」权限（与「辅助功能」是两个不同的权限），请在 系统设置 → 隐私与安全性 中开启，并完全重启 iPaste。
 
             升级 iPaste 后若提示权限未授权，请在对应权限列表中先移除 iPaste 再重新添加并开启（未签名版本每次更新身份都会变化），然后重启应用。
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
           retryAttempts: 2
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
 
       # requireSignedVersion 要求签名 trusted comment 带 version 字段，由 Tauri CLI
       # >= 2.11.5 写入。CLI 更老时签出的包会通过构建、发布，却让所有老用户点更新
@@ -230,10 +228,34 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           gh release upload "iPaste-v${version}" scripts/install-macos.sh --clobber
 
+  # 三个平台并发构建时不能让各自写 latest.json（后完成的会覆盖先完成的平台条目），
+  # 也不能在缺平台时把 release 发布出去。这里作为唯一写入者：收齐全部平台资产、
+  # 校验签名版本，生成 latest.json 后再把草稿转正，避免用户拿到半成品清单。
+  finalize:
+    name: Finalize release
+    runs-on: ubuntu-latest
+    needs: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build updater manifest and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/finalize-release.mjs
+
   mirror-r2:
     name: Mirror release to Cloudflare R2
     runs-on: ubuntu-latest
-    needs: release
+    needs: finalize
     permissions:
       contents: read
     env:
